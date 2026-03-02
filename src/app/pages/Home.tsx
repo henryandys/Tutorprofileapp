@@ -57,8 +57,8 @@ export function Home() {
                 <span className="font-bold text-gray-600">Verified Tutors</span>
               </div>
               <div className="flex items-center gap-2">
-                <CheckCircle className="w-5 h-5 text-green-500" />
-                <span className="font-bold text-gray-600">Free 1st Session</span>
+                
+                
               </div>
               <div className="flex items-center gap-2">
                 <CheckCircle className="w-5 h-5 text-green-500" />

@@ -1,7 +1,16 @@
-import { Search, Menu, User, Bell, ChevronDown } from "lucide-react";
+import { Search, Menu, User, Bell, ChevronDown, LogOut } from "lucide-react";
 import { Link } from "react-router";
+import { useState } from "react";
 
 export function Navbar() {
+  const [isLoggedIn, setIsLoggedIn] = useState(false); // This would be managed by auth state in a real app
+
+  const handleLogout = () => {
+    // Handle logout logic here (clear auth tokens, etc.)
+    setIsLoggedIn(false);
+    window.location.href = '/';
+  };
+
   return (
     <nav className="h-16 border-b border-gray-200 bg-white sticky top-0 z-50 px-4 md:px-8 flex items-center justify-between">
       <div className="flex items-center gap-8">
@@ -34,9 +43,19 @@ export function Navbar() {
       </div>
 
       <div className="flex items-center gap-4">
-        <Link to="/login" className="hidden sm:block text-sm font-bold text-gray-700 hover:text-blue-600">
-          Sign In
-        </Link>
+        {!isLoggedIn ? (
+          <Link to="/login" className="hidden sm:block text-sm font-bold text-gray-700 hover:text-blue-600">
+            Sign In
+          </Link>
+        ) : (
+          <button 
+            onClick={handleLogout}
+            className="hidden sm:flex items-center gap-2 text-sm font-bold text-red-600 hover:text-red-700 transition-colors"
+          >
+            <LogOut className="w-4 h-4" />
+            Logout
+          </button>
+        )}
         <button className="hidden sm:flex items-center gap-1 text-sm font-semibold text-gray-600">
           Seattle, WA <ChevronDown className="w-4 h-4" />
         </button>
