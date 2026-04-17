@@ -83,5 +83,33 @@ export const tutors: Tutor[] = [
     education: "M.Ed. in Bilingual Education, UC Berkeley",
     experience: "15 years high school teacher",
     coordinates: { x: 48, y: 65 }
+  },
+  {
+    id: "6",
+    name: "Alexandra Thompson",
+    subject: "Tennis & Athletic Performance",
+    rating: 4.8,
+    reviewCount: 78,
+    hourlyRate: 70,
+    location: "Magnolia, Seattle",
+    bio: "Former collegiate tennis player and certified athletic coach. I help students of all levels improve their game through technique refinement, mental coaching, and fitness training.",
+    imageUrl: "https://images.unsplash.com/photo-1660463527860-b66aebd362c9?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHx0ZW5uaXMlMjBjb2FjaCUyMGluc3RydWN0b3IlMjBwb3J0cmFpdHxlbnwxfHx8fDE3NzM2ODQzMzd8MA&ixlib=rb-4.1.0&q=80&w=1080&utm_source=figma&utm_medium=referral",
+    education: "B.A. in Sports Science, UCLA",
+    experience: "NCAA Division I player, 6 years professional coaching",
+    coordinates: { x: 62, y: 52 }
+  },
+  {
+    id: "7",
+    name: "Daniel Park",
+    subject: "Piano & Music Theory",
+    rating: 5.0,
+    reviewCount: 167,
+    hourlyRate: 80,
+    location: "Wallingford, Seattle",
+    bio: "Concert pianist and music educator specializing in classical and contemporary piano. I teach proper technique, music theory, and help students prepare for recitals and competitions.",
+    imageUrl: "https://images.unsplash.com/photo-1719526408259-c8491e25541e?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxwaWFubyUyMHRlYWNoZXIlMjBpbnN0cnVjdG9yJTIwcG9ydHJhaXR8ZW58MXx8fHwxNzczNjg0MzM3fDA&ixlib=rb-4.1.0&q=80&w=1080&utm_source=figma&utm_medium=referral",
+    education: "M.M. in Piano Performance, Juilliard School",
+    experience: "10 years teaching, international performance experience",
+    coordinates: { x: 70, y: 25 }
   }
 ];

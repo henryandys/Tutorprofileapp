@@ -5,7 +5,7 @@ import { TutorProfile } from "./pages/TutorProfile";
 import { CreateProfile } from "./pages/CreateProfile";
 import { UserProfile } from "./pages/UserProfile";
 import { Repository } from "./pages/Repository";
-import { Login } from "./pages/Login";
+import Login from "./pages/Login";
 import { TutorMyProfile } from "./pages/TutorMyProfile";
 
 export const router = createBrowserRouter([
