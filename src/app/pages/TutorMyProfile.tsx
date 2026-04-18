@@ -1,145 +1,180 @@
-import { useState } from "react";
+// src/app/pages/TutorMyProfile.tsx
+
+import { useState, useEffect } from "react";
 import { useForm, useFieldArray } from "react-hook-form";
 import { Navbar } from "../components/Navbar";
-import { 
-  User, 
-  BookOpen, 
-  DollarSign, 
-  MapPin, 
-  GraduationCap, 
-  Briefcase, 
-  Plus, 
-  X, 
-  Save,
-  Camera,
-  Users,
-  Award,
-  Star,
-  FileText,
-  ChevronRight
+import {
+  User, BookOpen, DollarSign, MapPin, GraduationCap, Briefcase,
+  Plus, X, Save, Camera, Users, Award, Star, FileText,
+  ChevronRight, Loader2, Clock, CheckCircle, XCircle
 } from "lucide-react";
 import { toast } from "sonner";
 import { Link } from "react-router";
+import { useAuth } from "../../context/AuthContext";
+import { supabase } from "../../lib/supabase";
 
 interface TutorProfileForm {
-  name: string;
-  email: string;
-  location: string;
+  name:       string;
+  location:   string;
   hourlyRate: number;
-  bio: string;
-  education: string;
+  bio:        string;
+  education:  string;
   experience: string;
   specialties: { value: string }[];
-  ageGroups: {
-    elementary: boolean;
-    middleSchool: boolean;
-    highSchool: boolean;
-    college: boolean;
-    adult: boolean;
-  };
+}
+
+interface Booking {
+  id:           string;
+  student_name: string;
+  subject:      string;
+  message:      string;
+  status:       'pending' | 'accepted' | 'declined';
+  created_at:   string;
 }
 
 export function TutorMyProfile() {
-  const [isEditing, setIsEditing] = useState(false);
-  
-  // Load existing profile data (mock data for now)
-  const defaultValues: TutorProfileForm = {
-    name: "Dr. Sarah Mitchell",
-    email: "sarah.mitchell@email.com",
-    location: "Downtown, Seattle",
-    hourlyRate: 85,
-    bio: "Ph.D. in Physics with over 10 years of experience helping students master complex mathematical concepts. I specialize in AP Physics and university-level Calculus.",
-    education: "Ph.D. in Theoretical Physics, MIT",
-    experience: "12 years teaching, 5 years private tutoring",
-    specialties: [
-      { value: "Advanced Calculus" },
-      { value: "Physics" },
-      { value: "AP Physics" }
-    ],
-    ageGroups: {
-      elementary: false,
-      middleSchool: false,
-      highSchool: true,
-      college: true,
-      adult: true
+  const { user, profile, refreshProfile } = useAuth()
+  const [isEditing, setIsEditing] = useState(false)
+  const [saving, setSaving]       = useState(false)
+  const [bookings, setBookings]   = useState<Booking[]>([])
+  const [loadingBookings, setLoadingBookings] = useState(true)
+  const [tutorData, setTutorData] = useState<any>(null)
+
+  const { register, handleSubmit, control, reset, formState: { errors } } = useForm<TutorProfileForm>()
+  const { fields, append, remove } = useFieldArray({ control, name: "specialties" })
+
+  // Load tutor profile + bookings
+  useEffect(() => {
+    if (!user) return
+
+    // Fetch tutor_profiles row
+    supabase
+      .from('tutor_profiles')
+      .select('*')
+      .eq('id', user.id)
+      .single()
+      .then(({ data }) => {
+        setTutorData(data)
+        reset({
+          name:       profile?.full_name ?? '',
+          location:   profile?.location ?? '',
+          hourlyRate: data?.hourly_rate ?? 0,
+          bio:        profile?.bio ?? '',
+          education:  data?.education ?? '',
+          experience: data?.experience_yrs ? `${data.experience_yrs} years` : '',
+          specialties: (data?.subjects ?? []).map((s: string) => ({ value: s })),
+        })
+      })
+
+    // Fetch incoming bookings
+    supabase
+      .from('bookings')
+      .select('*')
+      .eq('tutor_id', user.id)
+      .order('created_at', { ascending: false })
+      .then(({ data }) => {
+        setBookings(data ?? [])
+        setLoadingBookings(false)
+      })
+  }, [user, profile])
+
+  async function onSubmit(data: TutorProfileForm) {
+    if (!user) return
+    setSaving(true)
+
+    const expMatch = data.experience.match(/\d+/)
+    const experienceYrs = expMatch ? parseInt(expMatch[0]) : 0
+
+    const { error: profileError } = await supabase
+      .from('profiles')
+      .update({
+        full_name:  data.name,
+        location:   data.location,
+        bio:        data.bio,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', user.id)
+
+    const { error: tutorError } = await supabase
+      .from('tutor_profiles')
+      .update({
+        hourly_rate:    Number(data.hourlyRate),
+        education:      data.education,
+        experience_yrs: experienceYrs,
+        subjects:       data.specialties.map(s => s.value).filter(Boolean),
+      })
+      .eq('id', user.id)
+
+    if (profileError || tutorError) {
+      toast.error('Failed to save changes.')
+    } else {
+      await refreshProfile()
+      toast.success('Profile updated!')
+      setIsEditing(false)
     }
-  };
 
-  const { register, handleSubmit, control, formState: { errors } } = useForm<TutorProfileForm>({
-    defaultValues
-  });
+    setSaving(false)
+  }
 
-  const { fields, append, remove } = useFieldArray({
-    control,
-    name: "specialties"
-  });
+  async function updateBookingStatus(bookingId: string, status: 'accepted' | 'declined') {
+    const { error } = await supabase
+      .from('bookings')
+      .update({ status })
+      .eq('id', bookingId)
 
-  const onSubmit = (data: TutorProfileForm) => {
-    console.log("Updated profile data:", data);
-    
-    // Save to localStorage for demo purposes
-    localStorage.setItem("tutorProfile", JSON.stringify(data));
-    
-    toast.success("Profile updated successfully!");
-    setIsEditing(false);
-  };
+    if (error) {
+      toast.error('Failed to update booking.')
+    } else {
+      setBookings(prev => prev.map(b => b.id === bookingId ? { ...b, status } : b))
+      toast.success(`Booking ${status}.`)
+    }
+  }
 
-  const handleAddSpecialty = () => {
-    append({ value: "" });
-  };
+  const pendingCount = bookings.filter(b => b.status === 'pending').length
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
       <Navbar />
-      
+
       <main className="flex-1 max-w-6xl mx-auto w-full px-6 py-12">
+
         {/* Header */}
-        <div className="mb-8">
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <h1 className="text-4xl font-black text-gray-900 tracking-tight mb-2">
-                My Profile
-              </h1>
-              <p className="text-gray-500 font-medium">
-                Manage your tutor profile, specialties, and preferences
-              </p>
-            </div>
-            {!isEditing ? (
-              <button
-                onClick={() => setIsEditing(true)}
-                className="px-6 py-3 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 transition-all shadow-lg"
-              >
-                Edit Profile
-              </button>
-            ) : (
-              <button
-                onClick={() => setIsEditing(false)}
-                className="px-6 py-3 bg-gray-200 text-gray-700 rounded-xl font-bold hover:bg-gray-300 transition-all"
-              >
-                Cancel
-              </button>
-            )}
+        <div className="mb-8 flex items-center justify-between">
+          <div>
+            <h1 className="text-4xl font-black text-gray-900 tracking-tight mb-2">My Profile</h1>
+            <p className="text-gray-500 font-medium">Manage your tutor profile and incoming bookings</p>
           </div>
+          {!isEditing ? (
+            <button onClick={() => setIsEditing(true)} className="px-6 py-3 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 transition-all shadow-lg">
+              Edit Profile
+            </button>
+          ) : (
+            <button onClick={() => setIsEditing(false)} className="px-6 py-3 bg-gray-200 text-gray-700 rounded-xl font-bold hover:bg-gray-300 transition-all">
+              Cancel
+            </button>
+          )}
         </div>
 
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
-          {/* Profile Photo & Basic Info */}
+
+          {/* Basic Info */}
           <div className="bg-white rounded-3xl shadow-lg border border-gray-100 p-8">
             <h2 className="text-xl font-bold text-gray-900 mb-6 flex items-center gap-2">
               <User className="w-6 h-6 text-blue-600" />
               Basic Information
             </h2>
-            
+
             <div className="flex flex-col md:flex-row gap-8 items-start">
               <div className="relative group">
-                <div className="w-32 h-32 bg-gradient-to-br from-blue-400 to-purple-500 rounded-full flex items-center justify-center text-white text-4xl font-bold">
-                  SM
-                </div>
+                {profile?.avatar_url ? (
+                  <img src={profile.avatar_url} alt="" className="w-32 h-32 rounded-full object-cover" />
+                ) : (
+                  <div className="w-32 h-32 bg-gradient-to-br from-blue-400 to-purple-500 rounded-full flex items-center justify-center text-white text-4xl font-bold">
+                    {(profile?.full_name ?? 'T').charAt(0).toUpperCase()}
+                  </div>
+                )}
                 {isEditing && (
-                  <button 
-                    type="button" 
-                    className="absolute bottom-0 right-0 bg-blue-600 text-white p-2 rounded-full shadow-lg hover:bg-blue-700"
-                  >
+                  <button type="button" className="absolute bottom-0 right-0 bg-blue-600 text-white p-2 rounded-full shadow-lg hover:bg-blue-700">
                     <Camera className="w-4 h-4" />
                   </button>
                 )}
@@ -147,56 +182,41 @@ export function TutorMyProfile() {
 
               <div className="flex-1 grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div className="flex flex-col gap-1.5">
-                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest px-1">
-                    Full Name
-                  </label>
+                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest px-1">Full Name</label>
                   <input
-                    {...register("name", { required: "Name is required" })}
+                    {...register("name", { required: true })}
                     disabled={!isEditing}
-                    className="w-full h-12 px-4 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 font-bold text-gray-800 bg-gray-50 transition-all disabled:bg-gray-100 disabled:text-gray-600"
-                  />
-                  {errors.name && (
-                    <span className="text-xs text-red-500 font-bold">{errors.name.message}</span>
-                  )}
-                </div>
-
-                <div className="flex flex-col gap-1.5">
-                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest px-1">
-                    Email
-                  </label>
-                  <input
-                    type="email"
-                    {...register("email", { required: "Email is required" })}
-                    disabled={!isEditing}
-                    className="w-full h-12 px-4 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 font-bold text-gray-800 bg-gray-50 transition-all disabled:bg-gray-100 disabled:text-gray-600"
+                    className="w-full h-12 px-4 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 font-bold text-gray-800 bg-gray-50 disabled:bg-gray-100 disabled:text-gray-600"
                   />
                 </div>
-
                 <div className="flex flex-col gap-1.5">
-                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest px-1">
-                    Location
-                  </label>
+                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest px-1">Email</label>
+                  <input
+                    value={user?.email ?? ''}
+                    disabled
+                    className="w-full h-12 px-4 border border-gray-200 rounded-xl font-bold text-gray-400 bg-gray-100 cursor-not-allowed"
+                  />
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest px-1">Location</label>
                   <div className="relative">
                     <MapPin className="absolute left-4 top-3.5 w-5 h-5 text-gray-400" />
                     <input
-                      {...register("location", { required: "Location is required" })}
+                      {...register("location")}
                       disabled={!isEditing}
-                      className="w-full h-12 pl-12 pr-4 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 font-bold text-gray-800 bg-gray-50 transition-all disabled:bg-gray-100 disabled:text-gray-600"
+                      className="w-full h-12 pl-12 pr-4 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 font-bold text-gray-800 bg-gray-50 disabled:bg-gray-100 disabled:text-gray-600"
                     />
                   </div>
                 </div>
-
                 <div className="flex flex-col gap-1.5">
-                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest px-1">
-                    Hourly Rate ($)
-                  </label>
+                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest px-1">Hourly Rate ($)</label>
                   <div className="relative">
                     <DollarSign className="absolute left-4 top-3.5 w-5 h-5 text-gray-400" />
                     <input
                       type="number"
-                      {...register("hourlyRate", { required: "Rate is required", min: 1 })}
+                      {...register("hourlyRate", { required: true, min: 1 })}
                       disabled={!isEditing}
-                      className="w-full h-12 pl-12 pr-4 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 font-bold text-gray-800 bg-gray-50 transition-all disabled:bg-gray-100 disabled:text-gray-600"
+                      className="w-full h-12 pl-12 pr-4 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 font-bold text-gray-800 bg-gray-50 disabled:bg-gray-100 disabled:text-gray-600"
                     />
                   </div>
                 </div>
@@ -204,19 +224,17 @@ export function TutorMyProfile() {
             </div>
 
             <div className="mt-6 flex flex-col gap-1.5">
-              <label className="text-xs font-bold text-gray-400 uppercase tracking-widest px-1">
-                About / Bio
-              </label>
+              <label className="text-xs font-bold text-gray-400 uppercase tracking-widest px-1">About / Bio</label>
               <textarea
-                {...register("bio", { required: "Bio is required", minLength: 50 })}
+                {...register("bio")}
                 disabled={!isEditing}
                 rows={4}
-                className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium text-gray-800 bg-gray-50 transition-all disabled:bg-gray-100 disabled:text-gray-600"
+                className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium text-gray-800 bg-gray-50 disabled:bg-gray-100 disabled:text-gray-600"
               />
             </div>
           </div>
 
-          {/* Specialties Section */}
+          {/* Specialties */}
           <div className="bg-white rounded-3xl shadow-lg border border-gray-100 p-8">
             <div className="flex items-center justify-between mb-6">
               <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2">
@@ -224,203 +242,163 @@ export function TutorMyProfile() {
                 Specialties & Subjects
               </h2>
               {isEditing && (
-                <button
-                  type="button"
-                  onClick={handleAddSpecialty}
-                  className="flex items-center gap-2 px-4 py-2 bg-blue-100 text-blue-700 rounded-lg font-bold hover:bg-blue-200 transition-all"
-                >
+                <button type="button" onClick={() => append({ value: '' })} className="flex items-center gap-2 px-4 py-2 bg-blue-100 text-blue-700 rounded-lg font-bold hover:bg-blue-200">
                   <Plus className="w-4 h-4" />
-                  Add Specialty
+                  Add Subject
                 </button>
               )}
             </div>
-
             <div className="space-y-3">
+              {fields.length === 0 && (
+                <p className="text-gray-400 text-center py-4 font-medium">No subjects added yet.</p>
+              )}
               {fields.map((field, index) => (
                 <div key={field.id} className="flex items-center gap-3">
-                  <div className="flex-1">
-                    <input
-                      {...register(`specialties.${index}.value`, {
-                        required: "Specialty is required"
-                      })}
-                      disabled={!isEditing}
-                      placeholder="e.g. Advanced Calculus, AP Physics, SAT Prep"
-                      className="w-full h-12 px-4 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 font-bold text-gray-800 bg-gray-50 transition-all disabled:bg-gray-100 disabled:text-gray-600"
-                    />
-                  </div>
+                  <input
+                    {...register(`specialties.${index}.value`, { required: true })}
+                    disabled={!isEditing}
+                    placeholder="e.g. Advanced Calculus"
+                    className="flex-1 h-12 px-4 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 font-bold text-gray-800 bg-gray-50 disabled:bg-gray-100 disabled:text-gray-600"
+                  />
                   {isEditing && fields.length > 1 && (
-                    <button
-                      type="button"
-                      onClick={() => remove(index)}
-                      className="p-3 text-red-500 hover:bg-red-50 rounded-lg transition-all"
-                    >
+                    <button type="button" onClick={() => remove(index)} className="p-3 text-red-500 hover:bg-red-50 rounded-lg">
                       <X className="w-5 h-5" />
                     </button>
                   )}
                 </div>
               ))}
             </div>
-
-            {!isEditing && fields.length === 0 && (
-              <p className="text-gray-400 text-center py-8 font-medium">
-                No specialties added yet. Click "Edit Profile" to add your teaching specialties.
-              </p>
-            )}
           </div>
 
-          {/* Age Groups Section */}
-          <div className="bg-white rounded-3xl shadow-lg border border-gray-100 p-8">
-            <h2 className="text-xl font-bold text-gray-900 mb-6 flex items-center gap-2">
-              <Users className="w-6 h-6 text-blue-600" />
-              Target Age Groups
-            </h2>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              <label className={`flex items-center gap-3 p-4 border-2 rounded-xl transition-all cursor-pointer ${
-                isEditing ? "hover:border-blue-300 hover:bg-blue-50" : "cursor-not-allowed"
-              }`}>
-                <input
-                  type="checkbox"
-                  {...register("ageGroups.elementary")}
-                  disabled={!isEditing}
-                  className="w-5 h-5 text-blue-600 rounded focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
-                />
-                <div className="flex-1">
-                  <div className="font-bold text-gray-900">Elementary</div>
-                  <div className="text-sm text-gray-500">Grades K-5</div>
-                </div>
-              </label>
-
-              <label className={`flex items-center gap-3 p-4 border-2 rounded-xl transition-all cursor-pointer ${
-                isEditing ? "hover:border-blue-300 hover:bg-blue-50" : "cursor-not-allowed"
-              }`}>
-                <input
-                  type="checkbox"
-                  {...register("ageGroups.middleSchool")}
-                  disabled={!isEditing}
-                  className="w-5 h-5 text-blue-600 rounded focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
-                />
-                <div className="flex-1">
-                  <div className="font-bold text-gray-900">Middle School</div>
-                  <div className="text-sm text-gray-500">Grades 6-8</div>
-                </div>
-              </label>
-
-              <label className={`flex items-center gap-3 p-4 border-2 rounded-xl transition-all cursor-pointer ${
-                isEditing ? "hover:border-blue-300 hover:bg-blue-50" : "cursor-not-allowed"
-              }`}>
-                <input
-                  type="checkbox"
-                  {...register("ageGroups.highSchool")}
-                  disabled={!isEditing}
-                  className="w-5 h-5 text-blue-600 rounded focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
-                />
-                <div className="flex-1">
-                  <div className="font-bold text-gray-900">High School</div>
-                  <div className="text-sm text-gray-500">Grades 9-12</div>
-                </div>
-              </label>
-
-              <label className={`flex items-center gap-3 p-4 border-2 rounded-xl transition-all cursor-pointer ${
-                isEditing ? "hover:border-blue-300 hover:bg-blue-50" : "cursor-not-allowed"
-              }`}>
-                <input
-                  type="checkbox"
-                  {...register("ageGroups.college")}
-                  disabled={!isEditing}
-                  className="w-5 h-5 text-blue-600 rounded focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
-                />
-                <div className="flex-1">
-                  <div className="font-bold text-gray-900">College</div>
-                  <div className="text-sm text-gray-500">Undergraduate & Graduate</div>
-                </div>
-              </label>
-
-              <label className={`flex items-center gap-3 p-4 border-2 rounded-xl transition-all cursor-pointer ${
-                isEditing ? "hover:border-blue-300 hover:bg-blue-50" : "cursor-not-allowed"
-              }`}>
-                <input
-                  type="checkbox"
-                  {...register("ageGroups.adult")}
-                  disabled={!isEditing}
-                  className="w-5 h-5 text-blue-600 rounded focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
-                />
-                <div className="flex-1">
-                  <div className="font-bold text-gray-900">Adult Learners</div>
-                  <div className="text-sm text-gray-500">Professional development</div>
-                </div>
-              </label>
-            </div>
-          </div>
-
-          {/* Education & Experience Section */}
+          {/* Credentials */}
           <div className="bg-white rounded-3xl shadow-lg border border-gray-100 p-8">
             <h2 className="text-xl font-bold text-gray-900 mb-6 flex items-center gap-2">
               <Award className="w-6 h-6 text-blue-600" />
               Credentials & Experience
             </h2>
-
             <div className="space-y-6">
               <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-bold text-gray-400 uppercase tracking-widest px-1">
-                  Education
-                </label>
+                <label className="text-xs font-bold text-gray-400 uppercase tracking-widest px-1">Education</label>
                 <div className="relative">
                   <GraduationCap className="absolute left-4 top-3.5 w-5 h-5 text-gray-400" />
                   <input
-                    {...register("education", { required: "Education is required" })}
+                    {...register("education")}
                     disabled={!isEditing}
                     placeholder="e.g. Ph.D. in Physics, MIT"
-                    className="w-full h-12 pl-12 pr-4 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 font-bold text-gray-800 bg-gray-50 transition-all disabled:bg-gray-100 disabled:text-gray-600"
+                    className="w-full h-12 pl-12 pr-4 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 font-bold text-gray-800 bg-gray-50 disabled:bg-gray-100 disabled:text-gray-600"
                   />
                 </div>
               </div>
-
               <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-bold text-gray-400 uppercase tracking-widest px-1">
-                  Professional Experience
-                </label>
+                <label className="text-xs font-bold text-gray-400 uppercase tracking-widest px-1">Years of Experience</label>
                 <div className="relative">
                   <Briefcase className="absolute left-4 top-3.5 w-5 h-5 text-gray-400" />
                   <input
-                    {...register("experience", { required: "Experience is required" })}
+                    {...register("experience")}
                     disabled={!isEditing}
-                    placeholder="e.g. 10+ years teaching university level"
-                    className="w-full h-12 pl-12 pr-4 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 font-bold text-gray-800 bg-gray-50 transition-all disabled:bg-gray-100 disabled:text-gray-600"
+                    placeholder="e.g. 10 years"
+                    className="w-full h-12 pl-12 pr-4 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 font-bold text-gray-800 bg-gray-50 disabled:bg-gray-100 disabled:text-gray-600"
                   />
                 </div>
               </div>
             </div>
           </div>
 
-          {/* Profile Stats (Read-only) */}
+          {/* Performance stats */}
           <div className="bg-gradient-to-r from-blue-600 to-purple-600 rounded-3xl shadow-lg p-8 text-white">
             <h2 className="text-xl font-bold mb-6 flex items-center gap-2">
               <Star className="w-6 h-6" />
               Your Performance
             </h2>
-            
             <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
               <div className="text-center">
-                <div className="text-4xl font-black mb-1">4.9</div>
+                <div className="text-4xl font-black mb-1">{tutorData?.rating ?? '—'}</div>
                 <div className="text-sm text-blue-100 font-medium">Average Rating</div>
               </div>
               <div className="text-center">
-                <div className="text-4xl font-black mb-1">124</div>
+                <div className="text-4xl font-black mb-1">{tutorData?.review_count ?? 0}</div>
                 <div className="text-sm text-blue-100 font-medium">Total Reviews</div>
               </div>
               <div className="text-center">
-                <div className="text-4xl font-black mb-1">156</div>
-                <div className="text-sm text-blue-100 font-medium">Students Taught</div>
+                <div className="text-4xl font-black mb-1">{bookings.length}</div>
+                <div className="text-sm text-blue-100 font-medium">Lesson Requests</div>
               </div>
               <div className="text-center">
-                <div className="text-4xl font-black mb-1">98%</div>
-                <div className="text-sm text-blue-100 font-medium">Response Rate</div>
+                <div className="text-4xl font-black mb-1">{pendingCount}</div>
+                <div className="text-sm text-blue-100 font-medium">Pending</div>
               </div>
             </div>
           </div>
 
-          {/* Resource Repository Section */}
+          {/* Incoming Bookings */}
+          <div className="bg-white rounded-3xl shadow-lg border border-gray-100 p-8">
+            <h2 className="text-xl font-bold text-gray-900 mb-6 flex items-center gap-2">
+              <Clock className="w-6 h-6 text-blue-600" />
+              Lesson Requests
+              {pendingCount > 0 && (
+                <span className="ml-2 px-2.5 py-0.5 bg-blue-600 text-white text-xs font-bold rounded-full">
+                  {pendingCount} new
+                </span>
+              )}
+            </h2>
+
+            {loadingBookings ? (
+              <div className="flex justify-center py-8">
+                <Loader2 className="w-6 h-6 animate-spin text-blue-600" />
+              </div>
+            ) : bookings.length === 0 ? (
+              <p className="text-gray-400 text-center py-8 font-medium">No lesson requests yet.</p>
+            ) : (
+              <div className="space-y-4">
+                {bookings.map(booking => (
+                  <div key={booking.id} className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-5 border border-gray-100 rounded-2xl hover:border-blue-100 hover:bg-blue-50/30 transition-colors">
+                    <div className="flex flex-col gap-1">
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-gray-900">{booking.student_name}</span>
+                        <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${
+                          booking.status === 'pending'  ? 'bg-yellow-100 text-yellow-700' :
+                          booking.status === 'accepted' ? 'bg-green-100 text-green-700' :
+                          'bg-red-100 text-red-600'
+                        }`}>
+                          {booking.status}
+                        </span>
+                      </div>
+                      <span className="text-sm font-medium text-blue-600">{booking.subject}</span>
+                      {booking.message && (
+                        <p className="text-sm text-gray-500 mt-1 max-w-md">{booking.message}</p>
+                      )}
+                      <span className="text-xs text-gray-400 mt-1">
+                        {new Date(booking.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                      </span>
+                    </div>
+
+                    {booking.status === 'pending' && (
+                      <div className="flex items-center gap-2 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => updateBookingStatus(booking.id, 'accepted')}
+                          className="flex items-center gap-1.5 px-4 py-2 bg-green-600 text-white rounded-lg font-bold text-sm hover:bg-green-700 transition-colors"
+                        >
+                          <CheckCircle className="w-4 h-4" />
+                          Accept
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => updateBookingStatus(booking.id, 'declined')}
+                          className="flex items-center gap-1.5 px-4 py-2 bg-red-100 text-red-600 rounded-lg font-bold text-sm hover:bg-red-200 transition-colors"
+                        >
+                          <XCircle className="w-4 h-4" />
+                          Decline
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Repository */}
           <div className="bg-white rounded-3xl shadow-lg border border-gray-100 p-8">
             <div className="flex items-center justify-between mb-6">
               <div>
@@ -428,59 +406,30 @@ export function TutorMyProfile() {
                   <FileText className="w-6 h-6 text-blue-600" />
                   Resource Repository
                 </h2>
-                <p className="text-gray-500 text-sm font-medium">
-                  Access and share teaching materials with other tutors
-                </p>
+                <p className="text-gray-500 text-sm font-medium">Access and share teaching materials</p>
               </div>
-              <Link 
-                to="/repository"
-                className="flex items-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 transition-all shadow-lg"
-              >
+              <Link to="/repository" className="flex items-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 transition-all shadow-lg">
                 View Repository
                 <ChevronRight className="w-5 h-5" />
               </Link>
             </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="p-4 bg-blue-50 rounded-xl border border-blue-100">
-                <div className="text-3xl font-black text-blue-600 mb-1">23</div>
-                <div className="text-sm font-bold text-blue-900">Resources Shared</div>
-                <div className="text-xs text-blue-600 mt-1">By you</div>
-              </div>
-              <div className="p-4 bg-green-50 rounded-xl border border-green-100">
-                <div className="text-3xl font-black text-green-600 mb-1">456</div>
-                <div className="text-sm font-bold text-green-900">Downloads</div>
-                <div className="text-xs text-green-600 mt-1">Of your resources</div>
-              </div>
-              <div className="p-4 bg-purple-50 rounded-xl border border-purple-100">
-                <div className="text-3xl font-black text-purple-600 mb-1">1,247</div>
-                <div className="text-sm font-bold text-purple-900">Available Resources</div>
-                <div className="text-xs text-purple-600 mt-1">In the repository</div>
-              </div>
-            </div>
           </div>
 
-          {/* Save Button */}
+          {/* Save button */}
           {isEditing && (
             <div className="flex justify-end gap-4 pt-4">
-              <button
-                type="button"
-                onClick={() => setIsEditing(false)}
-                className="px-8 py-3 bg-gray-200 text-gray-700 rounded-xl font-bold hover:bg-gray-300 transition-all"
-              >
+              <button type="button" onClick={() => setIsEditing(false)} className="px-8 py-3 bg-gray-200 text-gray-700 rounded-xl font-bold hover:bg-gray-300">
                 Cancel
               </button>
-              <button
-                type="submit"
-                className="flex items-center gap-2 px-10 py-3 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 transition-all shadow-xl shadow-blue-200"
-              >
+              <button type="submit" disabled={saving} className="flex items-center gap-2 px-10 py-3 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 shadow-xl shadow-blue-200 disabled:opacity-60">
+                {saving && <Loader2 className="w-5 h-5 animate-spin" />}
                 <Save className="w-5 h-5" />
-                Save Changes
+                {saving ? 'Saving…' : 'Save Changes'}
               </button>
             </div>
           )}
         </form>
       </main>
     </div>
-  );
+  )
 }
