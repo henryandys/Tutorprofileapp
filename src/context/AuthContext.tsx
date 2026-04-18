@@ -1,41 +1,30 @@
 // src/context/AuthContext.tsx
-// ─────────────────────────────────────────────────────────────
-// Provides the current Supabase session + profile to any
-// component in the tree via useAuth().
-//
-// Wrap your app with <AuthProvider> in main.tsx or App.tsx.
-// ─────────────────────────────────────────────────────────────
 
 import React, { createContext, useContext, useEffect, useState } from 'react'
 import type { Session, User } from '@supabase/supabase-js'
 import { supabase } from '../lib/supabase'
 import type { Profile, UserRole } from '../lib/supabase'
 
-// ── Context shape ─────────────────────────────────────────────
-
 interface AuthContextValue {
-  session:     Session | null
-  user:        User    | null
-  profile:     Profile | null
-  role:        UserRole | null
-  loading:     boolean
-  signUp:      (email: string, password: string, name: string, role: UserRole) => Promise<{ error: Error | null }>
-  signIn:      (email: string, password: string) => Promise<{ error: Error | null }>
-  signOut:     () => Promise<void>
+  session:        Session | null
+  user:           User    | null
+  profile:        Profile | null
+  role:           UserRole | null
+  loading:        boolean
+  signUp:         (email: string, password: string, name: string, role: UserRole) => Promise<{ error: Error | null }>
+  signIn:         (email: string, password: string) => Promise<{ error: Error | null }>
+  signOut:        () => Promise<void>
   refreshProfile: () => Promise<void>
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined)
 
-// ── Provider ──────────────────────────────────────────────────
-
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [session, setSession]   = useState<Session | null>(null)
-  const [profile, setProfile]   = useState<Profile | null>(null)
-  const [loading, setLoading]   = useState(true)
+  const [session, setSession] = useState<Session | null>(null)
+  const [profile, setProfile] = useState<Profile | null>(null)
+  const [loading, setLoading] = useState(true)
 
-  // Fetch the profile row for the given user id
-  async function fetchProfile(userId: string) {
+  async function fetchProfile(userId: string): Promise<Profile | null> {
     const { data, error } = await supabase
       .from('profiles')
       .select('*')
@@ -49,15 +38,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return data as Profile
   }
 
-  // Called by consuming components (e.g. after profile edit)
   async function refreshProfile() {
     if (!session?.user) return
     const p = await fetchProfile(session.user.id)
     setProfile(p)
   }
 
-  // Bootstrap: get existing session on mount, then subscribe to changes
   useEffect(() => {
+    // Get existing session on mount
     supabase.auth.getSession().then(async ({ data: { session } }) => {
       setSession(session)
       if (session?.user) {
@@ -67,6 +55,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setLoading(false)
     })
 
+    // Subscribe to auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (_event, session) => {
         setSession(session)
@@ -76,13 +65,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         } else {
           setProfile(null)
         }
+        setLoading(false)
       }
     )
 
     return () => subscription.unsubscribe()
   }, [])
-
-  // ── Auth actions ────────────────────────────────────────────
 
   async function signUp(
     email: string,
@@ -94,7 +82,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       email,
       password,
       options: {
-        // These become new.raw_user_meta_data in the trigger
         data: { full_name: name, role },
       },
     })
@@ -112,6 +99,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   async function signOut() {
     await supabase.auth.signOut()
     setProfile(null)
+    setSession(null)
   }
 
   const value: AuthContextValue = {
@@ -128,8 +116,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }
-
-// ── Hook ──────────────────────────────────────────────────────
 
 export function useAuth() {
   const ctx = useContext(AuthContext)

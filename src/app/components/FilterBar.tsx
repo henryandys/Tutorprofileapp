@@ -1,48 +1,154 @@
-import { ChevronDown, SlidersHorizontal, MapPin } from "lucide-react";
+// src/app/components/FilterBar.tsx
 
-const filterOptions = [
-  { label: "Price Range", icon: ChevronDown },
-  { label: "Subject", icon: ChevronDown },
-  { label: "Rating", icon: ChevronDown },
-  { label: "Distance", icon: ChevronDown },
-  { label: "Availability", icon: ChevronDown },
-];
+import { useState } from "react";
+import { Search, SlidersHorizontal, X } from "lucide-react";
 
-export function FilterBar() {
+export interface FilterState {
+  query:     string;
+  minRate:   number;
+  maxRate:   number;
+  minRating: number;
+}
+
+interface FilterBarProps {
+  onFilter: (filters: FilterState) => void;
+}
+
+const DEFAULT_FILTERS: FilterState = {
+  query:     '',
+  minRate:   0,
+  maxRate:   300,
+  minRating: 0,
+}
+
+export function FilterBar({ onFilter }: FilterBarProps) {
+  const [filters, setFilters]       = useState<FilterState>(DEFAULT_FILTERS)
+  const [showPanel, setShowPanel]   = useState(false)
+
+  function update(patch: Partial<FilterState>) {
+    const next = { ...filters, ...patch }
+    setFilters(next)
+    onFilter(next)
+  }
+
+  function reset() {
+    setFilters(DEFAULT_FILTERS)
+    onFilter(DEFAULT_FILTERS)
+  }
+
+  const isFiltered =
+    filters.query !== '' ||
+    filters.minRate > 0 ||
+    filters.maxRate < 300 ||
+    filters.minRating > 0
+
   return (
-    <div className="sticky top-16 z-40 bg-white border-b border-gray-200 px-4 md:px-8 py-3 flex items-center gap-3 overflow-x-auto no-scrollbar shadow-sm">
-      <div className="flex items-center border border-gray-300 rounded-lg px-4 py-2 hover:border-blue-500 transition-colors focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-100 bg-white min-w-[200px] md:min-w-[300px]">
-        <MapPin className="w-4 h-4 text-gray-400 mr-2 shrink-0" />
-        <input 
-          type="text" 
-          defaultValue="Seattle, WA"
-          className="w-full text-sm font-semibold text-gray-700 bg-transparent focus:outline-none placeholder-gray-400"
-        />
-        <ChevronDown className="w-4 h-4 text-gray-400 ml-2 shrink-0" />
+    <div className="border-b border-gray-100 bg-white px-4 md:px-8 py-3 flex flex-col gap-3 z-30 relative">
+      <div className="flex items-center gap-3">
+
+        {/* Search input */}
+        <div className="relative flex-1 max-w-md">
+          <Search className="absolute left-3 top-2.5 w-4 h-4 text-gray-400" />
+          <input
+            type="text"
+            value={filters.query}
+            onChange={e => update({ query: e.target.value })}
+            placeholder="Subject, name, or keyword…"
+            className="w-full h-9 pl-9 pr-4 border border-gray-200 rounded-lg text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500 bg-gray-50"
+          />
+          {filters.query && (
+            <button
+              onClick={() => update({ query: '' })}
+              className="absolute right-3 top-2.5 text-gray-400 hover:text-gray-600"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          )}
+        </div>
+
+        {/* Filter toggle */}
+        <button
+          onClick={() => setShowPanel(p => !p)}
+          className={`flex items-center gap-2 px-4 h-9 rounded-lg border text-sm font-bold transition-colors ${
+            showPanel || isFiltered
+              ? 'border-blue-500 bg-blue-50 text-blue-600'
+              : 'border-gray-200 text-gray-600 hover:bg-gray-50'
+          }`}
+        >
+          <SlidersHorizontal className="w-4 h-4" />
+          Filters
+          {isFiltered && (
+            <span className="w-2 h-2 rounded-full bg-blue-600" />
+          )}
+        </button>
+
+        {/* Reset */}
+        {isFiltered && (
+          <button
+            onClick={reset}
+            className="text-sm font-bold text-red-500 hover:text-red-600 transition-colors"
+          >
+            Reset
+          </button>
+        )}
       </div>
 
-      <div className="h-6 w-px bg-gray-200 mx-2 shrink-0" />
+      {/* Expanded filter panel */}
+      {showPanel && (
+        <div className="flex flex-wrap gap-6 pt-2 pb-1">
 
-      {filterOptions.map((filter) => (
-        <button 
-          key={filter.label}
-          className="flex items-center gap-1.5 px-4 py-2 border border-gray-300 rounded-lg text-sm font-semibold text-gray-700 hover:border-blue-500 hover:bg-blue-50 transition-colors whitespace-nowrap"
-        >
-          {filter.label}
-          <filter.icon className="w-4 h-4 text-gray-400 group-hover:text-blue-500" />
-        </button>
-      ))}
+          {/* Price range */}
+          <div className="flex flex-col gap-1.5 min-w-[200px]">
+            <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">
+              Hourly Rate: ${filters.minRate} – ${filters.maxRate === 300 ? '300+' : filters.maxRate}
+            </label>
+            <div className="flex items-center gap-3">
+              <input
+                type="range"
+                min={0}
+                max={300}
+                step={5}
+                value={filters.minRate}
+                onChange={e => update({ minRate: Number(e.target.value) })}
+                className="flex-1 accent-blue-600"
+              />
+              <span className="text-xs font-bold text-gray-500 w-8">Max</span>
+              <input
+                type="range"
+                min={0}
+                max={300}
+                step={5}
+                value={filters.maxRate}
+                onChange={e => update({ maxRate: Number(e.target.value) })}
+                className="flex-1 accent-blue-600"
+              />
+            </div>
+          </div>
 
-      <div className="flex-1" />
-
-      <button className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-lg text-sm font-bold text-gray-700 hover:border-blue-500 hover:bg-blue-50 transition-colors shrink-0">
-        <SlidersHorizontal className="w-4 h-4" />
-        Filters
-      </button>
-
-      <button className="hidden lg:flex items-center gap-2 px-6 py-2 bg-blue-600 text-white rounded-lg text-sm font-bold hover:bg-blue-700 transition-colors shadow-sm hover:shadow-md shrink-0 ml-2">
-        Save Search
-      </button>
+          {/* Min rating */}
+          <div className="flex flex-col gap-1.5">
+            <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">
+              Minimum Rating
+            </label>
+            <div className="flex items-center gap-2">
+              {[0, 3, 4, 4.5].map(r => (
+                <button
+                  key={r}
+                  type="button"
+                  onClick={() => update({ minRating: r })}
+                  className={`px-3 py-1.5 rounded-lg text-sm font-bold border transition-colors ${
+                    filters.minRating === r
+                      ? 'border-blue-500 bg-blue-50 text-blue-600'
+                      : 'border-gray-200 text-gray-600 hover:bg-gray-50'
+                  }`}
+                >
+                  {r === 0 ? 'Any' : `${r}★`}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
-  );
+  )
 }

@@ -1,29 +1,22 @@
-// src/app/pages/Login.tsx
-// ─────────────────────────────────────────────────────────────
-// Drop-in replacement for the existing Login.tsx stub.
-// Handles sign-in AND sign-up (with role selection).
-// After successful auth, redirects to the page the user came
-// from (or "/" as fallback).
-// ─────────────────────────────────────────────────────────────
+// // src/app/pages/Login.tsx
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate, useLocation, Link } from 'react-router'
 import { useAuth } from '../../context/AuthContext'
 import type { UserRole } from '../../lib/supabase'
 
-// shadcn/ui components already in your project
-import { Button }   from '../components/ui/button'
-import { Input }    from '../components/ui/input'
-import { Label }    from '../components/ui/label'
+import { Button } from '../components/ui/button'
+import { Input } from '../components/ui/input'
+import { Label } from '../components/ui/label'
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
   from '../components/ui/card'
 
 type Mode = 'signin' | 'signup'
 
 export default function Login() {
-  const { signIn, signUp } = useAuth()
-  const navigate           = useNavigate()
-  const location           = useLocation()
+  const { signIn, signUp, user } = useAuth()
+  const navigate = useNavigate()
+  const location = useLocation()
 
   const from = (location.state as any)?.from?.pathname ?? '/'
 
@@ -34,6 +27,13 @@ export default function Login() {
   const [role, setRole]       = useState<UserRole>('student')
   const [error, setError]     = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
+
+  // For signup: redirect once user session is confirmed
+  useEffect(() => {
+    if (user && mode === 'signup') {
+      navigate(from, { replace: true })
+    }
+  }, [user])
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -47,6 +47,9 @@ export default function Login() {
         setLoading(false)
         return
       }
+      // Navigate immediately after successful sign in
+      navigate(from, { replace: true })
+      return
     } else {
       if (!name.trim()) {
         setError('Please enter your full name.')
@@ -59,13 +62,10 @@ export default function Login() {
         setLoading(false)
         return
       }
-      // Supabase sends a confirmation email by default.
-      // If you have email confirmation OFF in your Supabase
-      // dashboard, the user is logged in immediately.
+      // useEffect will redirect once user session is set
     }
 
     setLoading(false)
-    navigate(from, { replace: true })
   }
 
   return (
@@ -88,7 +88,6 @@ export default function Login() {
         <form onSubmit={handleSubmit}>
           <CardContent className="space-y-4">
 
-            {/* Full name — signup only */}
             {mode === 'signup' && (
               <div className="space-y-1">
                 <Label htmlFor="name">Full name</Label>
@@ -102,7 +101,6 @@ export default function Login() {
               </div>
             )}
 
-            {/* Email */}
             <div className="space-y-1">
               <Label htmlFor="email">Email</Label>
               <Input
@@ -115,7 +113,6 @@ export default function Login() {
               />
             </div>
 
-            {/* Password */}
             <div className="space-y-1">
               <Label htmlFor="password">Password</Label>
               <Input
@@ -129,7 +126,6 @@ export default function Login() {
               />
             </div>
 
-            {/* Role selector — signup only */}
             {mode === 'signup' && (
               <div className="space-y-1">
                 <Label>I am a…</Label>
@@ -152,7 +148,6 @@ export default function Login() {
               </div>
             )}
 
-            {/* Error message */}
             {error && (
               <p className="text-sm text-destructive">{error}</p>
             )}

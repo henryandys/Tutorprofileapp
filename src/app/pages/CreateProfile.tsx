@@ -1,47 +1,100 @@
+// src/app/pages/CreateProfile.tsx
+
 import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { Navbar } from "../components/Navbar";
-import { Camera, MapPin, DollarSign, BookOpen, GraduationCap, Briefcase, ChevronRight, CheckCircle2, Info } from "lucide-react";
+import { Camera, MapPin, DollarSign, BookOpen, GraduationCap, Briefcase, ChevronRight, CheckCircle2, Info, Loader2 } from "lucide-react";
 import { useNavigate } from "react-router";
 import { toast } from "sonner";
+import { useAuth } from "../../context/AuthContext";
+import { supabase } from "../../lib/supabase";
 
 interface ProfileForm {
-  name: string;
-  email: string;
-  subject: string;
+  name:       string;
+  subject:    string;
   hourlyRate: number;
-  location: string;
-  education: string;
+  location:   string;
+  education:  string;
   experience: string;
-  bio: string;
+  bio:        string;
 }
 
 export function CreateProfile() {
-  const navigate = useNavigate();
-  const [step, setStep] = useState(1);
-  const { register, handleSubmit, formState: { errors } } = useForm<ProfileForm>();
-  
-  const onSubmit = (data: ProfileForm) => {
-    console.log("Profile data:", data);
-    toast.success("Profile submitted successfully! We'll review it soon.");
-    setTimeout(() => {
-      navigate("/");
-    }, 2000);
-  };
+  const navigate = useNavigate()
+  const { user, refreshProfile } = useAuth()
+  const [step, setSaving] = useState(1)
+  const [saving, setIsSaving] = useState(false)
 
-  const nextStep = () => setStep(s => Math.min(s + 1, 3));
-  const prevStep = () => setStep(s => Math.max(s - 1, 1));
+  const { register, handleSubmit, formState: { errors } } = useForm<ProfileForm>()
+
+  const nextStep = () => setSaving(s => Math.min(s + 1, 3))
+  const prevStep = () => setSaving(s => Math.max(s - 1, 1))
+
+  const onSubmit = async (data: ProfileForm) => {
+    if (!user) {
+      toast.error('You must be logged in to create a profile.')
+      return
+    }
+
+    setIsSaving(true)
+
+    try {
+      // Parse experience years from the string (e.g. "10+ years" → 10)
+      const expMatch = data.experience.match(/\d+/)
+      const experienceYrs = expMatch ? parseInt(expMatch[0]) : 0
+
+      // 1. Update the base profile (name, location, bio)
+      const { error: profileError } = await supabase
+        .from('profiles')
+        .update({
+          full_name:  data.name,
+          location:   data.location,
+          bio:        data.bio,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', user.id)
+
+      if (profileError) throw profileError
+
+      // 2. Upsert tutor_profiles row (insert or update if exists)
+      const { error: tutorError } = await supabase
+        .from('tutor_profiles')
+        .upsert({
+          id:             user.id,
+          subjects:       data.subject.split('&').map(s => s.trim()).filter(Boolean),
+          hourly_rate:    Number(data.hourlyRate),
+          experience_yrs: experienceYrs,
+          education:      data.education,
+          is_available:   true,
+        }, { onConflict: 'id' })
+
+      if (tutorError) throw tutorError
+
+      // 3. Refresh the auth context so navbar/profile update
+      await refreshProfile()
+
+      toast.success('Profile created! Welcome to TutorFind.')
+      setTimeout(() => navigate('/my-profile'), 1500)
+
+    } catch (err: any) {
+      console.error('CreateProfile error:', err)
+      toast.error('Something went wrong: ' + (err.message ?? 'Unknown error'))
+    } finally {
+      setIsSaving(false)
+    }
+  }
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
       <Navbar />
-      
+
       <main className="flex-1 max-w-4xl mx-auto w-full px-6 py-12">
         <div className="bg-white rounded-3xl shadow-xl border border-gray-100 overflow-hidden">
+
           {/* Progress Bar */}
           <div className="flex h-2 bg-gray-100">
-            <div 
-              className="bg-blue-600 transition-all duration-500 ease-in-out" 
+            <div
+              className="bg-blue-600 transition-all duration-500 ease-in-out"
               style={{ width: `${(step / 3) * 100}%` }}
             />
           </div>
@@ -59,6 +112,8 @@ export function CreateProfile() {
             </header>
 
             <form onSubmit={handleSubmit(onSubmit)} className="space-y-8">
+
+              {/* ── Step 1: Basic Info ── */}
               {step === 1 && (
                 <div className="space-y-6">
                   <div className="flex flex-col md:flex-row gap-8 items-center mb-8">
@@ -73,7 +128,7 @@ export function CreateProfile() {
                     <div className="flex-1">
                       <h3 className="font-bold text-gray-900 mb-1">Profile Photo</h3>
                       <p className="text-sm text-gray-500">
-                        Upload a professional, friendly photo of yourself. Tutors with photos get 10x more bookings.
+                        Upload a professional, friendly photo. Tutors with photos get 10x more bookings.
                       </p>
                     </div>
                   </div>
@@ -81,78 +136,84 @@ export function CreateProfile() {
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div className="flex flex-col gap-1.5">
                       <label className="text-xs font-bold text-gray-400 uppercase tracking-widest px-1">FULL NAME</label>
-                      <input 
+                      <input
                         {...register("name", { required: "Name is required" })}
                         placeholder="e.g. Dr. Sarah Mitchell"
-                        className="w-full h-12 px-4 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 font-bold text-gray-800 bg-gray-50 transition-all"
+                        className="w-full h-12 px-4 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 font-bold text-gray-800 bg-gray-50"
                       />
                       {errors.name && <span className="text-xs text-red-500 font-bold">{errors.name.message}</span>}
                     </div>
-                    
+
                     <div className="flex flex-col gap-1.5">
                       <label className="text-xs font-bold text-gray-400 uppercase tracking-widest px-1">PRIMARY SUBJECT</label>
                       <div className="relative">
                         <BookOpen className="absolute left-4 top-3.5 w-5 h-5 text-gray-400" />
-                        <input 
+                        <input
                           {...register("subject", { required: "Subject is required" })}
                           placeholder="e.g. Calculus & Physics"
-                          className="w-full h-12 pl-12 pr-4 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 font-bold text-gray-800 bg-gray-50 transition-all"
+                          className="w-full h-12 pl-12 pr-4 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 font-bold text-gray-800 bg-gray-50"
                         />
                       </div>
+                      {errors.subject && <span className="text-xs text-red-500 font-bold">{errors.subject.message}</span>}
                     </div>
 
                     <div className="flex flex-col gap-1.5">
                       <label className="text-xs font-bold text-gray-400 uppercase tracking-widest px-1">HOURLY RATE ($)</label>
                       <div className="relative">
                         <DollarSign className="absolute left-4 top-3.5 w-5 h-5 text-gray-400" />
-                        <input 
+                        <input
                           type="number"
                           {...register("hourlyRate", { required: "Rate is required", min: 1 })}
                           placeholder="65"
-                          className="w-full h-12 pl-12 pr-4 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 font-bold text-gray-800 bg-gray-50 transition-all"
+                          className="w-full h-12 pl-12 pr-4 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 font-bold text-gray-800 bg-gray-50"
                         />
                       </div>
+                      {errors.hourlyRate && <span className="text-xs text-red-500 font-bold">{errors.hourlyRate.message}</span>}
                     </div>
 
                     <div className="flex flex-col gap-1.5">
                       <label className="text-xs font-bold text-gray-400 uppercase tracking-widest px-1">LOCATION</label>
                       <div className="relative">
                         <MapPin className="absolute left-4 top-3.5 w-5 h-5 text-gray-400" />
-                        <input 
+                        <input
                           {...register("location", { required: "Location is required" })}
                           placeholder="e.g. Seattle, WA"
-                          className="w-full h-12 pl-12 pr-4 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 font-bold text-gray-800 bg-gray-50 transition-all"
+                          className="w-full h-12 pl-12 pr-4 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 font-bold text-gray-800 bg-gray-50"
                         />
                       </div>
+                      {errors.location && <span className="text-xs text-red-500 font-bold">{errors.location.message}</span>}
                     </div>
                   </div>
                 </div>
               )}
 
+              {/* ── Step 2: Experience & Education ── */}
               {step === 2 && (
                 <div className="space-y-6">
                   <div className="flex flex-col gap-1.5">
                     <label className="text-xs font-bold text-gray-400 uppercase tracking-widest px-1">EDUCATION</label>
                     <div className="relative">
                       <GraduationCap className="absolute left-4 top-3.5 w-5 h-5 text-gray-400" />
-                      <input 
+                      <input
                         {...register("education", { required: "Education is required" })}
                         placeholder="e.g. Ph.D. in Physics, MIT"
-                        className="w-full h-12 pl-12 pr-4 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 font-bold text-gray-800 bg-gray-50 transition-all"
+                        className="w-full h-12 pl-12 pr-4 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 font-bold text-gray-800 bg-gray-50"
                       />
                     </div>
+                    {errors.education && <span className="text-xs text-red-500 font-bold">{errors.education.message}</span>}
                   </div>
 
                   <div className="flex flex-col gap-1.5">
-                    <label className="text-xs font-bold text-gray-400 uppercase tracking-widest px-1">PROFESSIONAL EXPERIENCE</label>
+                    <label className="text-xs font-bold text-gray-400 uppercase tracking-widest px-1">YEARS OF EXPERIENCE</label>
                     <div className="relative">
                       <Briefcase className="absolute left-4 top-3.5 w-5 h-5 text-gray-400" />
-                      <input 
+                      <input
                         {...register("experience", { required: "Experience is required" })}
-                        placeholder="e.g. 10+ years teaching university level"
-                        className="w-full h-12 pl-12 pr-4 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 font-bold text-gray-800 bg-gray-50 transition-all"
+                        placeholder="e.g. 10 years university teaching"
+                        className="w-full h-12 pl-12 pr-4 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 font-bold text-gray-800 bg-gray-50"
                       />
                     </div>
+                    {errors.experience && <span className="text-xs text-red-500 font-bold">{errors.experience.message}</span>}
                   </div>
 
                   <div className="bg-blue-50 p-6 rounded-2xl flex gap-4 border border-blue-100">
@@ -167,16 +228,18 @@ export function CreateProfile() {
                 </div>
               )}
 
+              {/* ── Step 3: Bio ── */}
               {step === 3 && (
                 <div className="space-y-6">
                   <div className="flex flex-col gap-1.5">
                     <label className="text-xs font-bold text-gray-400 uppercase tracking-widest px-1">ABOUT YOU (BIO)</label>
-                    <textarea 
-                      {...register("bio", { required: "Bio is required", minLength: 50 })}
+                    <textarea
+                      {...register("bio", { required: "Bio is required", minLength: { value: 50, message: "Bio must be at least 50 characters" } })}
                       rows={6}
                       placeholder="Share your teaching philosophy, what you specialize in, and how you help students succeed..."
-                      className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium text-gray-800 bg-gray-50 transition-all"
+                      className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium text-gray-800 bg-gray-50"
                     />
+                    {errors.bio && <span className="text-xs text-red-500 font-bold">{errors.bio.message}</span>}
                     <div className="flex justify-between px-1">
                       <span className="text-[10px] text-gray-400 font-bold uppercase tracking-wider">MINIMUM 50 CHARACTERS</span>
                       <span className="text-[10px] text-gray-400 font-bold uppercase tracking-wider italic">TELL YOUR STORY</span>
@@ -194,14 +257,15 @@ export function CreateProfile() {
                       <div className="w-6 h-6 bg-green-100 rounded-full flex items-center justify-center">
                         <CheckCircle2 className="w-4 h-4 text-green-600" />
                       </div>
-                      <p className="text-sm font-bold text-gray-700">Notify me about new students in Seattle</p>
+                      <p className="text-sm font-bold text-gray-700">Notify me about new students in my area</p>
                     </div>
                   </div>
                 </div>
               )}
 
+              {/* ── Navigation buttons ── */}
               <div className="flex items-center justify-between pt-8 border-t border-gray-100 mt-12">
-                <button 
+                <button
                   type="button"
                   onClick={prevStep}
                   disabled={step === 1}
@@ -211,9 +275,9 @@ export function CreateProfile() {
                 >
                   Back
                 </button>
-                
+
                 {step < 3 ? (
-                  <button 
+                  <button
                     type="button"
                     onClick={nextStep}
                     className="flex items-center gap-2 px-10 py-3 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 transition-all shadow-lg shadow-blue-100"
@@ -222,11 +286,13 @@ export function CreateProfile() {
                     <ChevronRight className="w-5 h-5" />
                   </button>
                 ) : (
-                  <button 
+                  <button
                     type="submit"
-                    className="px-12 py-4 bg-blue-600 text-white rounded-xl font-bold text-lg hover:bg-blue-700 transition-all shadow-xl shadow-blue-200"
+                    disabled={saving}
+                    className="flex items-center gap-2 px-12 py-4 bg-blue-600 text-white rounded-xl font-bold text-lg hover:bg-blue-700 transition-all shadow-xl shadow-blue-200 disabled:opacity-60"
                   >
-                    Complete Profile
+                    {saving && <Loader2 className="w-5 h-5 animate-spin" />}
+                    {saving ? 'Saving…' : 'Complete Profile'}
                   </button>
                 )}
               </div>
@@ -239,5 +305,5 @@ export function CreateProfile() {
         </p>
       </main>
     </div>
-  );
+  )
 }

@@ -13,7 +13,7 @@
 // ─────────────────────────────────────────────────────────────
 
 import { Navigate } from 'react-router'
-import { useAuth } from '../context/AuthContext'
+import { useAuth } from '../../context/AuthContext'
 import type { UserRole } from '../lib/supabase'
 
 interface Props {
