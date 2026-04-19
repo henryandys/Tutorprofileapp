@@ -97,10 +97,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   async function signOut() {
+  try {
     await supabase.auth.signOut()
+  } catch (err) {
+    // Ignore lock errors — session is gone regardless
+    console.warn('SignOut lock error (safe to ignore):', err)
+  } finally {
     setProfile(null)
     setSession(null)
   }
+}
 
   const value: AuthContextValue = {
     session,
