@@ -35,6 +35,46 @@ function makePinIcon(tutor: Tutor, selected: boolean) {
   return L.divIcon({ html, className: "", iconSize: [60, 52], iconAnchor: [30, 52] });
 }
 
+// Spread markers that share the same location in a small circle so all are visible.
+const SEATTLE: [number, number] = [47.6062, -122.3321];
+
+function spreadOverlapping(tutors: Tutor[]): Record<string, [number, number]> {
+  const result: Record<string, [number, number]> = {};
+
+  // Assign base coords (fallback for ungeocoded tutors stays random per call)
+  const base: Record<string, [number, number]> = {};
+  tutors.forEach(t => {
+    base[t.id] = [
+      t.lat ?? (SEATTLE[0] + (Math.random() - 0.5) * 0.08),
+      t.lng ?? (SEATTLE[1] + (Math.random() - 0.5) * 0.08),
+    ];
+  });
+
+  // Group by rounded coords (4 dp ≈ 11 m — catches same-address duplicates)
+  const groups: Record<string, string[]> = {};
+  tutors.forEach(t => {
+    const [lat, lng] = base[t.id];
+    const key = `${lat.toFixed(4)},${lng.toFixed(4)}`;
+    (groups[key] ??= []).push(t.id);
+  });
+
+  Object.values(groups).forEach(ids => {
+    if (ids.length === 1) {
+      result[ids[0]] = base[ids[0]];
+      return;
+    }
+    // Place in a circle; radius grows slightly with group size
+    const [cLat, cLng] = base[ids[0]];
+    const radius = 0.0003 + ids.length * 0.00004;
+    ids.forEach((id, i) => {
+      const angle = (2 * Math.PI * i) / ids.length - Math.PI / 2;
+      result[id] = [cLat + radius * Math.cos(angle), cLng + radius * Math.sin(angle)];
+    });
+  });
+
+  return result;
+}
+
 export function Map({ tutors, selectedId, onSelect, flyTo }: MapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef       = useRef<L.Map | null>(null);
@@ -72,27 +112,25 @@ export function Map({ tutors, selectedId, onSelect, flyTo }: MapProps) {
     const map = mapRef.current;
     if (!map) return;
 
-    // Remove all existing markers
     Object.values(markersRef.current).forEach((m: L.Marker) => m.remove());
     markersRef.current = {};
 
-    // Tutors without geocoded coords get spread around Seattle as a fallback
-    const SEATTLE: [number, number] = [47.6062, -122.3321];
+    const coords = spreadOverlapping(tutors);
+
     tutors.forEach((tutor) => {
-        const lat = tutor.lat ?? (SEATTLE[0] + (Math.random() - 0.5) * 0.08);
-        const lng = tutor.lng ?? (SEATTLE[1] + (Math.random() - 0.5) * 0.08);
-        const marker = L.marker([lat, lng], {
-          icon: makePinIcon(tutor, selectedId === tutor.id),
-          zIndexOffset: selectedId === tutor.id ? 1000 : 0,
-        }).addTo(map);
+      const [lat, lng] = coords[tutor.id];
+      const marker = L.marker([lat, lng], {
+        icon: makePinIcon(tutor, selectedId === tutor.id),
+        zIndexOffset: selectedId === tutor.id ? 1000 : 0,
+      }).addTo(map);
 
-        marker.on("click", (e) => {
-          e.originalEvent.stopPropagation();
-          onSelectRef.current(tutor.id);
-        });
-
-        markersRef.current[tutor.id] = marker;
+      marker.on("click", (e) => {
+        e.originalEvent.stopPropagation();
+        onSelectRef.current(tutor.id);
       });
+
+      markersRef.current[tutor.id] = marker;
+    });
   }, [tutors, selectedId]);
 
   // Pan to selected tutor

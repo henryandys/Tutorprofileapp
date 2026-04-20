@@ -15,6 +15,8 @@ export interface Profile {
   full_name: string;
   role: UserRole;
   avatar_url?: string;
+  location?: string;
+  bio?: string;
   created_at: string;
   updated_at: string;
 }

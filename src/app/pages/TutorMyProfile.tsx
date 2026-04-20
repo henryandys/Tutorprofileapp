@@ -97,13 +97,14 @@ export function TutorMyProfile() {
 
     const { error: tutorError } = await supabase
       .from('tutor_profiles')
-      .update({
+      .upsert({
+        id:             user.id,
         hourly_rate:    Number(data.hourlyRate),
         education:      data.education,
         experience_yrs: experienceYrs,
         subjects:       data.specialties.map(s => s.value).filter(Boolean),
-      })
-      .eq('id', user.id)
+        is_available:   true,
+      }, { onConflict: 'id' })
 
     if (profileError || tutorError) {
       toast.error('Failed to save changes.')

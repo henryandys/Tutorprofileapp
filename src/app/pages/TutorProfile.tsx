@@ -4,12 +4,21 @@ import { useParams, Link } from "react-router";
 import { fetchTutorById } from "../data/tutors";
 import type { Tutor } from "../data/tutors";
 import { Navbar } from "../components/Navbar";
-import { Star, MapPin, Share2, Heart, MessageCircle, Clock, GraduationCap, Briefcase, Calendar, ChevronLeft, ChevronRight, Phone, Mail, Users, Loader2 } from "lucide-react";
+import { Star, MapPin, Share2, Heart, MessageCircle, Clock, GraduationCap, Briefcase, Calendar, ChevronLeft, ChevronRight, Phone, Mail, Loader2, Send } from "lucide-react";
 import { ImageWithFallback } from "../components/figma/ImageWithFallback";
 import { useState, useEffect } from "react";
 import { useAuth } from "../../context/AuthContext";
 import { supabase } from "../../lib/supabase";
 import { toast } from "sonner";
+
+interface Review {
+  id: string
+  student_id: string
+  student_name: string
+  rating: number
+  body: string
+  created_at: string
+}
 
 export function TutorProfile() {
   const { id } = useParams()
@@ -23,6 +32,15 @@ export function TutorProfile() {
   const [studentName, setStudentName] = useState('')
   const [message, setMessage]   = useState('')
 
+  // Reviews state
+  const [reviews, setReviews]           = useState<Review[]>([])
+  const [loadingReviews, setLoadingReviews] = useState(true)
+  const [myRating, setMyRating]         = useState(0)
+  const [hoverRating, setHoverRating]   = useState(0)
+  const [reviewBody, setReviewBody]     = useState('')
+  const [submittingReview, setSubmittingReview] = useState(false)
+  const hasReviewed = reviews.some(r => r.student_id === user?.id)
+
   useEffect(() => {
     if (!id) { setLoading(false); return }
     fetchTutorById(id).then(data => {
@@ -35,6 +53,51 @@ export function TutorProfile() {
   useEffect(() => {
     if (profile?.full_name) setStudentName(profile.full_name)
   }, [profile])
+
+  // Load reviews
+  useEffect(() => {
+    if (!id) return
+    setLoadingReviews(true)
+    supabase
+      .from('reviews')
+      .select('*')
+      .eq('tutor_id', id)
+      .order('created_at', { ascending: false })
+      .then(({ data }) => {
+        setReviews(data ?? [])
+        setLoadingReviews(false)
+      })
+  }, [id])
+
+  async function handleReviewSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    if (!user || !id) return
+    if (myRating === 0) { toast.error('Please select a star rating.'); return }
+    if (!reviewBody.trim()) { toast.error('Please write a review.'); return }
+
+    setSubmittingReview(true)
+    const { data, error } = await supabase
+      .from('reviews')
+      .insert({
+        tutor_id:     id,
+        student_id:   user.id,
+        student_name: profile?.full_name ?? 'Anonymous',
+        rating:       myRating,
+        body:         reviewBody.trim(),
+      })
+      .select()
+      .single()
+
+    if (error) {
+      toast.error('Failed to submit review: ' + error.message)
+    } else {
+      setReviews(prev => [data, ...prev])
+      setMyRating(0)
+      setReviewBody('')
+      toast.success('Review submitted!')
+    }
+    setSubmittingReview(false)
+  }
 
   async function handleBooking(e: React.FormEvent) {
     e.preventDefault()
@@ -227,21 +290,98 @@ export function TutorProfile() {
               </div>
             </section>
 
-            {/* Reviews placeholder */}
+            {/* Reviews */}
             <section className="flex flex-col gap-8">
               <div className="flex items-center justify-between border-b border-gray-100 pb-4">
                 <h2 className="text-2xl font-bold text-gray-900">Student Reviews</h2>
                 <div className="flex items-center gap-2">
                   <div className="flex">
-                    {[1,2,3,4,5].map(i => <Star key={i} className="w-4 h-4 fill-blue-600 text-blue-600" />)}
+                    {[1,2,3,4,5].map(i => (
+                      <Star key={i} className={`w-4 h-4 ${i <= Math.round(tutor.rating) ? 'fill-yellow-400 text-yellow-400' : 'text-gray-200 fill-gray-200'}`} />
+                    ))}
                   </div>
-                  <span className="text-sm font-bold text-gray-900">{tutor.rating} Avg</span>
+                  <span className="text-sm font-bold text-gray-900">{tutor.rating} · {reviews.length} review{reviews.length !== 1 ? 's' : ''}</span>
                 </div>
               </div>
-              <p className="text-gray-500 italic">Reviews coming soon.</p>
-              <button className="text-blue-600 font-bold hover:underline flex items-center gap-1 w-fit">
-                Read all {tutor.reviewCount} reviews <ChevronRight className="w-4 h-4" />
-              </button>
+
+              {/* Write a review — logged-in users who haven't reviewed yet */}
+              {user && !hasReviewed && (
+                <form onSubmit={handleReviewSubmit} className="flex flex-col gap-4 p-6 bg-blue-50 rounded-2xl border border-blue-100">
+                  <h3 className="font-bold text-gray-900">Leave a Review</h3>
+
+                  {/* Star picker */}
+                  <div className="flex items-center gap-1">
+                    {[1,2,3,4,5].map(i => (
+                      <button
+                        key={i}
+                        type="button"
+                        onClick={() => setMyRating(i)}
+                        onMouseEnter={() => setHoverRating(i)}
+                        onMouseLeave={() => setHoverRating(0)}
+                        className="p-0.5"
+                      >
+                        <Star className={`w-7 h-7 transition-colors ${i <= (hoverRating || myRating) ? 'fill-yellow-400 text-yellow-400' : 'text-gray-300 fill-gray-100'}`} />
+                      </button>
+                    ))}
+                    {myRating > 0 && (
+                      <span className="ml-2 text-sm font-bold text-gray-600">
+                        {['','Poor','Fair','Good','Great','Excellent'][myRating]}
+                      </span>
+                    )}
+                  </div>
+
+                  <textarea
+                    value={reviewBody}
+                    onChange={e => setReviewBody(e.target.value)}
+                    placeholder="Share your experience with this tutor…"
+                    rows={3}
+                    className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium text-gray-800 bg-white"
+                  />
+
+                  <button
+                    type="submit"
+                    disabled={submittingReview}
+                    className="self-end flex items-center gap-2 px-6 py-2.5 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 disabled:opacity-60"
+                  >
+                    {submittingReview ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                    {submittingReview ? 'Submitting…' : 'Submit Review'}
+                  </button>
+                </form>
+              )}
+
+              {!user && (
+                <p className="text-sm text-gray-500 font-medium">
+                  <a href="/login" className="text-blue-600 font-bold hover:underline">Sign in</a> to leave a review.
+                </p>
+              )}
+
+              {/* Reviews list */}
+              {loadingReviews ? (
+                <div className="flex justify-center py-6">
+                  <Loader2 className="w-6 h-6 animate-spin text-blue-600" />
+                </div>
+              ) : reviews.length === 0 ? (
+                <p className="text-gray-400 font-medium italic">No reviews yet — be the first!</p>
+              ) : (
+                <div className="flex flex-col gap-6">
+                  {reviews.map(r => (
+                    <div key={r.id} className="flex flex-col gap-2 pb-6 border-b border-gray-100 last:border-0">
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold text-gray-900">{r.student_name}</span>
+                        <span className="text-xs text-gray-400">
+                          {new Date(r.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-0.5">
+                        {[1,2,3,4,5].map(i => (
+                          <Star key={i} className={`w-4 h-4 ${i <= r.rating ? 'fill-yellow-400 text-yellow-400' : 'fill-gray-100 text-gray-200'}`} />
+                        ))}
+                      </div>
+                      <p className="text-gray-600 font-medium leading-relaxed">{r.body}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
             </section>
           </div>
 
