@@ -1,9 +1,22 @@
+import { useState } from "react";
 import { Navbar } from "../components/Navbar";
 import { Search as SearchIcon, MapPin, CheckCircle, Star, Users, ArrowRight } from "lucide-react";
-import { Link } from "react-router";
+import { Link, useNavigate } from "react-router";
 import { ImageWithFallback } from "../components/figma/ImageWithFallback";
 
 export function Home() {
+  const navigate = useNavigate()
+  const [subject, setSubject]   = useState("")
+  const [location, setLocation] = useState("")
+
+  function handleSearch(e: React.FormEvent) {
+    e.preventDefault()
+    const params = new URLSearchParams()
+    if (subject.trim())  params.set("q", subject.trim())
+    if (location.trim()) params.set("location", location.trim())
+    navigate(`/search?${params.toString()}`)
+  }
+
   return (
     <div className="min-h-screen bg-white font-sans overflow-x-hidden">
       <Navbar />
@@ -26,12 +39,14 @@ export function Home() {
               Browse thousands of local experts, read reviews, and book sessions instantly. From Calculus to Coding.
             </p>
 
-            {/* Main Search Bar (Zillow-esque) */}
-            <div className="w-full max-w-3xl bg-white p-2 rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.1)] border border-gray-100 flex flex-col md:flex-row gap-2">
+            {/* Main Search Bar */}
+            <form onSubmit={handleSearch} className="w-full max-w-3xl bg-white p-2 rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.1)] border border-gray-100 flex flex-col md:flex-row gap-2">
               <div className="flex-1 relative">
                 <SearchIcon className="absolute left-6 top-5 w-6 h-6 text-gray-400" />
-                <input 
-                  type="text" 
+                <input
+                  type="text"
+                  value={subject}
+                  onChange={e => setSubject(e.target.value)}
                   placeholder="Subject (e.g. Physics, SAT Prep)"
                   className="w-full h-16 pl-16 pr-6 bg-transparent text-lg font-bold text-gray-800 focus:outline-none"
                 />
@@ -39,17 +54,19 @@ export function Home() {
               <div className="w-px h-10 bg-gray-100 hidden md:block self-center" />
               <div className="flex-1 relative">
                 <MapPin className="absolute left-6 top-5 w-6 h-6 text-gray-400" />
-                <input 
-                  type="text" 
+                <input
+                  type="text"
+                  value={location}
+                  onChange={e => setLocation(e.target.value)}
                   placeholder="City or Zip code"
                   className="w-full h-16 pl-16 pr-6 bg-transparent text-lg font-bold text-gray-800 focus:outline-none"
                 />
               </div>
-              <Link to="/search" className="h-16 px-10 bg-blue-600 text-white rounded-xl font-bold text-lg flex items-center justify-center gap-2 hover:bg-blue-700 transition-all">
+              <button type="submit" className="h-16 px-10 bg-blue-600 text-white rounded-xl font-bold text-lg flex items-center justify-center gap-2 hover:bg-blue-700 transition-all">
                 Search
                 <ArrowRight className="w-5 h-5" />
-              </Link>
-            </div>
+              </button>
+            </form>
 
             <div className="mt-8 flex flex-wrap justify-center gap-6">
               <div className="flex items-center gap-2">

@@ -1,28 +1,72 @@
-// src/app/data/tutors.ts
-// ─────────────────────────────────────────────────────────────
-// All tutor data now comes from Supabase via the tutors_view.
-// The Tutor interface is kept identical to before so TutorCard,
-// Map, and other components need zero changes.
-// ─────────────────────────────────────────────────────────────
-
 import { supabase } from '../../lib/supabase'
 
 export interface Tutor {
   id:          string
   name:        string
-  subject:     string      // mapped from subjects[0]
+  subject:     string
   rating:      number
   reviewCount: number
   hourlyRate:  number
   location:    string
   bio:         string
-  imageUrl:    string      // mapped from avatar_url
+  imageUrl:    string
   education:   string
-  experience:  string      // mapped from experience_yrs
-  coordinates: { x: number; y: number }  // mapped from latitude/longitude
+  experience:  string
+  coordinates: { x: number; y: number }
+  lat:         number | null
+  lng:         number | null
 }
 
-// ── Internal helper: map a tutors_view row → Tutor ───────────
+// ── Geocoding ────────────────────────────────────────────────
+
+const geocodeCache = new globalThis.Map<string, { lat: number; lng: number } | null>()
+
+async function geocodeLocation(location: string): Promise<{ lat: number; lng: number } | null> {
+  if (!location.trim()) return null
+  if (geocodeCache.has(location)) return geocodeCache.get(location)!
+
+  try {
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), 5000)
+    const res = await fetch(
+      `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(location)}&format=json&limit=1&countrycodes=us`,
+      { signal: controller.signal }
+    )
+    clearTimeout(timer)
+    const data = await res.json()
+    const result = data.length > 0
+      ? { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) }
+      : null
+    geocodeCache.set(location, result)
+    return result
+  } catch {
+    geocodeCache.set(location, null)
+    return null
+  }
+}
+
+// Geocodes tutors that lack coordinates, calling onUpdate after each one resolves.
+// Run this in the background after the initial render so it never blocks the UI.
+export async function geocodeTutors(
+  tutors: Tutor[],
+  onUpdate: (updated: Tutor[]) => void
+): Promise<void> {
+  const needsGeocode = tutors.filter(t => t.lat == null && t.location)
+  if (needsGeocode.length === 0) return
+
+  for (let i = 0; i < needsGeocode.length; i++) {
+    const tutor  = needsGeocode[i]
+    const coords = await geocodeLocation(tutor.location)
+    if (coords) {
+      tutor.lat = coords.lat
+      tutor.lng = coords.lng
+      onUpdate([...tutors])   // spread so React sees a new array reference
+    }
+    if (i < needsGeocode.length - 1) await new Promise(r => setTimeout(r, 300))
+  }
+}
+
+// ── Internal helper ──────────────────────────────────────────
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function rowToTutor(row: any): Tutor {
@@ -42,26 +86,21 @@ function rowToTutor(row: any): Tutor {
     experience:  row.experience_yrs != null
                    ? `${row.experience_yrs} year${row.experience_yrs === 1 ? '' : 's'} experience`
                    : '',
-    // Convert real lat/lng to percentage coordinates for the map overlay.
-    // Seattle bounding box: lat 47.48–47.74, lng -122.44 – -122.24
     coordinates: {
-      x: row.longitude != null
-           ? Math.round(((row.longitude - (-122.44)) / 0.20) * 100)
-           : 50,
-      y: row.latitude != null
-           ? Math.round(((47.74 - row.latitude) / 0.26) * 100)
-           : 50,
+      x: row.longitude != null ? Math.round(((row.longitude - (-122.44)) / 0.20) * 100) : 50,
+      y: row.latitude  != null ? Math.round(((47.74 - row.latitude)      / 0.26) * 100) : 50,
     },
+    lat: row.latitude  ?? null,
+    lng: row.longitude ?? null,
   }
 }
 
-// ── Fetch all tutors ─────────────────────────────────────────
+// ── Fetch all tutors (returns immediately, no geocoding) ─────
 
 export async function fetchTutors(): Promise<Tutor[]> {
   const { data, error } = await supabase
     .from('tutors_view')
     .select('*')
-    .eq('is_available', true)
     .order('rating', { ascending: false })
 
   if (error) {
@@ -98,7 +137,6 @@ export async function searchTutors(query: string): Promise<Tutor[]> {
     .from('tutors_view')
     .select('*')
     .or(`full_name.ilike.%${query}%,subjects.cs.{${query}}`)
-    .eq('is_available', true)
     .order('rating', { ascending: false })
 
   if (error) {

@@ -49,11 +49,6 @@ export function Navbar() {
       {/* Right: Auth + actions */}
       <div className="flex items-center gap-3 relative z-10">
 
-        {/* Location */}
-        <button className="hidden sm:flex items-center gap-1 text-sm font-semibold text-gray-600">
-          Seattle, WA <ChevronDown className="w-4 h-4" />
-        </button>
-
         {/* Bell */}
         <button className="p-2 text-gray-500 hover:bg-gray-100 rounded-full">
           <Bell className="w-5 h-5" />
