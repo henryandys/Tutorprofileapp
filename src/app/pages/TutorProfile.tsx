@@ -287,6 +287,17 @@ export function TutorProfile() {
                     <p className="text-gray-600 font-medium">24-hour cancellation notice required</p>
                   </div>
                 </div>
+                {tutor.tutoringLocation && (
+                  <div className="flex gap-4">
+                    <div className="w-12 h-12 bg-red-100 rounded-2xl flex items-center justify-center shrink-0">
+                      <MapPin className="w-6 h-6 text-red-500" />
+                    </div>
+                    <div>
+                      <h4 className="text-lg font-bold text-gray-900">Tutoring Location</h4>
+                      <p className="text-gray-600 font-medium">{tutor.tutoringLocation}</p>
+                    </div>
+                  </div>
+                )}
               </div>
             </section>
 

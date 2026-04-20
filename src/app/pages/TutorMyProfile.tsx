@@ -14,13 +14,14 @@ import { useAuth } from "../../context/AuthContext";
 import { supabase } from "../../lib/supabase";
 
 interface TutorProfileForm {
-  name:       string;
-  location:   string;
-  hourlyRate: number;
-  bio:        string;
-  education:  string;
-  experience: string;
-  specialties: { value: string }[];
+  name:             string;
+  location:         string;
+  tutoringLocation: string;
+  hourlyRate:       number;
+  bio:              string;
+  education:        string;
+  experience:       string;
+  specialties:      { value: string }[];
 }
 
 interface Booking {
@@ -58,9 +59,10 @@ export function TutorMyProfile() {
         reset({
           name:       profile?.full_name ?? '',
           location:   profile?.location ?? '',
-          hourlyRate: data?.hourly_rate ?? 0,
-          bio:        profile?.bio ?? '',
-          education:  data?.education ?? '',
+          hourlyRate:       data?.hourly_rate ?? 0,
+          tutoringLocation: data?.tutoring_location ?? '',
+          bio:              profile?.bio ?? '',
+          education:        data?.education ?? '',
           experience: data?.experience_yrs ? `${data.experience_yrs} years` : '',
           specialties: (data?.subjects ?? []).map((s: string) => ({ value: s })),
         })
@@ -99,11 +101,12 @@ export function TutorMyProfile() {
       .from('tutor_profiles')
       .upsert({
         id:             user.id,
-        hourly_rate:    Number(data.hourlyRate),
-        education:      data.education,
-        experience_yrs: experienceYrs,
-        subjects:       data.specialties.map(s => s.value).filter(Boolean),
-        is_available:   true,
+        hourly_rate:       Number(data.hourlyRate),
+        tutoring_location: data.tutoringLocation,
+        education:         data.education,
+        experience_yrs:    experienceYrs,
+        subjects:          data.specialties.map(s => s.value).filter(Boolean),
+        is_available:      true,
       }, { onConflict: 'id' })
 
     if (profileError || tutorError) {
@@ -205,6 +208,18 @@ export function TutorMyProfile() {
                     <input
                       {...register("location")}
                       disabled={!isEditing}
+                      className="w-full h-12 pl-12 pr-4 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 font-bold text-gray-800 bg-gray-50 disabled:bg-gray-100 disabled:text-gray-600"
+                    />
+                  </div>
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest px-1">Preferred Tutoring Address</label>
+                  <div className="relative">
+                    <MapPin className="absolute left-4 top-3.5 w-5 h-5 text-gray-400" />
+                    <input
+                      {...register("tutoringLocation")}
+                      disabled={!isEditing}
+                      placeholder="e.g. 123 Main St, Seattle, WA 98101"
                       className="w-full h-12 pl-12 pr-4 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 font-bold text-gray-800 bg-gray-50 disabled:bg-gray-100 disabled:text-gray-600"
                     />
                   </div>

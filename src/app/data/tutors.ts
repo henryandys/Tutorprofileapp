@@ -1,20 +1,21 @@
 import { supabase } from '../../lib/supabase'
 
 export interface Tutor {
-  id:          string
-  name:        string
-  subject:     string
-  rating:      number
-  reviewCount: number
-  hourlyRate:  number
-  location:    string
-  bio:         string
-  imageUrl:    string
-  education:   string
-  experience:  string
-  coordinates: { x: number; y: number }
-  lat:         number | null
-  lng:         number | null
+  id:               string
+  name:             string
+  subject:          string
+  rating:           number
+  reviewCount:      number
+  hourlyRate:       number
+  location:         string
+  tutoringLocation: string
+  bio:              string
+  imageUrl:         string
+  education:        string
+  experience:       string
+  coordinates:      { x: number; y: number }
+  lat:              number | null
+  lng:              number | null
 }
 
 // ── Geocoding ────────────────────────────────────────────────
@@ -51,12 +52,16 @@ export async function geocodeTutors(
   tutors: Tutor[],
   onUpdate: (updated: Tutor[]) => void
 ): Promise<void> {
-  const needsGeocode = tutors.filter(t => t.lat == null && t.location)
+  // Always re-geocode tutors with a tutoring address (uses cache, so no extra network hits).
+  // For tutors without one, only geocode if lat/lng is missing.
+  const needsGeocode = tutors.filter(t =>
+    t.tutoringLocation ? true : (t.lat == null && !!t.location)
+  )
   if (needsGeocode.length === 0) return
 
   for (let i = 0; i < needsGeocode.length; i++) {
     const tutor  = needsGeocode[i]
-    const coords = await geocodeLocation(tutor.location)
+    const coords = await geocodeLocation(tutor.tutoringLocation || tutor.location)
     if (coords) {
       tutor.lat = coords.lat
       tutor.lng = coords.lng
@@ -79,8 +84,9 @@ function rowToTutor(row: any): Tutor {
     rating:      row.rating ?? 0,
     reviewCount: row.review_count ?? 0,
     hourlyRate:  row.hourly_rate ?? 0,
-    location:    row.location ?? '',
-    bio:         row.bio ?? '',
+    location:         row.location ?? '',
+    tutoringLocation: row.tutoring_location ?? '',
+    bio:              row.bio ?? '',
     imageUrl:    row.avatar_url ?? '',
     education:   row.education ?? '',
     experience:  row.experience_yrs != null

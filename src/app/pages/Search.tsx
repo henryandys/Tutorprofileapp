@@ -9,8 +9,10 @@ import { Map } from "../components/Map";
 import { motion, AnimatePresence } from "motion/react";
 import { X, Loader2, List, Map as MapIcon } from "lucide-react";
 import { useSearchParams } from "react-router";
+import { useAuth } from "../../context/AuthContext";
 
 export function Search() {
+  const { profile } = useAuth()
   const [allTutors, setAllTutors]             = useState<Tutor[]>([])
   const [loading, setLoading]                 = useState(true)
   const [selectedTutorId, setSelectedTutorId] = useState<string | undefined>(undefined)
@@ -40,13 +42,15 @@ export function Search() {
     })
   }, [])
 
-  // Geocode location field → fly map there (debounced)
-  const [flyTo, setFlyTo]           = useState<[number, number] | undefined>(undefined)
-  const locationDebounce            = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // Geocode location field → fly map there (debounced).
+  // When cleared, fall back to the user's geocoded home coords (if available).
+  const [flyTo, setFlyTo]   = useState<[number, number] | undefined>(undefined)
+  const homeCoords          = useRef<[number, number] | undefined>(undefined)
+  const locationDebounce    = useRef<ReturnType<typeof setTimeout> | null>(null)
   useEffect(() => {
     if (locationDebounce.current) clearTimeout(locationDebounce.current)
     const loc = filters.location.trim()
-    if (!loc) { setFlyTo(undefined); return }
+    if (!loc) { setFlyTo(homeCoords.current); return }
     locationDebounce.current = setTimeout(async () => {
       try {
         const res  = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(loc)}&format=json&limit=1&countrycodes=us`)
@@ -56,13 +60,31 @@ export function Search() {
     }, 600)
   }, [filters.location])
 
+  // Geocode the user's profile location once it loads; use it as the default map center.
+  useEffect(() => {
+    if (!profile?.location) return
+    if (searchParams.get('location') || filters.location) return
+    fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(profile.location)}&format=json&limit=1&countrycodes=us`)
+      .then(r => r.json())
+      .then(data => {
+        if (data.length > 0) {
+          const coords: [number, number] = [parseFloat(data[0].lat), parseFloat(data[0].lon)]
+          homeCoords.current = coords
+          setFlyTo(coords)
+        }
+      })
+      .catch(() => {})
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profile?.location])
+
   const tutors = useMemo(() => {
     return allTutors.filter(t => {
       const q = filters.query.toLowerCase()
+      const effectiveLocation = (t.tutoringLocation || t.location).toLowerCase()
       const matchesQuery = !q ||
         t.name.toLowerCase().includes(q) ||
         t.subject.toLowerCase().includes(q) ||
-        t.location.toLowerCase().includes(q)
+        effectiveLocation.includes(q)
       const matchesRate   = t.hourlyRate >= filters.minRate && (filters.maxRate >= 300 || t.hourlyRate <= filters.maxRate)
       const matchesRating = t.rating >= filters.minRating
       return matchesQuery && matchesRate && matchesRating
