@@ -23,6 +23,18 @@ interface Resource {
 
 const GRADE_OPTIONS = ['K–5', '6–8', '9–12', 'College', 'All Levels']
 
+// Maps allowed MIME types to a safe file extension used for storage paths.
+// Any file whose MIME type is not in this map is rejected before upload.
+const ALLOWED_MIME_TYPES: Record<string, string> = {
+  'application/pdf':                                                          'pdf',
+  'application/msword':                                                       'doc',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document':  'docx',
+  'application/vnd.ms-powerpoint':                                            'ppt',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation':'pptx',
+  'application/vnd.ms-excel':                                                 'xls',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet':        'xlsx',
+}
+
 function fileTypeLabel(fileName: string): string {
   const ext = fileName.split('.').pop()?.toLowerCase() ?? ''
   if (ext === 'pdf') return 'PDF'
@@ -101,10 +113,15 @@ export function Repository() {
       return
     }
 
+    const safeExt = ALLOWED_MIME_TYPES[selectedFile.type]
+    if (!safeExt) {
+      toast.error('File type not allowed. Please upload a PDF, Word, PowerPoint, or Excel file.')
+      return
+    }
+
     setUploading(true)
 
-    const ext  = selectedFile.name.split('.').pop() ?? 'bin'
-    const path = `${user.id}/${Date.now()}.${ext}`
+    const path = `${user.id}/${Date.now()}.${safeExt}`
 
     const { error: storageError } = await supabase.storage
       .from('resources')
@@ -368,7 +385,15 @@ export function Repository() {
                     type="file"
                     accept=".pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx"
                     className="hidden"
-                    onChange={e => setSelectedFile(e.target.files?.[0] ?? null)}
+                    onChange={e => {
+                      const file = e.target.files?.[0] ?? null
+                      if (file && !ALLOWED_MIME_TYPES[file.type]) {
+                        toast.error('File type not allowed. Please upload a PDF, Word, PowerPoint, or Excel file.')
+                        e.target.value = ''
+                        return
+                      }
+                      setSelectedFile(file)
+                    }}
                   />
                   <button
                     type="button"

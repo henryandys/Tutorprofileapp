@@ -183,6 +183,7 @@ export function TutorMyProfile() {
       .from('bookings')
       .update({ status })
       .eq('id', bookingId)
+      .eq('tutor_id', user!.id)
 
     if (error) {
       toast.error('Failed to update booking.')
@@ -212,7 +213,7 @@ export function TutorMyProfile() {
     if (storagePath) {
       await supabase.storage.from('resources').remove([decodeURIComponent(storagePath)])
     }
-    const { error } = await supabase.from('resources').delete().eq('id', resource.id)
+    const { error } = await supabase.from('resources').delete().eq('id', resource.id).eq('tutor_id', user!.id)
     if (error) {
       toast.error('Failed to remove: ' + error.message)
       return
