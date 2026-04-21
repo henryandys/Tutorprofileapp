@@ -3,7 +3,7 @@ import { useForm } from "react-hook-form";
 import { Navbar } from "../components/Navbar";
 import { User, Mail, Phone, MapPin, Camera, Save, Bell, Shield, CreditCard, GraduationCap, ChevronRight, MessageCircle, Clock } from "lucide-react";
 import { toast } from "sonner";
-import { Link } from "react-router";
+import { Link, useNavigate } from "react-router";
 import { useAuth } from "../../context/AuthContext";
 import { supabase } from "../../lib/supabase";
 import { ConversationModal } from "../components/ConversationModal";
@@ -29,6 +29,7 @@ interface UserProfileForm {
 
 export function UserProfile() {
   const { user, profile, role, refreshProfile } = useAuth()
+  const navigate = useNavigate()
   const [saving, setSaving] = useState(false)
 
   const isTutor = role === 'tutor'
@@ -107,26 +108,27 @@ export function UserProfile() {
 
   function handleNotifClick() {
     if (!user) return
-    // Stamp "last checked" so future counts only show what's newer
     localStorage.setItem(`notifLastCheck_${user.id}`, new Date().toISOString())
-    // Mark all current non-pending booking IDs as seen
-    if (!isTutor) {
-      supabase
-        .from('bookings')
-        .select('id')
-        .eq('student_id', user.id)
-        .neq('status', 'pending')
-        .then(({ data }) => {
-          const ids = (data ?? []).map(b => b.id)
-          const existing: string[] = JSON.parse(localStorage.getItem(`notifSeenBookings_${user.id}`) ?? '[]')
-          localStorage.setItem(
-            `notifSeenBookings_${user.id}`,
-            JSON.stringify([...new Set([...existing, ...ids])])
-          )
-        })
-    }
     setMsgCount(0)
     setSessionNotifCount(0)
+    if (isTutor) {
+      navigate('/my-profile')
+      return
+    }
+    // Students: mark booking IDs as seen, then scroll to section
+    supabase
+      .from('bookings')
+      .select('id')
+      .eq('student_id', user.id)
+      .neq('status', 'pending')
+      .then(({ data }) => {
+        const ids = (data ?? []).map(b => b.id)
+        const existing: string[] = JSON.parse(localStorage.getItem(`notifSeenBookings_${user.id}`) ?? '[]')
+        localStorage.setItem(
+          `notifSeenBookings_${user.id}`,
+          JSON.stringify([...new Set([...existing, ...ids])])
+        )
+      })
     notifSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }
 
