@@ -9,6 +9,7 @@ import {
   ChevronRight, Loader2, Clock, CheckCircle, XCircle, MessageCircle
 } from "lucide-react";
 import { ConversationModal } from "../components/ConversationModal";
+import { sendNotificationEmail } from "../../lib/notify";
 import { toast } from "sonner";
 import { Link } from "react-router";
 import { useAuth } from "../../context/AuthContext";
@@ -42,6 +43,7 @@ interface TutorProfileForm {
 
 interface Booking {
   id:           string;
+  student_id:   string;
   student_name: string;
   subject:      string;
   message:      string;
@@ -65,9 +67,11 @@ export function TutorMyProfile() {
   const { user, profile, refreshProfile } = useAuth()
   const [isEditing, setIsEditing] = useState(false)
   const [saving, setSaving]       = useState(false)
-  const [bookings, setBookings]   = useState<Booking[]>([])
+  const [bookings, setBookings]         = useState<Booking[]>([])
   const [loadingBookings, setLoadingBookings] = useState(true)
-  const [tutorData, setTutorData] = useState<any>(null)
+  const [tutorData, setTutorData]       = useState<any>(null)
+  const [myResources, setMyResources]   = useState<TutorResource[]>([])
+  const [loadingResources, setLoadingResources] = useState(true)
 
   const [availability, setAvailability] = useState<WeekAvail>(DEFAULT_AVAIL)
 
@@ -118,6 +122,17 @@ export function TutorMyProfile() {
       .then(({ data }) => {
         setBookings(data ?? [])
         setLoadingBookings(false)
+      })
+
+    // Fetch this tutor's uploaded resources
+    supabase
+      .from('resources')
+      .select('*')
+      .eq('tutor_id', user.id)
+      .order('created_at', { ascending: false })
+      .then(({ data }) => {
+        setMyResources(data ?? [])
+        setLoadingResources(false)
       })
   }, [user, profile])
 
@@ -174,11 +189,40 @@ export function TutorMyProfile() {
     } else {
       setBookings(prev => prev.map(b => b.id === bookingId ? { ...b, status } : b))
       toast.success(`Booking ${status}.`)
+
+      // Email the student
+      const booking = bookings.find(b => b.id === bookingId)
+      if (booking) {
+        sendNotificationEmail({
+          type: status === 'accepted' ? 'booking_accepted' : 'booking_declined',
+          recipientId: booking.student_id,
+          data: {
+            tutorName:   profile?.full_name ?? 'Your tutor',
+            studentName: booking.student_name,
+            subject:     booking.subject,
+          },
+        })
+      }
     }
   }
 
+  async function handleDeleteResource(resource: TutorResource) {
+    // Extract the storage path from the public URL
+    const storagePath = resource.file_url.split('/storage/v1/object/public/resources/')[1]
+    if (storagePath) {
+      await supabase.storage.from('resources').remove([decodeURIComponent(storagePath)])
+    }
+    const { error } = await supabase.from('resources').delete().eq('id', resource.id)
+    if (error) {
+      toast.error('Failed to remove: ' + error.message)
+      return
+    }
+    setMyResources(prev => prev.filter(r => r.id !== resource.id))
+    toast.success('Resource removed from repository.')
+  }
+
   const pendingCount = bookings.filter(b => b.status === 'pending').length
-  const [chatBooking, setChatBooking] = useState<{ id: string; name: string; subject: string } | null>(null)
+  const [chatBooking, setChatBooking] = useState<{ id: string; name: string; otherUserId: string; subject: string } | null>(null)
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
@@ -526,7 +570,7 @@ export function TutorMyProfile() {
                       {booking.status === 'accepted' && (
                         <button
                           type="button"
-                          onClick={() => setChatBooking({ id: booking.id, name: booking.student_name, subject: booking.subject })}
+                          onClick={() => setChatBooking({ id: booking.id, name: booking.student_name, otherUserId: booking.student_id, subject: booking.subject })}
                           className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 text-white rounded-lg font-bold text-sm hover:bg-blue-700 transition-colors"
                         >
                           <MessageCircle className="w-4 h-4" />
@@ -546,15 +590,66 @@ export function TutorMyProfile() {
               <div>
                 <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2 mb-2">
                   <FileText className="w-6 h-6 text-blue-600" />
-                  Resource Repository
+                  My Repository Files
                 </h2>
-                <p className="text-gray-500 text-sm font-medium">Access and share teaching materials</p>
+                <p className="text-gray-500 text-sm font-medium">Files you've uploaded to the shared repository</p>
               </div>
               <Link to="/repository" className="flex items-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 transition-all shadow-lg">
                 View Repository
                 <ChevronRight className="w-5 h-5" />
               </Link>
             </div>
+
+            {loadingResources ? (
+              <div className="flex justify-center py-8">
+                <Loader2 className="w-6 h-6 animate-spin text-blue-600" />
+              </div>
+            ) : myResources.length === 0 ? (
+              <div className="text-center py-8 border-2 border-dashed border-gray-200 rounded-2xl">
+                <FileText className="w-8 h-8 text-gray-300 mx-auto mb-2" />
+                <p className="text-gray-400 font-medium text-sm">No files uploaded yet.</p>
+                <Link to="/repository" className="text-blue-600 font-bold text-sm hover:underline">
+                  Go to the repository to upload
+                </Link>
+              </div>
+            ) : (
+              <div className="divide-y divide-gray-100">
+                {myResources.map(resource => (
+                  <div key={resource.id} className="flex items-center justify-between gap-4 py-4">
+                    <div className="flex items-center gap-4 min-w-0">
+                      <div className="w-10 h-10 bg-blue-50 text-blue-600 rounded-xl flex items-center justify-center shrink-0">
+                        <FileText className="w-5 h-5" />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="font-bold text-gray-900 truncate">{resource.title}</p>
+                        <p className="text-xs text-gray-400 font-medium">
+                          {resource.subject} · {resource.grade_level} · {resource.downloads} downloads
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <a
+                        href={resource.file_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                        title="View file"
+                      >
+                        <ChevronRight className="w-4 h-4" />
+                      </a>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteResource(resource)}
+                        className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                        title="Remove from repository"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* Save button */}
@@ -577,6 +672,7 @@ export function TutorMyProfile() {
         <ConversationModal
           bookingId={chatBooking.id}
           otherName={chatBooking.name}
+          otherUserId={chatBooking.otherUserId}
           subject={chatBooking.subject}
           onClose={() => setChatBooking(null)}
         />

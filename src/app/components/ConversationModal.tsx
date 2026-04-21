@@ -3,6 +3,7 @@ import { X, Send, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "../../lib/supabase";
 import { useAuth } from "../../context/AuthContext";
+import { sendNotificationEmail } from "../../lib/notify";
 
 interface Message {
   id:         string
@@ -13,13 +14,14 @@ interface Message {
 }
 
 interface Props {
-  bookingId: string
-  otherName: string
-  subject:   string
-  onClose:   () => void
+  bookingId:   string
+  otherName:   string
+  otherUserId: string
+  subject:     string
+  onClose:     () => void
 }
 
-export function ConversationModal({ bookingId, otherName, subject, onClose }: Props) {
+export function ConversationModal({ bookingId, otherName, otherUserId, subject, onClose }: Props) {
   const { user } = useAuth()
   const [messages, setMessages]   = useState<Message[]>([])
   const [loading, setLoading]     = useState(true)
@@ -67,8 +69,16 @@ export function ConversationModal({ bookingId, otherName, subject, onClose }: Pr
       sender_id:  user.id,
       body:       body.trim(),
     })
-    if (error) toast.error('Failed to send: ' + error.message)
-    else setBody('')
+    if (error) {
+      toast.error('Failed to send: ' + error.message)
+    } else {
+      setBody('')
+      sendNotificationEmail({
+        type:        'new_message',
+        recipientId: otherUserId,
+        data:        { senderName: user.email ?? 'Someone', subject },
+      })
+    }
     setSending(false)
   }
 

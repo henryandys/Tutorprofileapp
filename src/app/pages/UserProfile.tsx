@@ -34,7 +34,7 @@ export function UserProfile() {
   const isTutor = role === 'tutor'
 
   const [bookings, setBookings]     = useState<StudentBooking[]>([])
-  const [chatBooking, setChatBooking] = useState<{ id: string; name: string; subject: string } | null>(null)
+  const [chatBooking, setChatBooking] = useState<{ id: string; name: string; otherUserId: string; subject: string } | null>(null)
   const [msgCount, setMsgCount]               = useState(0)
   const [sessionNotifCount, setSessionNotifCount] = useState(0)
 
@@ -443,7 +443,7 @@ export function UserProfile() {
 
                         {b.status === 'accepted' && (
                           <button
-                            onClick={() => setChatBooking({ id: b.id, name: b.tutor?.full_name ?? 'Tutor', subject: b.subject })}
+                            onClick={() => setChatBooking({ id: b.id, name: b.tutor?.full_name ?? 'Tutor', otherUserId: b.tutor_id, subject: b.subject })}
                             className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-xl font-bold text-sm hover:bg-blue-700 transition-colors shrink-0"
                           >
                             <MessageCircle className="w-4 h-4" />
@@ -464,6 +464,7 @@ export function UserProfile() {
         <ConversationModal
           bookingId={chatBooking.id}
           otherName={chatBooking.name}
+          otherUserId={chatBooking.otherUserId}
           subject={chatBooking.subject}
           onClose={() => setChatBooking(null)}
         />

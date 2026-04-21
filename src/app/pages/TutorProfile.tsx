@@ -10,6 +10,7 @@ import { useState, useEffect } from "react";
 import { useAuth } from "../../context/AuthContext";
 import { supabase } from "../../lib/supabase";
 import { toast } from "sonner";
+import { sendNotificationEmail } from "../../lib/notify";
 
 interface Review {
   id: string
@@ -129,6 +130,17 @@ export function TutorProfile() {
     } else {
       toast.success('Lesson request sent! The tutor will get back to you soon.')
       setMessage('')
+      // Email the tutor
+      sendNotificationEmail({
+        type: 'new_booking',
+        recipientId: tutor.id,
+        data: {
+          tutorName:   tutor.name,
+          studentName: studentName,
+          subject:     subject || tutor.subject.split(' & ')[0],
+          message:     message,
+        },
+      })
     }
 
     setSubmitting(false)

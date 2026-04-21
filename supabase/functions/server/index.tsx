@@ -1,8 +1,73 @@
 import { Hono } from "npm:hono";
 import { cors } from "npm:hono/cors";
 import { logger } from "npm:hono/logger";
+import { createClient } from "jsr:@supabase/supabase-js@2.49.8";
 import * as kv from "./kv_store.tsx";
 const app = new Hono();
+
+// ── Email helper ──────────────────────────────────────────────
+
+async function getUserEmail(userId: string): Promise<string | null> {
+  const supabase = createClient(
+    Deno.env.get("SUPABASE_URL")!,
+    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+  );
+  const { data, error } = await supabase.auth.admin.getUserById(userId);
+  if (error || !data?.user?.email) return null;
+  return data.user.email;
+}
+
+async function sendEmail(to: string, subject: string, html: string): Promise<boolean> {
+  const apiKey = Deno.env.get("RESEND_API_KEY");
+  if (!apiKey) {
+    console.error("RESEND_API_KEY not set");
+    return false;
+  }
+  const res = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: { "Authorization": `Bearer ${apiKey}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      from: "TutorFind <notifications@tutorfind.app>",
+      to,
+      subject,
+      html,
+    }),
+  });
+  if (!res.ok) {
+    const body = await res.text();
+    console.error("Resend error:", body);
+    return false;
+  }
+  return true;
+}
+
+const EMAIL_TEMPLATES: Record<string, (data: any) => { subject: string; html: string }> = {
+  new_booking: (d) => ({
+    subject: `New lesson request from ${d.studentName}`,
+    html: `<p>Hi ${d.tutorName},</p>
+           <p><strong>${d.studentName}</strong> has sent you a lesson request for <strong>${d.subject}</strong>.</p>
+           ${d.message ? `<blockquote>${d.message}</blockquote>` : ""}
+           <p><a href="${d.appUrl}/my-profile">View the request</a></p>`,
+  }),
+  booking_accepted: (d) => ({
+    subject: `Your lesson request was accepted!`,
+    html: `<p>Hi ${d.studentName},</p>
+           <p>Your lesson request for <strong>${d.subject}</strong> with <strong>${d.tutorName}</strong> has been <strong style="color:green">accepted</strong>.</p>
+           <p>You can now message your tutor directly. <a href="${d.appUrl}/profile">View your lesson requests</a></p>`,
+  }),
+  booking_declined: (d) => ({
+    subject: `Update on your lesson request`,
+    html: `<p>Hi ${d.studentName},</p>
+           <p>Your lesson request for <strong>${d.subject}</strong> with <strong>${d.tutorName}</strong> has been declined.</p>
+           <p><a href="${d.appUrl}/search">Find another tutor</a></p>`,
+  }),
+  new_message: (d) => ({
+    subject: `New message from ${d.senderName}`,
+    html: `<p>Hi there,</p>
+           <p>You have a new message from <strong>${d.senderName}</strong> regarding <strong>${d.subject}</strong>.</p>
+           <p><a href="${d.appUrl}/profile">View your messages</a></p>`,
+  }),
+};
 
 // Enable logger
 app.use('*', logger(console.log));
@@ -22,6 +87,41 @@ app.use(
 // Health check endpoint
 app.get("/make-server-3c6c6b51/health", (c) => {
   return c.json({ status: "ok" });
+});
+
+// ==================== NOTIFICATION ROUTE ====================
+
+app.post("/make-server-3c6c6b51/notify", async (c) => {
+  try {
+    const { type, recipientId, data } = await c.req.json();
+
+    if (!type || !recipientId) {
+      return c.json({ error: "Missing type or recipientId" }, 400);
+    }
+
+    const template = EMAIL_TEMPLATES[type];
+    if (!template) {
+      return c.json({ error: `Unknown notification type: ${type}` }, 400);
+    }
+
+    const email = await getUserEmail(recipientId);
+    if (!email) {
+      return c.json({ error: "Recipient email not found" }, 404);
+    }
+
+    const appUrl = data.appUrl ?? "https://tutorfind.app";
+    const { subject, html } = template({ ...data, appUrl });
+    const sent = await sendEmail(email, subject, html);
+
+    if (!sent) {
+      return c.json({ error: "Failed to send email" }, 500);
+    }
+
+    return c.json({ ok: true });
+  } catch (error) {
+    console.error("Notify error:", error);
+    return c.json({ error: "Internal server error" }, 500);
+  }
 });
 
 // ==================== TUTOR ROUTES ====================
