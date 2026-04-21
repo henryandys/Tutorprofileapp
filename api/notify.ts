@@ -68,7 +68,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   // Look up recipient email via admin client
   const { data: authData, error: authError } = await supabaseAdmin.auth.admin.getUserById(recipientId)
   if (authError || !authData?.user?.email) {
-    return res.status(404).json({ error: 'Recipient not found' })
+    return res.status(200).json({ ok: true })
   }
   const toEmail = authData.user.email
 
