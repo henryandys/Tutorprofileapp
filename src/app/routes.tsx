@@ -7,6 +7,7 @@ import { UserProfile } from "./pages/UserProfile";
 import { Repository } from "./pages/Repository";
 import Login from "./pages/Login";
 import { TutorMyProfile } from "./pages/TutorMyProfile";
+import { PrivacySecurity } from "./pages/PrivacySecurity";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 
 export const router = createBrowserRouter([
@@ -41,6 +42,14 @@ export const router = createBrowserRouter([
     element: (
       <ProtectedRoute>
         <Repository />
+      </ProtectedRoute>
+    ),
+  },
+  {
+    path: "/privacy-security",
+    element: (
+      <ProtectedRoute>
+        <PrivacySecurity />
       </ProtectedRoute>
     ),
   },

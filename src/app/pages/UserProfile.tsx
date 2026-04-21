@@ -1,11 +1,22 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useForm } from "react-hook-form";
 import { Navbar } from "../components/Navbar";
-import { User, Mail, Phone, MapPin, Camera, Save, Bell, Shield, CreditCard, GraduationCap, ChevronRight } from "lucide-react";
+import { User, Mail, Phone, MapPin, Camera, Save, Bell, Shield, CreditCard, GraduationCap, ChevronRight, MessageCircle, Clock } from "lucide-react";
 import { toast } from "sonner";
 import { Link } from "react-router";
 import { useAuth } from "../../context/AuthContext";
 import { supabase } from "../../lib/supabase";
+import { ConversationModal } from "../components/ConversationModal";
+
+interface StudentBooking {
+  id:          string
+  tutor_id:    string
+  subject:     string
+  message:     string
+  status:      'pending' | 'accepted' | 'declined'
+  created_at:  string
+  tutor:       { full_name: string } | null
+}
 
 interface UserProfileForm {
   firstName: string;
@@ -22,23 +33,107 @@ export function UserProfile() {
 
   const isTutor = role === 'tutor'
 
-  // Split full_name into first/last for the form
-  const nameParts = (profile?.full_name ?? '').split(' ')
-  const firstName = nameParts[0] ?? ''
-  const lastName  = nameParts.slice(1).join(' ')
+  const [bookings, setBookings]     = useState<StudentBooking[]>([])
+  const [chatBooking, setChatBooking] = useState<{ id: string; name: string; subject: string } | null>(null)
+  const [msgCount, setMsgCount]               = useState(0)
+  const [sessionNotifCount, setSessionNotifCount] = useState(0)
 
-  const { register, handleSubmit, reset, formState: { errors } } = useForm<UserProfileForm>({
-    defaultValues: {
-      firstName: '',
-      lastName:  '',
-      email:     '',
-      phone:     '',
-      location:  '',
-      bio:       '',
+  const notifSectionRef = useRef<HTMLDivElement>(null)
+
+  // Fetch notification counts — only items newer than the user's last check
+  useEffect(() => {
+    if (!user) return
+    const lastCheck  = localStorage.getItem(`notifLastCheck_${user.id}`)  ?? new Date(0).toISOString()
+    const seenIds: string[] = JSON.parse(localStorage.getItem(`notifSeenBookings_${user.id}`) ?? '[]')
+
+    if (!isTutor) {
+      supabase
+        .from('bookings')
+        .select('id, status')
+        .eq('student_id', user.id)
+        .then(({ data }) => {
+          const all = data ?? []
+          const newStatus = all.filter(b => b.status !== 'pending' && !seenIds.includes(b.id))
+          setSessionNotifCount(newStatus.length)
+          const acceptedIds = all.filter(b => b.status === 'accepted').map(b => b.id)
+          if (acceptedIds.length > 0) {
+            supabase
+              .from('messages')
+              .select('id', { count: 'exact', head: true })
+              .in('booking_id', acceptedIds)
+              .neq('sender_id', user.id)
+              .gt('created_at', lastCheck)
+              .then(({ count }) => setMsgCount(count ?? 0))
+          }
+        })
+    } else {
+      supabase
+        .from('bookings')
+        .select('id', { count: 'exact', head: true })
+        .eq('tutor_id', user.id)
+        .eq('status', 'pending')
+        .gt('created_at', lastCheck)
+        .then(({ count }) => setSessionNotifCount(count ?? 0))
+      supabase
+        .from('bookings')
+        .select('id')
+        .eq('tutor_id', user.id)
+        .eq('status', 'accepted')
+        .then(({ data }) => {
+          const ids = (data ?? []).map(b => b.id)
+          if (ids.length > 0) {
+            supabase
+              .from('messages')
+              .select('id', { count: 'exact', head: true })
+              .in('booking_id', ids)
+              .neq('sender_id', user.id)
+              .gt('created_at', lastCheck)
+              .then(({ count }) => setMsgCount(count ?? 0))
+          }
+        })
     }
+  }, [user, isTutor])
+
+  // Fetch student bookings for the My Lesson Requests section
+  useEffect(() => {
+    if (!user) return
+    supabase
+      .from('bookings')
+      .select('*, tutor:tutor_id(full_name)')
+      .eq('student_id', user.id)
+      .order('created_at', { ascending: false })
+      .then(({ data }) => setBookings((data ?? []) as StudentBooking[]))
+  }, [user])
+
+  function handleNotifClick() {
+    if (!user) return
+    // Stamp "last checked" so future counts only show what's newer
+    localStorage.setItem(`notifLastCheck_${user.id}`, new Date().toISOString())
+    // Mark all current non-pending booking IDs as seen
+    if (!isTutor) {
+      supabase
+        .from('bookings')
+        .select('id')
+        .eq('student_id', user.id)
+        .neq('status', 'pending')
+        .then(({ data }) => {
+          const ids = (data ?? []).map(b => b.id)
+          const existing: string[] = JSON.parse(localStorage.getItem(`notifSeenBookings_${user.id}`) ?? '[]')
+          localStorage.setItem(
+            `notifSeenBookings_${user.id}`,
+            JSON.stringify([...new Set([...existing, ...ids])])
+          )
+        })
+    }
+    setMsgCount(0)
+    setSessionNotifCount(0)
+    notifSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
+
+  const { register, handleSubmit, reset } = useForm<UserProfileForm>({
+    defaultValues: { firstName: '', lastName: '', email: '', phone: '', location: '', bio: '' }
   })
 
-  // Populate form once profile loads
   useEffect(() => {
     if (profile && user) {
       const parts = (profile.full_name ?? '').split(' ')
@@ -46,7 +141,7 @@ export function UserProfile() {
         firstName: parts[0] ?? '',
         lastName:  parts.slice(1).join(' '),
         email:     user.email ?? '',
-        phone:     '',   // not in schema yet — extend if needed
+        phone:     '',
         location:  profile.location ?? '',
         bio:       profile.bio ?? '',
       })
@@ -56,7 +151,6 @@ export function UserProfile() {
   const onSubmit = async (data: UserProfileForm) => {
     if (!user) return
     setSaving(true)
-
     const { error } = await supabase
       .from('profiles')
       .update({
@@ -66,16 +160,16 @@ export function UserProfile() {
         updated_at: new Date().toISOString(),
       })
       .eq('id', user.id)
-
     if (error) {
       toast.error('Failed to save: ' + error.message)
     } else {
       await refreshProfile()
       toast.success('Profile updated successfully!')
     }
-
     setSaving(false)
   }
+
+  const totalNotifCount = msgCount + sessionNotifCount
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col font-sans">
@@ -83,9 +177,9 @@ export function UserProfile() {
 
       <main className="flex-1 max-w-6xl mx-auto w-full px-4 md:px-8 py-10">
 
-        {/* Tutor banner */}
+        {/* Tutor banner — also serves as the scroll target for tutors' notifications */}
         {isTutor && (
-          <div className="mb-6 bg-gradient-to-r from-blue-600 to-purple-600 rounded-3xl p-6 shadow-lg">
+          <div ref={notifSectionRef} className="mb-6 bg-gradient-to-r from-blue-600 to-purple-600 rounded-3xl p-6 shadow-lg">
             <div className="flex flex-col md:flex-row items-center justify-between gap-4">
               <div className="flex items-center gap-4">
                 <div className="w-16 h-16 bg-white/20 backdrop-blur-sm rounded-full flex items-center justify-center">
@@ -144,14 +238,41 @@ export function UserProfile() {
                   <User className="w-4 h-4" />
                   Personal Info
                 </button>
-                <button className="w-full flex items-center gap-3 px-4 py-3 text-gray-600 hover:bg-gray-50 rounded-xl font-bold text-sm transition-colors">
-                  <Bell className="w-4 h-4" />
+
+                <button
+                  onClick={handleNotifClick}
+                  className="w-full flex items-center gap-3 px-4 py-3 text-gray-600 hover:bg-gray-50 rounded-xl font-bold text-sm transition-colors"
+                >
+                  <div className="relative shrink-0">
+                    <Bell className="w-4 h-4" />
+                    {totalNotifCount > 0 && (
+                      <span className="absolute -top-1 -right-1 w-2 h-2 bg-red-500 rounded-full" />
+                    )}
+                  </div>
                   Notifications
+                  {totalNotifCount > 0 && (
+                    <div className="ml-auto flex items-center gap-1">
+                      {msgCount > 0 && (
+                        <span className="bg-blue-600 text-white text-[10px] font-bold rounded-full px-1.5 py-0.5 min-w-[1.1rem] text-center leading-none">
+                          {msgCount}
+                        </span>
+                      )}
+                      {sessionNotifCount > 0 && (
+                        <span className="bg-red-500 text-white text-[10px] font-bold rounded-full px-1.5 py-0.5 min-w-[1.1rem] text-center leading-none">
+                          {sessionNotifCount}
+                        </span>
+                      )}
+                    </div>
+                  )}
                 </button>
-                <button className="w-full flex items-center gap-3 px-4 py-3 text-gray-600 hover:bg-gray-50 rounded-xl font-bold text-sm transition-colors">
+
+                <Link
+                  to="/privacy-security"
+                  className="w-full flex items-center gap-3 px-4 py-3 text-gray-600 hover:bg-gray-50 rounded-xl font-bold text-sm transition-colors"
+                >
                   <Shield className="w-4 h-4" />
                   Privacy & Security
-                </button>
+                </Link>
                 <button className="w-full flex items-center gap-3 px-4 py-3 text-gray-600 hover:bg-gray-50 rounded-xl font-bold text-sm transition-colors">
                   <CreditCard className="w-4 h-4" />
                   Payments
@@ -275,9 +396,78 @@ export function UserProfile() {
                 </div>
               </form>
             </div>
+
+            {/* My Lesson Requests — also scroll target for students' notifications */}
+            {!isTutor && (
+              <div ref={notifSectionRef} className="mt-8 bg-white rounded-3xl border border-gray-200 shadow-sm overflow-hidden">
+                <header className="px-8 py-6 border-b border-gray-100 flex items-center gap-3">
+                  <Clock className="w-5 h-5 text-blue-600" />
+                  <h2 className="text-xl font-black text-gray-900">My Lesson Requests</h2>
+                  {sessionNotifCount > 0 && (
+                    <span className="ml-1 px-2 py-0.5 bg-red-500 text-white text-xs font-bold rounded-full">
+                      {sessionNotifCount} new
+                    </span>
+                  )}
+                  {msgCount > 0 && (
+                    <span className="px-2 py-0.5 bg-blue-600 text-white text-xs font-bold rounded-full">
+                      {msgCount} message{msgCount !== 1 ? 's' : ''}
+                    </span>
+                  )}
+                </header>
+
+                {bookings.length === 0 ? (
+                  <p className="px-8 py-10 text-gray-400 font-medium text-sm text-center">
+                    No lesson requests yet.{' '}
+                    <Link to="/search" className="text-blue-600 font-bold hover:underline">Find a tutor</Link>
+                  </p>
+                ) : (
+                  <div className="divide-y divide-gray-100">
+                    {bookings.map(b => (
+                      <div key={b.id} className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 px-8 py-5 hover:bg-gray-50 transition-colors">
+                        <div className="flex flex-col gap-1">
+                          <div className="flex items-center gap-2">
+                            <span className="font-bold text-gray-900">{b.tutor?.full_name ?? 'Tutor'}</span>
+                            <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${
+                              b.status === 'pending'  ? 'bg-yellow-100 text-yellow-700' :
+                              b.status === 'accepted' ? 'bg-green-100 text-green-700' :
+                                                        'bg-red-100 text-red-600'
+                            }`}>
+                              {b.status}
+                            </span>
+                          </div>
+                          <span className="text-sm font-bold text-blue-600">{b.subject}</span>
+                          <span className="text-xs text-gray-400">
+                            {new Date(b.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                          </span>
+                        </div>
+
+                        {b.status === 'accepted' && (
+                          <button
+                            onClick={() => setChatBooking({ id: b.id, name: b.tutor?.full_name ?? 'Tutor', subject: b.subject })}
+                            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-xl font-bold text-sm hover:bg-blue-700 transition-colors shrink-0"
+                          >
+                            <MessageCircle className="w-4 h-4" />
+                            Message
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
       </main>
+
+      {chatBooking && (
+        <ConversationModal
+          bookingId={chatBooking.id}
+          otherName={chatBooking.name}
+          subject={chatBooking.subject}
+          onClose={() => setChatBooking(null)}
+        />
+      )}
     </div>
   )
 }

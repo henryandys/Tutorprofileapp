@@ -1,13 +1,25 @@
 import { useState } from "react";
 import { Navbar } from "../components/Navbar";
-import { Search as SearchIcon, MapPin, CheckCircle, Star, Users, ArrowRight } from "lucide-react";
+import { Search as SearchIcon, MapPin, Star, Users, ArrowRight } from "lucide-react";
 import { Link, useNavigate } from "react-router";
-import { ImageWithFallback } from "../components/figma/ImageWithFallback";
+import { toast } from "sonner";
+import { useAuth } from "../../context/AuthContext";
 
 export function Home() {
   const navigate = useNavigate()
+  const { role }  = useAuth()
   const [subject, setSubject]   = useState("")
   const [location, setLocation] = useState("")
+
+  function handleBecomeTutor(e: React.MouseEvent) {
+    e.preventDefault()
+    if (role === 'tutor') {
+      toast.info("You're already a tutor! Redirecting to your profile.")
+      navigate('/my-profile')
+    } else {
+      navigate('/become-a-tutor')
+    }
+  }
 
   function handleSearch(e: React.FormEvent) {
     e.preventDefault()
@@ -25,11 +37,6 @@ export function Home() {
       <section className="relative pt-20 pb-32 overflow-hidden">
         <div className="container mx-auto px-6 relative z-10">
           <div className="max-w-4xl mx-auto text-center flex flex-col items-center">
-            <div className="inline-flex items-center gap-2 px-4 py-2 bg-blue-50 text-blue-700 rounded-full font-bold text-sm mb-8 animate-bounce">
-              <Star className="w-4 h-4 fill-blue-700" />
-              Rated #1 Tutor Marketplace in 2026
-            </div>
-            
             <h1 className="text-5xl md:text-7xl font-black text-gray-900 tracking-tight leading-none mb-8">
               Find the perfect tutor <br />
               <span className="text-blue-600">in your neighborhood.</span>
@@ -68,20 +75,6 @@ export function Home() {
               </button>
             </form>
 
-            <div className="mt-8 flex flex-wrap justify-center gap-6">
-              <div className="flex items-center gap-2">
-                <CheckCircle className="w-5 h-5 text-green-500" />
-                <span className="font-bold text-gray-600">Verified Tutors</span>
-              </div>
-              <div className="flex items-center gap-2">
-                
-                
-              </div>
-              <div className="flex items-center gap-2">
-                <CheckCircle className="w-5 h-5 text-green-500" />
-                <span className="font-bold text-gray-600">No Commitments</span>
-              </div>
-            </div>
           </div>
         </div>
 
@@ -111,9 +104,9 @@ export function Home() {
               </div>
               <h3 className="text-2xl font-black text-gray-900 leading-tight">For Tutors</h3>
               <p className="text-gray-500 font-medium">Join our community of world-class educators. Set your own rates, manage your schedule, and grow your business.</p>
-              <Link to="/become-a-tutor" className="text-green-600 font-black flex items-center gap-2 hover:gap-3 transition-all">
+              <a href="/become-a-tutor" onClick={handleBecomeTutor} className="text-green-600 font-black flex items-center gap-2 hover:gap-3 transition-all">
                 Start tutoring <ArrowRight className="w-4 h-4" />
-              </Link>
+              </a>
             </div>
 
             <div className="flex flex-col gap-6 p-8 bg-white rounded-3xl shadow-sm border border-gray-100">
@@ -142,36 +135,14 @@ export function Home() {
               <p className="text-gray-500 font-medium">Making expert education accessible to every neighborhood across the country.</p>
             </div>
             
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-12 md:gap-24">
-              <div className="flex flex-col gap-4">
+            <div className="flex flex-col gap-4">
                 <h4 className="font-black text-gray-900 uppercase tracking-widest text-xs">Platform</h4>
                 <Link to="/search" className="text-gray-500 font-bold hover:text-blue-600">Find Tutors</Link>
                 <Link to="/repository" className="text-gray-500 font-bold hover:text-blue-600">Repository</Link>
-                <Link to="/become-a-tutor" className="text-gray-500 font-bold hover:text-blue-600">Become a Tutor</Link>
-              </div>
-              <div className="flex flex-col gap-4">
-                <h4 className="font-black text-gray-900 uppercase tracking-widest text-xs">Support</h4>
-                <a href="#" className="text-gray-500 font-bold hover:text-blue-600">Help Center</a>
-                <a href="#" className="text-gray-500 font-bold hover:text-blue-600">Safety Guide</a>
-                <a href="#" className="text-gray-500 font-bold hover:text-blue-600">Pricing</a>
-              </div>
-              <div className="flex flex-col gap-4">
-                <h4 className="font-black text-gray-900 uppercase tracking-widest text-xs">Legal</h4>
-                <a href="#" className="text-gray-500 font-bold hover:text-blue-600">Privacy</a>
-                <a href="#" className="text-gray-500 font-bold hover:text-blue-600">Terms</a>
-                <a href="#" className="text-gray-500 font-bold hover:text-blue-600">Cookies</a>
-              </div>
+                <a href="/become-a-tutor" onClick={handleBecomeTutor} className="text-gray-500 font-bold hover:text-blue-600">Become a Tutor</a>
             </div>
           </div>
           
-          <div className="pt-12 border-t border-gray-100 flex flex-col md:flex-row justify-between items-center gap-6">
-            <p className="text-gray-400 font-bold text-sm">© 2026 TutorFind Technologies Inc. All rights reserved.</p>
-            <div className="flex gap-6">
-              <div className="w-10 h-10 bg-gray-50 rounded-full" />
-              <div className="w-10 h-10 bg-gray-50 rounded-full" />
-              <div className="w-10 h-10 bg-gray-50 rounded-full" />
-            </div>
-          </div>
         </div>
       </footer>
     </div>

@@ -5,9 +5,10 @@ import { useForm, useFieldArray } from "react-hook-form";
 import { Navbar } from "../components/Navbar";
 import {
   User, BookOpen, DollarSign, MapPin, GraduationCap, Briefcase,
-  Plus, X, Save, Camera, Users, Award, Star, FileText,
-  ChevronRight, Loader2, Clock, CheckCircle, XCircle
+  Plus, X, Save, Camera, Award, Star, FileText,
+  ChevronRight, Loader2, Clock, CheckCircle, XCircle, MessageCircle
 } from "lucide-react";
+import { ConversationModal } from "../components/ConversationModal";
 import { toast } from "sonner";
 import { Link } from "react-router";
 import { useAuth } from "../../context/AuthContext";
@@ -162,6 +163,7 @@ export function TutorMyProfile() {
   }
 
   const pendingCount = bookings.filter(b => b.status === 'pending').length
+  const [chatBooking, setChatBooking] = useState<{ id: string; name: string; subject: string } | null>(null)
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
@@ -465,26 +467,38 @@ export function TutorMyProfile() {
                       </span>
                     </div>
 
-                    {booking.status === 'pending' && (
-                      <div className="flex items-center gap-2 shrink-0">
+                    <div className="flex items-center gap-2 shrink-0">
+                      {booking.status === 'pending' && (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => updateBookingStatus(booking.id, 'accepted')}
+                            className="flex items-center gap-1.5 px-4 py-2 bg-green-600 text-white rounded-lg font-bold text-sm hover:bg-green-700 transition-colors"
+                          >
+                            <CheckCircle className="w-4 h-4" />
+                            Accept
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => updateBookingStatus(booking.id, 'declined')}
+                            className="flex items-center gap-1.5 px-4 py-2 bg-red-100 text-red-600 rounded-lg font-bold text-sm hover:bg-red-200 transition-colors"
+                          >
+                            <XCircle className="w-4 h-4" />
+                            Decline
+                          </button>
+                        </>
+                      )}
+                      {booking.status === 'accepted' && (
                         <button
                           type="button"
-                          onClick={() => updateBookingStatus(booking.id, 'accepted')}
-                          className="flex items-center gap-1.5 px-4 py-2 bg-green-600 text-white rounded-lg font-bold text-sm hover:bg-green-700 transition-colors"
+                          onClick={() => setChatBooking({ id: booking.id, name: booking.student_name, subject: booking.subject })}
+                          className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 text-white rounded-lg font-bold text-sm hover:bg-blue-700 transition-colors"
                         >
-                          <CheckCircle className="w-4 h-4" />
-                          Accept
+                          <MessageCircle className="w-4 h-4" />
+                          Message
                         </button>
-                        <button
-                          type="button"
-                          onClick={() => updateBookingStatus(booking.id, 'declined')}
-                          className="flex items-center gap-1.5 px-4 py-2 bg-red-100 text-red-600 rounded-lg font-bold text-sm hover:bg-red-200 transition-colors"
-                        >
-                          <XCircle className="w-4 h-4" />
-                          Decline
-                        </button>
-                      </div>
-                    )}
+                      )}
+                    </div>
                   </div>
                 ))}
               </div>
@@ -523,6 +537,15 @@ export function TutorMyProfile() {
           )}
         </form>
       </main>
+
+      {chatBooking && (
+        <ConversationModal
+          bookingId={chatBooking.id}
+          otherName={chatBooking.name}
+          subject={chatBooking.subject}
+          onClose={() => setChatBooking(null)}
+        />
+      )}
     </div>
   )
 }
