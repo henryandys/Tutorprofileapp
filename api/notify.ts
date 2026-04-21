@@ -6,35 +6,58 @@ const supabaseAdmin = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!,
 )
 
+// Verify the caller is an authenticated Supabase user
+async function getCallerUserId(req: VercelRequest): Promise<string | null> {
+  const auth = req.headers['authorization']
+  if (!auth?.startsWith('Bearer ')) return null
+  const token = auth.slice(7)
+  const client = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_ANON_KEY!)
+  const { data, error } = await client.auth.getUser(token)
+  if (error || !data?.user) return null
+  return data.user.id
+}
+
+function h(str: unknown): string {
+  return String(str ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#x27;')
+}
+
 const EMAIL_TEMPLATES: Record<string, (d: any) => { subject: string; html: string }> = {
   new_booking: (d) => ({
-    subject: `New lesson request from ${d.studentName}`,
-    html: `<p>Hi ${d.tutorName},</p>
-           <p><strong>${d.studentName}</strong> sent you a lesson request for <strong>${d.subject}</strong>.</p>
-           ${d.message ? `<blockquote style="border-left:3px solid #2563eb;padding-left:12px;color:#555">${d.message}</blockquote>` : ''}
-           <p><a href="${d.appUrl}/my-profile">Review the request →</a></p>`,
+    subject: `New lesson request from ${h(d.studentName)}`,
+    html: `<p>Hi ${h(d.tutorName)},</p>
+           <p><strong>${h(d.studentName)}</strong> sent you a lesson request for <strong>${h(d.subject)}</strong>.</p>
+           ${d.message ? `<blockquote style="border-left:3px solid #2563eb;padding-left:12px;color:#555">${h(d.message)}</blockquote>` : ''}
+           <p><a href="${h(d.appUrl)}/my-profile">Review the request →</a></p>`,
   }),
   booking_accepted: (d) => ({
     subject: `Your lesson request was accepted!`,
-    html: `<p>Hi ${d.studentName},</p>
-           <p>Your lesson request for <strong>${d.subject}</strong> with <strong>${d.tutorName}</strong> has been <strong style="color:#16a34a">accepted</strong>.</p>
-           <p>You can now message your tutor. <a href="${d.appUrl}/profile">View your requests →</a></p>`,
+    html: `<p>Hi ${h(d.studentName)},</p>
+           <p>Your lesson request for <strong>${h(d.subject)}</strong> with <strong>${h(d.tutorName)}</strong> has been <strong style="color:#16a34a">accepted</strong>.</p>
+           <p>You can now message your tutor. <a href="${h(d.appUrl)}/profile">View your requests →</a></p>`,
   }),
   booking_declined: (d) => ({
     subject: `Update on your lesson request`,
-    html: `<p>Hi ${d.studentName},</p>
-           <p>Your lesson request for <strong>${d.subject}</strong> with <strong>${d.tutorName}</strong> was declined.</p>
-           <p><a href="${d.appUrl}/search">Find another tutor →</a></p>`,
+    html: `<p>Hi ${h(d.studentName)},</p>
+           <p>Your lesson request for <strong>${h(d.subject)}</strong> with <strong>${h(d.tutorName)}</strong> was declined.</p>
+           <p><a href="${h(d.appUrl)}/search">Find another tutor →</a></p>`,
   }),
   new_message: (d) => ({
-    subject: `New message from ${d.senderName}`,
-    html: `<p>You have a new message from <strong>${d.senderName}</strong> about <strong>${d.subject}</strong>.</p>
-           <p><a href="${d.appUrl}/profile">View your messages →</a></p>`,
+    subject: `New message from ${h(d.senderName)}`,
+    html: `<p>You have a new message from <strong>${h(d.senderName)}</strong> about <strong>${h(d.subject)}</strong>.</p>
+           <p><a href="${h(d.appUrl)}/profile">View your messages →</a></p>`,
   }),
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') return res.status(405).end()
+
+  const callerId = await getCallerUserId(req)
+  if (!callerId) return res.status(401).json({ error: 'Unauthorized' })
 
   const { type, recipientId, data } = req.body ?? {}
   if (!type || !recipientId) return res.status(400).json({ error: 'Missing type or recipientId' })
