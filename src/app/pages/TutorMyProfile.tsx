@@ -5,7 +5,7 @@ import { useForm, useFieldArray } from "react-hook-form";
 import { Navbar } from "../components/Navbar";
 import {
   User, BookOpen, DollarSign, MapPin, GraduationCap, Briefcase,
-  Plus, X, Save, Camera, Award, Star, FileText,
+  Plus, X, Save, Camera, Award, Star, FileText, Calendar,
   ChevronRight, Loader2, Clock, CheckCircle, XCircle, MessageCircle
 } from "lucide-react";
 import { ConversationModal } from "../components/ConversationModal";
@@ -36,6 +36,7 @@ interface TutorProfileForm {
   bio:              string;
   education:        string;
   experience:       string;
+  policy:           string;
   specialties:      { value: string }[];
 }
 
@@ -46,6 +47,18 @@ interface Booking {
   message:      string;
   status:       'pending' | 'accepted' | 'declined';
   created_at:   string;
+}
+
+interface TutorResource {
+  id:          string;
+  title:       string;
+  subject:     string;
+  grade_level: string;
+  file_url:    string;
+  file_name:   string;
+  file_type:   string;
+  downloads:   number;
+  created_at:  string;
 }
 
 export function TutorMyProfile() {
@@ -91,6 +104,7 @@ export function TutorMyProfile() {
           bio:              profile?.bio ?? '',
           education:        data?.education ?? '',
           experience:       data?.experience_yrs ? `${data.experience_yrs} years` : '',
+          policy:           data?.policy ?? '',
           specialties:      (data?.subjects ?? []).map((s: string) => ({ value: s })),
         })
       })
@@ -134,6 +148,7 @@ export function TutorMyProfile() {
         experience_yrs:    experienceYrs,
         subjects:          data.specialties.map(s => s.value).filter(Boolean),
         availability:      availability,
+        policy:            data.policy,
         is_available:      true,
       }, { onConflict: 'id' })
 
@@ -274,6 +289,26 @@ export function TutorMyProfile() {
                 {...register("bio")}
                 disabled={!isEditing}
                 rows={4}
+                className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium text-gray-800 bg-gray-50 disabled:bg-gray-100 disabled:text-gray-600"
+              />
+            </div>
+          </div>
+
+          {/* Policy */}
+          <div className="bg-white rounded-3xl shadow-lg border border-gray-100 p-8">
+            <h2 className="text-xl font-bold text-gray-900 mb-6 flex items-center gap-2">
+              <Calendar className="w-6 h-6 text-blue-600" />
+              Session Policy
+            </h2>
+            <div className="flex flex-col gap-1.5">
+              <label className="text-xs font-bold text-gray-400 uppercase tracking-widest px-1">
+                Cancellation, Payment & Session Rules
+              </label>
+              <textarea
+                {...register("policy")}
+                disabled={!isEditing}
+                rows={4}
+                placeholder="e.g. 24-hour cancellation notice required. Payment due before session. Sessions held via Zoom or in-person."
                 className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium text-gray-800 bg-gray-50 disabled:bg-gray-100 disabled:text-gray-600"
               />
             </div>

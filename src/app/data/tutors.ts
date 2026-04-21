@@ -21,6 +21,7 @@ export interface Tutor {
   education:        string
   experience:       string
   availability:     WeeklyAvailability
+  policy:           string
   coordinates:      { x: number; y: number }
   lat:              number | null
   lng:              number | null
@@ -96,6 +97,7 @@ function rowToTutor(row: any): Tutor {
     tutoringLocation: row.tutoring_location ?? '',
     bio:              row.bio ?? '',
     availability:     (row.availability as WeeklyAvailability) ?? {},
+    policy:           row.policy ?? '',
     imageUrl:    row.avatar_url ?? '',
     education:   row.education ?? '',
     experience:  row.experience_yrs != null

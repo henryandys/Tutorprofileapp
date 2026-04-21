@@ -282,15 +282,17 @@ export function TutorProfile() {
                     </p>
                   </div>
                 </div>
-                <div className="flex gap-4">
-                  <div className="w-12 h-12 bg-orange-100 rounded-2xl flex items-center justify-center shrink-0">
-                    <Calendar className="w-6 h-6 text-orange-600" />
+                {tutor.policy && (
+                  <div className="flex gap-4">
+                    <div className="w-12 h-12 bg-orange-100 rounded-2xl flex items-center justify-center shrink-0">
+                      <Calendar className="w-6 h-6 text-orange-600" />
+                    </div>
+                    <div>
+                      <h4 className="text-lg font-bold text-gray-900">Policy</h4>
+                      <p className="text-gray-600 font-medium">{tutor.policy}</p>
+                    </div>
                   </div>
-                  <div>
-                    <h4 className="text-lg font-bold text-gray-900">Policy</h4>
-                    <p className="text-gray-600 font-medium">24-hour cancellation notice required</p>
-                  </div>
-                </div>
+                )}
                 {tutor.tutoringLocation && (
                   <div className="flex gap-4">
                     <div className="w-12 h-12 bg-red-100 rounded-2xl flex items-center justify-center shrink-0">

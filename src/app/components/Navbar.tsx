@@ -28,7 +28,7 @@ export function Navbar() {
         </Link>
         <div className="hidden lg:flex items-center gap-6">
           <Link to="/search" className="text-sm font-semibold text-gray-600 hover:text-blue-600">Find Tutors</Link>
-          <Link to="/become-a-tutor" className="text-sm font-semibold text-gray-600 hover:text-blue-600">For Tutors</Link>
+          <Link to="/for-tutors" className="text-sm font-semibold text-gray-600 hover:text-blue-600">For Tutors</Link>
         </div>
       </div>
 

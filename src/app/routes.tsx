@@ -8,6 +8,7 @@ import { Repository } from "./pages/Repository";
 import Login from "./pages/Login";
 import { TutorMyProfile } from "./pages/TutorMyProfile";
 import { PrivacySecurity } from "./pages/PrivacySecurity";
+import { ForTutors } from "./pages/ForTutors";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 
 export const router = createBrowserRouter([
@@ -18,6 +19,10 @@ export const router = createBrowserRouter([
   {
     path: "/search",
     Component: Search,
+  },
+  {
+    path: "/for-tutors",
+    Component: ForTutors,
   },
   {
     path: "/tutor/:id",
