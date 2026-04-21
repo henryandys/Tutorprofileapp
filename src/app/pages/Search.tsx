@@ -44,8 +44,9 @@ export function Search() {
 
   // Geocode location field → fly map there (debounced).
   // When cleared, fall back to the user's geocoded home coords (if available).
-  const [flyTo, setFlyTo]   = useState<[number, number] | undefined>(undefined)
-  const homeCoords          = useRef<[number, number] | undefined>(undefined)
+  const cachedHome = (() => { try { const s = sessionStorage.getItem('userHomeCoords'); return s ? JSON.parse(s) as [number, number] : undefined } catch { return undefined } })()
+  const [flyTo, setFlyTo]   = useState<[number, number] | undefined>(cachedHome)
+  const homeCoords          = useRef<[number, number] | undefined>(cachedHome)
   const locationDebounce    = useRef<ReturnType<typeof setTimeout> | null>(null)
   useEffect(() => {
     if (locationDebounce.current) clearTimeout(locationDebounce.current)
@@ -64,12 +65,15 @@ export function Search() {
   useEffect(() => {
     if (!profile?.location) return
     if (searchParams.get('location') || filters.location) return
+    // If we already have a cached value for this session, skip the fetch
+    if (homeCoords.current) return
     fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(profile.location)}&format=json&limit=1&countrycodes=us`)
       .then(r => r.json())
       .then(data => {
         if (data.length > 0) {
           const coords: [number, number] = [parseFloat(data[0].lat), parseFloat(data[0].lon)]
           homeCoords.current = coords
+          try { sessionStorage.setItem('userHomeCoords', JSON.stringify(coords)) } catch { /* ignore */ }
           setFlyTo(coords)
         }
       })
@@ -152,6 +156,7 @@ export function Search() {
             selectedId={selectedTutorId}
             onSelect={id => setSelectedTutorId(id)}
             flyTo={flyTo}
+            initialCenter={homeCoords.current}
           />
 
           {/* Selected tutor detail card — floats over map */}

@@ -10,6 +10,7 @@ interface MapProps {
   selectedId?: string;
   onSelect: (id: string | undefined) => void;
   flyTo?: [number, number];
+  initialCenter?: [number, number];
 }
 
 function makePinIcon(tutor: Tutor, selected: boolean) {
@@ -75,7 +76,7 @@ function spreadOverlapping(tutors: Tutor[]): Record<string, [number, number]> {
   return result;
 }
 
-export function Map({ tutors, selectedId, onSelect, flyTo }: MapProps) {
+export function Map({ tutors, selectedId, onSelect, flyTo, initialCenter }: MapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef       = useRef<L.Map | null>(null);
   const markersRef   = useRef<Record<string, L.Marker>>({});
@@ -87,7 +88,7 @@ export function Map({ tutors, selectedId, onSelect, flyTo }: MapProps) {
     if (!containerRef.current || mapRef.current) return;
 
     const map = L.map(containerRef.current, { zoomControl: true }).setView(
-      [47.6062, -122.3321],
+      initialCenter ?? [47.6062, -122.3321],
       12
     );
 
