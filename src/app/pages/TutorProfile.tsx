@@ -275,7 +275,11 @@ export function TutorProfile() {
                   </div>
                   <div>
                     <h4 className="text-lg font-bold text-gray-900">Availability</h4>
-                    <p className="text-gray-600 font-medium">Weekdays 4pm–9pm, Weekends 10am–4pm</p>
+                    <p className="text-gray-600 font-medium">
+                      {Object.values(tutor.availability).some(s => s?.available)
+                        ? `${Object.values(tutor.availability).filter(s => s?.available).length} day${Object.values(tutor.availability).filter(s => s?.available).length !== 1 ? 's' : ''} per week`
+                        : 'Contact for availability'}
+                    </p>
                   </div>
                 </div>
                 <div className="flex gap-4">
@@ -300,6 +304,31 @@ export function TutorProfile() {
                 )}
               </div>
             </section>
+
+            {/* Weekly Schedule */}
+            {Object.values(tutor.availability).some(s => s?.available) && (
+              <section className="flex flex-col gap-6">
+                <h2 className="text-2xl font-bold text-gray-900">Weekly Schedule</h2>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {(['monday','tuesday','wednesday','thursday','friday','saturday','sunday'] as const).map(day => {
+                    const slot = tutor.availability[day]
+                    if (!slot?.available) return null
+                    const fmt = (t: string) => {
+                      const [h, m] = t.split(':').map(Number)
+                      const period = h >= 12 ? 'PM' : 'AM'
+                      const hour = h % 12 || 12
+                      return `${hour}${m ? `:${String(m).padStart(2,'0')}` : ''} ${period}`
+                    }
+                    return (
+                      <div key={day} className="flex items-center justify-between px-5 py-3 bg-green-50 border border-green-100 rounded-xl">
+                        <span className="font-bold text-gray-900 capitalize">{day}</span>
+                        <span className="text-sm font-bold text-green-700">{fmt(slot.start)} – {fmt(slot.end)}</span>
+                      </div>
+                    )
+                  })}
+                </div>
+              </section>
+            )}
 
             {/* Reviews */}
             <section className="flex flex-col gap-8">

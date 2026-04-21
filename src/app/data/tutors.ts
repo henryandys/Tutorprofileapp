@@ -1,5 +1,12 @@
 import { supabase } from '../../lib/supabase'
 
+export interface DaySlot {
+  available: boolean
+  start: string   // "09:00"
+  end:   string   // "17:00"
+}
+export type WeeklyAvailability = Partial<Record<string, DaySlot>>
+
 export interface Tutor {
   id:               string
   name:             string
@@ -13,6 +20,7 @@ export interface Tutor {
   imageUrl:         string
   education:        string
   experience:       string
+  availability:     WeeklyAvailability
   coordinates:      { x: number; y: number }
   lat:              number | null
   lng:              number | null
@@ -87,6 +95,7 @@ function rowToTutor(row: any): Tutor {
     location:         row.location ?? '',
     tutoringLocation: row.tutoring_location ?? '',
     bio:              row.bio ?? '',
+    availability:     (row.availability as WeeklyAvailability) ?? {},
     imageUrl:    row.avatar_url ?? '',
     education:   row.education ?? '',
     experience:  row.experience_yrs != null

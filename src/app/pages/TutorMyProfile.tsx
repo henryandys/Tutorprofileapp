@@ -13,6 +13,20 @@ import { Link } from "react-router";
 import { useAuth } from "../../context/AuthContext";
 import { supabase } from "../../lib/supabase";
 
+const DAYS = ['monday','tuesday','wednesday','thursday','friday','saturday','sunday'] as const
+type Day = typeof DAYS[number]
+interface DaySlot { available: boolean; start: string; end: string }
+type WeekAvail = Record<Day, DaySlot>
+
+const DEFAULT_AVAIL: WeekAvail = Object.fromEntries(
+  DAYS.map(d => [d, { available: false, start: '09:00', end: '17:00' }])
+) as WeekAvail
+
+const DAY_LABELS: Record<Day, string> = {
+  monday: 'Monday', tuesday: 'Tuesday', wednesday: 'Wednesday',
+  thursday: 'Thursday', friday: 'Friday', saturday: 'Saturday', sunday: 'Sunday',
+}
+
 interface TutorProfileForm {
   name:             string;
   location:         string;
@@ -41,8 +55,17 @@ export function TutorMyProfile() {
   const [loadingBookings, setLoadingBookings] = useState(true)
   const [tutorData, setTutorData] = useState<any>(null)
 
+  const [availability, setAvailability] = useState<WeekAvail>(DEFAULT_AVAIL)
+
   const { register, handleSubmit, control, reset, formState: { errors } } = useForm<TutorProfileForm>()
   const { fields, append, remove } = useFieldArray({ control, name: "specialties" })
+
+  function toggleDay(day: Day) {
+    setAvailability(prev => ({ ...prev, [day]: { ...prev[day], available: !prev[day].available } }))
+  }
+  function updateTime(day: Day, field: 'start' | 'end', value: string) {
+    setAvailability(prev => ({ ...prev, [day]: { ...prev[day], [field]: value } }))
+  }
 
   // Load tutor profile + bookings
   useEffect(() => {
@@ -56,15 +79,18 @@ export function TutorMyProfile() {
       .single()
       .then(({ data }) => {
         setTutorData(data)
+        if (data?.availability) {
+          setAvailability({ ...DEFAULT_AVAIL, ...data.availability })
+        }
         reset({
-          name:       profile?.full_name ?? '',
-          location:   profile?.location ?? '',
+          name:             profile?.full_name ?? '',
+          location:         profile?.location ?? '',
           hourlyRate:       data?.hourly_rate ?? 0,
           tutoringLocation: data?.tutoring_location ?? '',
           bio:              profile?.bio ?? '',
           education:        data?.education ?? '',
-          experience: data?.experience_yrs ? `${data.experience_yrs} years` : '',
-          specialties: (data?.subjects ?? []).map((s: string) => ({ value: s })),
+          experience:       data?.experience_yrs ? `${data.experience_yrs} years` : '',
+          specialties:      (data?.subjects ?? []).map((s: string) => ({ value: s })),
         })
       })
 
@@ -106,6 +132,7 @@ export function TutorMyProfile() {
         education:         data.education,
         experience_yrs:    experienceYrs,
         subjects:          data.specialties.map(s => s.value).filter(Boolean),
+        availability:      availability,
         is_available:      true,
       }, { onConflict: 'id' })
 
@@ -317,6 +344,56 @@ export function TutorMyProfile() {
                   />
                 </div>
               </div>
+            </div>
+          </div>
+
+          {/* Availability */}
+          <div className="bg-white rounded-3xl shadow-lg border border-gray-100 p-8">
+            <h2 className="text-xl font-bold text-gray-900 mb-6 flex items-center gap-2">
+              <Clock className="w-6 h-6 text-blue-600" />
+              Weekly Availability
+            </h2>
+            <div className="flex flex-col divide-y divide-gray-100">
+              {DAYS.map(day => {
+                const slot = availability[day]
+                return (
+                  <div key={day} className="flex flex-wrap items-center gap-4 py-3">
+                    <span className="w-28 font-bold text-gray-700 capitalize">{DAY_LABELS[day]}</span>
+
+                    <button
+                      type="button"
+                      onClick={() => isEditing && toggleDay(day)}
+                      className={`px-3 py-1 rounded-full text-sm font-bold transition-colors ${
+                        slot.available
+                          ? 'bg-green-100 text-green-700'
+                          : 'bg-gray-100 text-gray-400'
+                      } ${isEditing ? 'cursor-pointer hover:opacity-80' : 'cursor-default'}`}
+                    >
+                      {slot.available ? 'Available' : 'Unavailable'}
+                    </button>
+
+                    {slot.available && (
+                      <div className="flex items-center gap-2 ml-auto">
+                        <input
+                          type="time"
+                          value={slot.start}
+                          disabled={!isEditing}
+                          onChange={e => updateTime(day, 'start', e.target.value)}
+                          className="h-9 px-3 border border-gray-200 rounded-lg text-sm font-bold text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-50 disabled:text-gray-500"
+                        />
+                        <span className="text-gray-400 font-bold">–</span>
+                        <input
+                          type="time"
+                          value={slot.end}
+                          disabled={!isEditing}
+                          onChange={e => updateTime(day, 'end', e.target.value)}
+                          className="h-9 px-3 border border-gray-200 rounded-lg text-sm font-bold text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-50 disabled:text-gray-500"
+                        />
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
             </div>
           </div>
 
