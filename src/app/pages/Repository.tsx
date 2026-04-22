@@ -5,20 +5,24 @@ import { toast } from "sonner";
 import { useAuth } from "../../context/AuthContext";
 import { supabase } from "../../lib/supabase";
 
+type Visibility = 'public' | 'accepted_only' | 'specific'
+
 interface Resource {
-  id:          string
-  tutor_id:    string
-  tutor_name:  string
-  title:       string
-  subject:     string
-  grade_level: string
-  school:      string
-  description: string
-  file_url:    string
-  file_name:   string
-  file_type:   string
-  downloads:   number
-  created_at:  string
+  id:                  string
+  tutor_id:            string
+  tutor_name:          string
+  title:               string
+  subject:             string
+  grade_level:         string
+  school:              string
+  description:         string
+  file_url:            string
+  file_name:           string
+  file_type:           string
+  downloads:           number
+  created_at:          string
+  visibility:          Visibility
+  allowed_student_ids: string[]
 }
 
 const GRADE_OPTIONS = ['K–5', '6–8', '9–12', 'College', 'All Levels']
@@ -70,7 +74,41 @@ export function Repository() {
   const [formGrade, setFormGrade]         = useState('')
   const [formSchool, setFormSchool]       = useState('')
   const [formDesc, setFormDesc]           = useState('')
+  const [formVisibility, setFormVisibility] = useState<Visibility>('public')
+  const [formAllowedIds, setFormAllowedIds] = useState<string[]>([])
   const fileInputRef = useRef<HTMLInputElement>(null)
+
+  // Accepted students (for tutors choosing "specific" visibility)
+  const [acceptedStudents, setAcceptedStudents] = useState<{ id: string; name: string }[]>([])
+  useEffect(() => {
+    if (!user || !isTutor) return
+    supabase
+      .from('bookings')
+      .select('student_id, student_name')
+      .eq('tutor_id', user.id)
+      .eq('status', 'accepted')
+      .then(({ data }) => {
+        const seen = new Set<string>()
+        const unique = (data ?? []).filter(b => {
+          if (seen.has(b.student_id)) return false
+          seen.add(b.student_id)
+          return true
+        })
+        setAcceptedStudents(unique.map(b => ({ id: b.student_id, name: b.student_name })))
+      })
+  }, [user, isTutor])
+
+  // Tutor IDs the current student has an accepted booking with (for filtering)
+  const [acceptedTutorIds, setAcceptedTutorIds] = useState<string[]>([])
+  useEffect(() => {
+    if (!user || isTutor) return
+    supabase
+      .from('bookings')
+      .select('tutor_id')
+      .eq('student_id', user.id)
+      .eq('status', 'accepted')
+      .then(({ data }) => setAcceptedTutorIds((data ?? []).map(b => b.tutor_id)))
+  }, [user, isTutor])
 
   useEffect(() => {
     supabase
@@ -85,6 +123,13 @@ export function Repository() {
   }, [])
 
   const filtered = resources.filter(r => {
+    // Visibility gate
+    const isOwn = user && r.tutor_id === user.id
+    if (!isOwn) {
+      if (r.visibility === 'accepted_only' && !acceptedTutorIds.includes(r.tutor_id)) return false
+      if (r.visibility === 'specific' && (!user || !r.allowed_student_ids.includes(user.id))) return false
+    }
+    // Search / grade filters
     const q = searchQuery.toLowerCase()
     const matchesQuery = !q || r.title.toLowerCase().includes(q) ||
       r.subject.toLowerCase().includes(q) ||
@@ -105,7 +150,7 @@ export function Repository() {
     ))
   }
 
-  async function handleUpload(e: React.FormEvent) {
+  async function handleUpload(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
     if (!user || !selectedFile) { toast.error('Please select a file.'); return }
     if (!formTitle.trim() || !formSubject.trim() || !formGrade) {
@@ -147,9 +192,11 @@ export function Repository() {
         grade_level: formGrade,
         school:      formSchool.trim(),
         description: formDesc.trim(),
-        file_url:    publicUrl,
-        file_name:   selectedFile.name,
-        file_type:   fileTypeLabel(selectedFile.name),
+        file_url:            publicUrl,
+        file_name:           selectedFile.name,
+        file_type:           fileTypeLabel(selectedFile.name),
+        visibility:          formVisibility,
+        allowed_student_ids: formVisibility === 'specific' ? formAllowedIds : [],
       })
       .select()
       .single()
@@ -166,6 +213,7 @@ export function Repository() {
     setSelectedFile(null)
     setFormTitle(''); setFormSubject(''); setFormGrade('')
     setFormSchool(''); setFormDesc('')
+    setFormVisibility('public'); setFormAllowedIds([])
     setUploading(false)
   }
 
@@ -376,6 +424,53 @@ export function Repository() {
                     placeholder="Briefly describe what this resource covers…"
                     className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium text-gray-800 bg-gray-50"
                   />
+                </div>
+
+                {/* Visibility */}
+                <div>
+                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Who can see this?</label>
+                  <div className="flex flex-col gap-2 mt-2">
+                    {(['public', 'accepted_only', 'specific'] as Visibility[]).map(v => (
+                      <label key={v} className="flex items-center gap-3 cursor-pointer">
+                        <input
+                          type="radio"
+                          name="visibility"
+                          value={v}
+                          checked={formVisibility === v}
+                          onChange={() => { setFormVisibility(v); setFormAllowedIds([]) }}
+                          className="accent-blue-600"
+                        />
+                        <span className="font-medium text-gray-700 text-sm">
+                          {v === 'public'       && 'Everyone'}
+                          {v === 'accepted_only' && 'Only students I\'ve accepted'}
+                          {v === 'specific'      && 'Specific students only'}
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                  {formVisibility === 'specific' && (
+                    <div className="mt-3 border border-gray-200 rounded-xl p-3 bg-gray-50">
+                      {acceptedStudents.length === 0 ? (
+                        <p className="text-xs text-gray-400 font-medium">No accepted students yet.</p>
+                      ) : (
+                        <div className="flex flex-col gap-2">
+                          {acceptedStudents.map(s => (
+                            <label key={s.id} className="flex items-center gap-2 cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={formAllowedIds.includes(s.id)}
+                                onChange={e => setFormAllowedIds(prev =>
+                                  e.target.checked ? [...prev, s.id] : prev.filter(id => id !== s.id)
+                                )}
+                                className="accent-blue-600"
+                              />
+                              <span className="text-sm font-medium text-gray-700">{s.name}</span>
+                            </label>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 {/* File picker */}

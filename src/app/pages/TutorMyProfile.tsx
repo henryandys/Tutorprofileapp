@@ -51,16 +51,20 @@ interface Booking {
   created_at:   string;
 }
 
+type Visibility = 'public' | 'accepted_only' | 'specific'
+
 interface TutorResource {
-  id:          string;
-  title:       string;
-  subject:     string;
-  grade_level: string;
-  file_url:    string;
-  file_name:   string;
-  file_type:   string;
-  downloads:   number;
-  created_at:  string;
+  id:                  string;
+  title:               string;
+  subject:             string;
+  grade_level:         string;
+  file_url:            string;
+  file_name:           string;
+  file_type:           string;
+  downloads:           number;
+  created_at:          string;
+  visibility:          Visibility;
+  allowed_student_ids: string[];
 }
 
 export function TutorMyProfile() {
@@ -221,6 +225,27 @@ export function TutorMyProfile() {
     setMyResources(prev => prev.filter(r => r.id !== resource.id))
     toast.success('Resource removed from repository.')
   }
+
+  async function updateResourceVisibility(resourceId: string, visibility: Visibility, allowedIds: string[]) {
+    const { error } = await supabase
+      .from('resources')
+      .update({ visibility, allowed_student_ids: visibility === 'specific' ? allowedIds : [] })
+      .eq('id', resourceId)
+      .eq('tutor_id', user!.id)
+    if (error) { toast.error('Failed to update visibility.'); return }
+    setMyResources(prev => prev.map(r =>
+      r.id === resourceId ? { ...r, visibility, allowed_student_ids: visibility === 'specific' ? allowedIds : [] } : r
+    ))
+  }
+
+  // Unique accepted students derived from bookings
+  const acceptedStudents = (() => {
+    const seen = new Set<string>()
+    return bookings
+      .filter(b => b.status === 'accepted')
+      .filter(b => { if (seen.has(b.student_id)) return false; seen.add(b.student_id); return true })
+      .map(b => ({ id: b.student_id, name: b.student_name }))
+  })()
 
   const pendingCount = bookings.filter(b => b.status === 'pending').length
   const [chatBooking, setChatBooking] = useState<{ id: string; name: string; otherUserId: string; subject: string } | null>(null)
@@ -616,36 +641,88 @@ export function TutorMyProfile() {
             ) : (
               <div className="divide-y divide-gray-100">
                 {myResources.map(resource => (
-                  <div key={resource.id} className="flex items-center justify-between gap-4 py-4">
-                    <div className="flex items-center gap-4 min-w-0">
-                      <div className="w-10 h-10 bg-blue-50 text-blue-600 rounded-xl flex items-center justify-center shrink-0">
-                        <FileText className="w-5 h-5" />
+                  <div key={resource.id} className="py-4 flex flex-col gap-2">
+                    <div className="flex items-center justify-between gap-4">
+                      <div className="flex items-center gap-4 min-w-0">
+                        <div className="w-10 h-10 bg-blue-50 text-blue-600 rounded-xl flex items-center justify-center shrink-0">
+                          <FileText className="w-5 h-5" />
+                        </div>
+                        <div className="min-w-0">
+                          <p className="font-bold text-gray-900 truncate">{resource.title}</p>
+                          <p className="text-xs text-gray-400 font-medium">
+                            {resource.subject} · {resource.grade_level} · {resource.downloads} downloads
+                          </p>
+                        </div>
                       </div>
-                      <div className="min-w-0">
-                        <p className="font-bold text-gray-900 truncate">{resource.title}</p>
-                        <p className="text-xs text-gray-400 font-medium">
-                          {resource.subject} · {resource.grade_level} · {resource.downloads} downloads
-                        </p>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <a
+                          href={resource.file_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                          title="View file"
+                        >
+                          <ChevronRight className="w-4 h-4" />
+                        </a>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteResource(resource)}
+                          className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                          title="Remove from repository"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
                       </div>
                     </div>
-                    <div className="flex items-center gap-2 shrink-0">
-                      <a
-                        href={resource.file_url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                        title="View file"
-                      >
-                        <ChevronRight className="w-4 h-4" />
-                      </a>
-                      <button
-                        type="button"
-                        onClick={() => handleDeleteResource(resource)}
-                        className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                        title="Remove from repository"
-                      >
-                        <X className="w-4 h-4" />
-                      </button>
+
+                    {/* Visibility control */}
+                    <div className="ml-14 flex flex-col gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-xs font-bold text-gray-400 uppercase tracking-widest">Access:</span>
+                        {(['public', 'accepted_only', 'specific'] as Visibility[]).map(v => (
+                          <button
+                            key={v}
+                            type="button"
+                            onClick={() => updateResourceVisibility(resource.id, v, resource.allowed_student_ids)}
+                            className={`text-xs font-bold px-3 py-1 rounded-full border transition-colors ${
+                              resource.visibility === v
+                                ? 'bg-blue-600 text-white border-blue-600'
+                                : 'bg-white text-gray-500 border-gray-200 hover:border-blue-400'
+                            }`}
+                          >
+                            {v === 'public'        && 'Everyone'}
+                            {v === 'accepted_only' && 'Accepted only'}
+                            {v === 'specific'      && 'Specific students'}
+                          </button>
+                        ))}
+                      </div>
+
+                      {resource.visibility === 'specific' && (
+                        <div className="border border-gray-200 rounded-xl p-3 bg-gray-50">
+                          {acceptedStudents.length === 0 ? (
+                            <p className="text-xs text-gray-400 font-medium">No accepted students yet.</p>
+                          ) : (
+                            <div className="flex flex-wrap gap-x-4 gap-y-2">
+                              {acceptedStudents.map(s => (
+                                <label key={s.id} className="flex items-center gap-2 cursor-pointer">
+                                  <input
+                                    type="checkbox"
+                                    checked={resource.allowed_student_ids.includes(s.id)}
+                                    onChange={e => {
+                                      const next = e.target.checked
+                                        ? [...resource.allowed_student_ids, s.id]
+                                        : resource.allowed_student_ids.filter(id => id !== s.id)
+                                      updateResourceVisibility(resource.id, 'specific', next)
+                                    }}
+                                    className="accent-blue-600"
+                                  />
+                                  <span className="text-sm font-medium text-gray-700">{s.name}</span>
+                                </label>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
                   </div>
                 ))}
