@@ -71,7 +71,7 @@ export function TutorProfile() {
       })
   }, [id])
 
-  async function handleReviewSubmit(e: React.FormEvent<HTMLFormElement>) {
+  async function handleReviewSubmit(e: { preventDefault(): void }) {
     e.preventDefault()
     if (!user || !id) return
     if (myRating === 0) { toast.error('Please select a star rating.'); return }
@@ -104,7 +104,7 @@ export function TutorProfile() {
     setSubmittingReview(false)
   }
 
-  async function handleBooking(e: React.FormEvent<HTMLFormElement>) {
+  async function handleBooking(e: { preventDefault(): void }) {
     e.preventDefault()
     if (!tutor) return
 
@@ -246,10 +246,6 @@ export function TutorProfile() {
               <div className="flex flex-col gap-1 text-center md:text-left">
                 <span className="text-xs font-bold text-gray-400 uppercase tracking-widest">REVIEWS</span>
                 <span className="text-lg font-bold text-gray-900">{tutor.reviewCount}</span>
-              </div>
-              <div className="flex flex-col gap-1 text-center md:text-left">
-                <span className="text-xs font-bold text-gray-400 uppercase tracking-widest">RESPONSE TIME</span>
-                <span className="text-lg font-bold text-gray-900">{"< 2 hours"}</span>
               </div>
               <div className="flex flex-col gap-1 text-center md:text-left">
                 <span className="text-xs font-bold text-gray-400 uppercase tracking-widest">RATING</span>
