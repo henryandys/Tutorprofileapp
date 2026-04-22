@@ -7,12 +7,13 @@ import type { FilterState } from "../components/FilterBar";
 import { TutorCard } from "../components/TutorCard";
 import { Map } from "../components/Map";
 import { motion, AnimatePresence } from "motion/react";
-import { X, Loader2, List, Map as MapIcon } from "lucide-react";
-import { useSearchParams } from "react-router";
+import { X, Loader2, List, Map as MapIcon, Star, MapPin, ChevronRight } from "lucide-react";
+import { useSearchParams, useNavigate } from "react-router";
 import { useAuth } from "../../context/AuthContext";
 
 export function Search() {
   const { profile } = useAuth()
+  const navigate = useNavigate()
   const [allTutors, setAllTutors]             = useState<Tutor[]>([])
   const [loading, setLoading]                 = useState(true)
   const [selectedTutorId, setSelectedTutorId] = useState<string | undefined>(undefined)
@@ -123,7 +124,7 @@ export function Search() {
             </span>
           </div>
 
-          <div className="flex-1 overflow-y-auto p-3 space-y-3">
+          <div className="flex-1 overflow-y-auto p-3 pb-24 md:pb-3 space-y-3">
             {tutors.length === 0 && !loading ? (
               <div className="text-center py-20 text-gray-400 font-medium text-sm">
                 No tutors match your filters.
@@ -148,7 +149,7 @@ export function Search() {
 
         {/* ── Right panel: map ── */}
         <section className={`
-          flex-1 relative
+          flex-1 relative isolate
           ${mobileView === "list" ? "hidden md:block" : "block"}
         `}>
           <Map
@@ -159,37 +160,68 @@ export function Search() {
             initialCenter={homeCoords.current}
           />
 
-          {/* Selected tutor detail card — floats over map */}
+          {/* Pin popup — compact summary, click anywhere to open full profile */}
           <AnimatePresence>
             {selectedTutor && (
               <motion.div
                 key={selectedTutor.id}
-                initial={{ y: 20, opacity: 0 }}
-                animate={{ y: 0, opacity: 1 }}
-                exit={{ y: 20, opacity: 0 }}
-                transition={{ type: "spring", damping: 25, stiffness: 200 }}
-                className="absolute bottom-6 left-1/2 -translate-x-1/2 w-[340px] bg-white rounded-2xl shadow-2xl border border-gray-100 p-4 z-20"
+                initial={{ y: 16, opacity: 0, scale: 0.97 }}
+                animate={{ y: 0, opacity: 1, scale: 1 }}
+                exit={{ y: 16, opacity: 0, scale: 0.97 }}
+                transition={{ type: "spring", damping: 28, stiffness: 260 }}
+                className="absolute bottom-24 md:bottom-6 left-1/2 -translate-x-1/2 z-[900] w-[300px]"
               >
-                <button
-                  onClick={() => setSelectedTutorId(undefined)}
-                  className="absolute top-3 right-3 p-1 hover:bg-gray-100 rounded-full text-gray-400"
+                <div
+                  onClick={() => navigate(`/tutor/${selectedTutor.id}`)}
+                  className="cursor-pointer bg-white rounded-2xl shadow-2xl border border-gray-100 overflow-hidden hover:shadow-[0_8px_32px_rgba(37,99,235,0.18)] hover:border-blue-200 transition-all group"
                 >
-                  <X className="w-4 h-4" />
-                </button>
-                <TutorCard tutor={selectedTutor} isSelected />
+                  {/* Avatar + core info */}
+                  <div className="flex items-center gap-3 p-4">
+                    <img
+                      src={selectedTutor.imageUrl || '/placeholder-avatar.png'}
+                      alt={selectedTutor.name}
+                      className="w-14 h-14 rounded-xl object-cover shrink-0 bg-gray-100"
+                      onError={e => { (e.target as HTMLImageElement).src = '/placeholder-avatar.png' }}
+                    />
+                    <div className="min-w-0 flex-1">
+                      <p className="font-black text-gray-900 truncate">{selectedTutor.name}</p>
+                      <p className="text-sm text-gray-500 font-medium truncate">{selectedTutor.subject}</p>
+                      <div className="flex items-center gap-2 mt-1">
+                        <span className="flex items-center gap-0.5 text-xs font-bold text-blue-600">
+                          <Star className="w-3 h-3 fill-blue-600" />{selectedTutor.rating}
+                        </span>
+                        <span className="text-xs text-gray-400">·</span>
+                        <span className="text-xs font-bold text-gray-700">${selectedTutor.hourlyRate}/hr</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Location + CTA strip */}
+                  <div className="flex items-center justify-between px-4 py-2.5 bg-gray-50 border-t border-gray-100">
+                    <div className="flex items-center gap-1 text-xs text-gray-500 font-medium min-w-0">
+                      <MapPin className="w-3 h-3 shrink-0" />
+                      <span className="truncate">{selectedTutor.location}</span>
+                    </div>
+                    <span className="flex items-center gap-0.5 text-xs font-bold text-blue-600 shrink-0 group-hover:gap-1.5 transition-all">
+                      View profile <ChevronRight className="w-3.5 h-3.5" />
+                    </span>
+                  </div>
+                </div>
+
+                {/* Dismiss button */}
                 <button
-                  className="mt-3 w-full h-10 bg-blue-600 text-white rounded-xl font-bold text-sm hover:bg-blue-700 transition-all"
-                  onClick={() => window.location.href = `/tutor/${selectedTutor.id}`}
+                  onClick={e => { e.stopPropagation(); setSelectedTutorId(undefined) }}
+                  className="absolute -top-2.5 -right-2.5 w-6 h-6 bg-white rounded-full shadow-md border border-gray-200 flex items-center justify-center text-gray-400 hover:text-gray-700 transition-colors"
                 >
-                  View Full Profile
+                  <X className="w-3 h-3" />
                 </button>
               </motion.div>
             )}
           </AnimatePresence>
         </section>
 
-        {/* Mobile toggle — visible only on small screens */}
-        <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-30 md:hidden flex bg-white rounded-full shadow-xl border border-gray-100 p-1">
+        {/* Mobile toggle — fixed so it always floats above Leaflet's z-index stack */}
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 md:hidden flex bg-white rounded-full shadow-xl border border-gray-100 p-1">
           <button
             onClick={() => setMobileView("map")}
             className={`px-5 py-2 rounded-full text-sm font-bold flex items-center gap-2 transition-all ${
