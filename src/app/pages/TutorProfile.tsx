@@ -4,13 +4,34 @@ import { useParams, Link } from "react-router";
 import { fetchTutorById } from "../data/tutors";
 import type { Tutor } from "../data/tutors";
 import { Navbar } from "../components/Navbar";
-import { Star, MapPin, Share2, Heart, MessageCircle, Clock, GraduationCap, Briefcase, Calendar, ChevronLeft, Phone, Mail, Loader2, Send, CornerDownRight } from "lucide-react";
+import { Star, MapPin, Share2, Heart, MessageCircle, Clock, GraduationCap, Briefcase, Calendar, ChevronLeft, ChevronRight, Phone, Mail, Loader2, Send, CornerDownRight } from "lucide-react";
 import { ImageWithFallback } from "../components/figma/ImageWithFallback";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useAuth } from "../../context/AuthContext";
 import { supabase } from "../../lib/supabase";
 import { toast } from "sonner";
 import { sendNotificationEmail } from "../../lib/notify";
+
+const DOW = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday']
+function getDayKey(d: Date) { return DOW[d.getDay()] }
+function generateSlots(start: string, end: string): string[] {
+  const slots: string[] = []
+  const s = parseInt(start), e = parseInt(end)
+  for (let h = s; h < e; h++) slots.push(`${h % 12 || 12}:00 ${h >= 12 ? 'PM' : 'AM'}`)
+  return slots
+}
+function slotToHour(slot: string): number {
+  const [time, period] = slot.split(' ')
+  let h = parseInt(time)
+  if (period === 'PM' && h !== 12) h += 12
+  if (period === 'AM' && h === 12) h = 0
+  return h
+}
+function toScheduledAt(date: Date, slot: string): string {
+  const d = new Date(date)
+  d.setHours(slotToHour(slot), 0, 0, 0)
+  return d.toISOString()
+}
 
 interface Review {
   id:           string
@@ -30,9 +51,24 @@ export function TutorProfile() {
   const [submitting, setSubmitting] = useState(false)
 
   // Booking form state
-  const [subject, setSubject]   = useState('')
+  const [subject, setSubject]       = useState('')
   const [studentName, setStudentName] = useState('')
-  const [message, setMessage]   = useState('')
+  const [message, setMessage]       = useState('')
+  const [selectedDate, setSelectedDate] = useState<Date | null>(null)
+  const [selectedSlot, setSelectedSlot] = useState<string | null>(null)
+  const [takenHours, setTakenHours]     = useState<number[]>([])
+  const [calendarOffset, setCalendarOffset] = useState(0) // weeks offset for navigation
+
+  const nextDates = useMemo(() => {
+    const dates: Date[] = []
+    const today = new Date(); today.setHours(0, 0, 0, 0)
+    for (let i = 0; i < 28; i++) {
+      const d = new Date(today)
+      d.setDate(today.getDate() + i)
+      dates.push(d)
+    }
+    return dates
+  }, [])
 
   // Reviews state
   const [reviews, setReviews]           = useState<Review[]>([])
@@ -55,6 +91,25 @@ export function TutorProfile() {
   useEffect(() => {
     if (profile?.full_name) setStudentName(profile.full_name)
   }, [profile])
+
+  // Fetch booked hours for the selected date
+  useEffect(() => {
+    if (!selectedDate || !tutor) { setTakenHours([]); return }
+    const start = new Date(selectedDate); start.setHours(0, 0, 0, 0)
+    const end   = new Date(selectedDate); end.setHours(23, 59, 59, 999)
+    supabase
+      .from('bookings')
+      .select('scheduled_at')
+      .eq('tutor_id', tutor.id)
+      .neq('status', 'declined')
+      .gte('scheduled_at', start.toISOString())
+      .lte('scheduled_at', end.toISOString())
+      .then(({ data }) => {
+        setTakenHours(
+          (data ?? []).filter(b => b.scheduled_at).map(b => new Date(b.scheduled_at).getHours())
+        )
+      })
+  }, [selectedDate, tutor])
 
   // Load reviews
   useEffect(() => {
@@ -113,6 +168,11 @@ export function TutorProfile() {
       return
     }
 
+    if (!selectedDate || !selectedSlot) {
+      toast.error('Please select a date and time.')
+      return
+    }
+
     if (!studentName.trim() || !subject.trim()) {
       toast.error('Please fill in your name and subject.')
       return
@@ -127,6 +187,7 @@ export function TutorProfile() {
       subject:      subject || tutor.subject.split(' & ')[0],
       message:      message,
       status:       'pending',
+      scheduled_at: toScheduledAt(selectedDate, selectedSlot),
     })
 
     if (error) {
@@ -456,6 +517,91 @@ export function TutorProfile() {
               </div>
 
               <form onSubmit={handleBooking} className="flex flex-col gap-4">
+
+                {/* ── Date picker ── */}
+                <div className="flex flex-col gap-2">
+                  <div className="flex items-center justify-between px-1">
+                    <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Select Date</label>
+                    <div className="flex items-center gap-1">
+                      <button type="button" onClick={() => setCalendarOffset(o => Math.max(0, o - 1))} disabled={calendarOffset === 0} className="p-0.5 rounded text-gray-400 hover:text-gray-700 disabled:opacity-30">
+                        <ChevronLeft className="w-4 h-4" />
+                      </button>
+                      <button type="button" onClick={() => setCalendarOffset(o => Math.min(3, o + 1))} disabled={calendarOffset === 3} className="p-0.5 rounded text-gray-400 hover:text-gray-700 disabled:opacity-30">
+                        <ChevronRight className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-7 gap-1">
+                    {['S','M','T','W','T','F','S'].map((d, i) => (
+                      <span key={i} className="text-center text-[10px] font-bold text-gray-400">{d}</span>
+                    ))}
+                    {nextDates.slice(calendarOffset * 7, calendarOffset * 7 + 7).map(date => {
+                      const avail = tutor.availability[getDayKey(date)]
+                      const isAvail = !!avail?.available
+                      const isSelected = selectedDate?.toDateString() === date.toDateString()
+                      return (
+                        <button
+                          key={date.toISOString()}
+                          type="button"
+                          disabled={!isAvail}
+                          onClick={() => { setSelectedDate(date); setSelectedSlot(null) }}
+                          className={`flex flex-col items-center py-1.5 rounded-lg text-xs font-bold transition-colors ${
+                            isSelected   ? 'bg-blue-600 text-white' :
+                            isAvail      ? 'hover:bg-blue-50 text-gray-700' :
+                                           'text-gray-300 cursor-not-allowed'
+                          }`}
+                        >
+                          <span className="text-[9px] leading-none">{date.toLocaleDateString('en-US', { month: 'short' })}</span>
+                          <span className="text-sm leading-tight">{date.getDate()}</span>
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+
+                {/* ── Time slot picker ── */}
+                {selectedDate && (() => {
+                  const avail = tutor.availability[getDayKey(selectedDate)]
+                  if (!avail?.available) return null
+                  const slots = generateSlots(avail.start, avail.end)
+                  return (
+                    <div className="flex flex-col gap-1.5">
+                      <label className="text-xs font-bold text-gray-400 uppercase tracking-widest px-1">Select Time</label>
+                      <div className="flex flex-wrap gap-1.5">
+                        {slots.map(slot => {
+                          const taken    = takenHours.includes(slotToHour(slot))
+                          const isSelected = selectedSlot === slot
+                          return (
+                            <button
+                              key={slot}
+                              type="button"
+                              disabled={taken}
+                              onClick={() => setSelectedSlot(slot)}
+                              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${
+                                isSelected ? 'bg-blue-600 text-white' :
+                                taken      ? 'bg-gray-100 text-gray-300 line-through cursor-not-allowed' :
+                                             'bg-gray-100 text-gray-700 hover:bg-blue-50 hover:text-blue-600'
+                              }`}
+                            >
+                              {slot}
+                            </button>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  )
+                })()}
+
+                {/* Selected summary */}
+                {selectedDate && selectedSlot && (
+                  <div className="flex items-center gap-2 px-3 py-2 bg-blue-50 rounded-xl border border-blue-100">
+                    <Calendar className="w-4 h-4 text-blue-600 shrink-0" />
+                    <span className="text-xs font-bold text-blue-700">
+                      {selectedDate.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })} · {selectedSlot}
+                    </span>
+                  </div>
+                )}
+
                 <div className="flex flex-col gap-1.5">
                   <label className="text-xs font-bold text-gray-400 uppercase tracking-widest px-1">SELECT SUBJECT</label>
                   <select

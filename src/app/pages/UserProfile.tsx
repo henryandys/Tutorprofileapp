@@ -9,13 +9,14 @@ import { supabase } from "../../lib/supabase";
 import { ConversationModal } from "../components/ConversationModal";
 
 interface StudentBooking {
-  id:          string
-  tutor_id:    string
-  subject:     string
-  message:     string
-  status:      'pending' | 'accepted' | 'declined'
-  created_at:  string
-  tutor:       { full_name: string } | null
+  id:           string
+  tutor_id:     string
+  subject:      string
+  message:      string
+  status:       'pending' | 'accepted' | 'declined'
+  created_at:   string
+  scheduled_at: string | null
+  tutor:        { full_name: string } | null
 }
 
 interface UserProfileForm {
@@ -469,8 +470,16 @@ export function UserProfile() {
                             </span>
                           </div>
                           <span className="text-sm font-bold text-blue-600">{b.subject}</span>
+                          {b.scheduled_at && (
+                            <span className="text-xs font-bold text-blue-600 flex items-center gap-1">
+                              <Clock className="w-3 h-3" />
+                              {new Date(b.scheduled_at).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
+                              {' · '}
+                              {new Date(b.scheduled_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
+                            </span>
+                          )}
                           <span className="text-xs text-gray-400">
-                            {new Date(b.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                            Requested {new Date(b.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                           </span>
                         </div>
 

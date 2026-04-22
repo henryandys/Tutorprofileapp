@@ -49,6 +49,7 @@ interface Booking {
   message:      string;
   status:       'pending' | 'accepted' | 'declined';
   created_at:   string;
+  scheduled_at: string | null;
 }
 
 type Visibility = 'public' | 'accepted_only' | 'specific'
@@ -593,11 +594,19 @@ export function TutorMyProfile() {
                         </span>
                       </div>
                       <span className="text-sm font-medium text-blue-600">{booking.subject}</span>
+                      {booking.scheduled_at && (
+                        <span className="text-xs font-bold text-blue-600 flex items-center gap-1">
+                          <Clock className="w-3 h-3" />
+                          {new Date(booking.scheduled_at).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
+                          {' · '}
+                          {new Date(booking.scheduled_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
+                        </span>
+                      )}
                       {booking.message && (
                         <p className="text-sm text-gray-500 mt-1 max-w-md">{booking.message}</p>
                       )}
                       <span className="text-xs text-gray-400 mt-1">
-                        {new Date(booking.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                        Requested {new Date(booking.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                       </span>
                     </div>
 
