@@ -4,7 +4,7 @@ import { useParams, Link } from "react-router";
 import { fetchTutorById } from "../data/tutors";
 import type { Tutor } from "../data/tutors";
 import { Navbar } from "../components/Navbar";
-import { Star, MapPin, Share2, Heart, MessageCircle, Clock, GraduationCap, Briefcase, Calendar, ChevronLeft, ChevronRight, Phone, Mail, Loader2, Send } from "lucide-react";
+import { Star, MapPin, Share2, Heart, MessageCircle, Clock, GraduationCap, Briefcase, Calendar, ChevronLeft, Phone, Mail, Loader2, Send, CornerDownRight } from "lucide-react";
 import { ImageWithFallback } from "../components/figma/ImageWithFallback";
 import { useState, useEffect } from "react";
 import { useAuth } from "../../context/AuthContext";
@@ -13,12 +13,13 @@ import { toast } from "sonner";
 import { sendNotificationEmail } from "../../lib/notify";
 
 interface Review {
-  id: string
-  student_id: string
+  id:           string
+  student_id:   string
   student_name: string
-  rating: number
-  body: string
-  created_at: string
+  rating:       number
+  body:         string
+  created_at:   string
+  tutor_reply:  string | null
 }
 
 export function TutorProfile() {
@@ -70,7 +71,7 @@ export function TutorProfile() {
       })
   }, [id])
 
-  async function handleReviewSubmit(e: React.FormEvent) {
+  async function handleReviewSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
     if (!user || !id) return
     if (myRating === 0) { toast.error('Please select a star rating.'); return }
@@ -82,7 +83,10 @@ export function TutorProfile() {
       .insert({
         tutor_id:     id,
         student_id:   user.id,
-        student_name: profile?.full_name ?? 'Anonymous',
+        student_name: profile?.full_name
+          || user.user_metadata?.full_name
+          || user.email?.split('@')[0]
+          || 'Student',
         rating:       myRating,
         body:         reviewBody.trim(),
       })
@@ -100,7 +104,7 @@ export function TutorProfile() {
     setSubmittingReview(false)
   }
 
-  async function handleBooking(e: React.FormEvent) {
+  async function handleBooking(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
     if (!tutor) return
 
@@ -432,6 +436,14 @@ export function TutorProfile() {
                         ))}
                       </div>
                       <p className="text-gray-600 font-medium leading-relaxed">{r.body}</p>
+                      {r.tutor_reply && (
+                        <div className="mt-3 ml-3 pl-3 border-l-2 border-blue-200">
+                          <p className="text-xs font-bold text-blue-600 mb-1 flex items-center gap-1">
+                            <CornerDownRight className="w-3 h-3" /> Tutor's response
+                          </p>
+                          <p className="text-sm text-gray-600 font-medium leading-relaxed">{r.tutor_reply}</p>
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>

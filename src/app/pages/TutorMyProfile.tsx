@@ -511,14 +511,14 @@ export function TutorMyProfile() {
               Your Performance
             </h2>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
-              <div className="text-center">
-                <div className="text-4xl font-black mb-1">{tutorData?.rating ?? '—'}</div>
-                <div className="text-sm text-blue-100 font-medium">Average Rating</div>
-              </div>
-              <div className="text-center">
-                <div className="text-4xl font-black mb-1">{tutorData?.review_count ?? 0}</div>
-                <div className="text-sm text-blue-100 font-medium">Total Reviews</div>
-              </div>
+              <Link to="/my-reviews" className="text-center group cursor-pointer">
+                <div className="text-4xl font-black mb-1 group-hover:scale-110 transition-transform">{tutorData?.rating ?? '—'}</div>
+                <div className="text-sm text-blue-100 font-medium group-hover:text-white transition-colors">Average Rating</div>
+              </Link>
+              <Link to="/my-reviews" className="text-center group cursor-pointer">
+                <div className="text-4xl font-black mb-1 group-hover:scale-110 transition-transform">{tutorData?.review_count ?? 0}</div>
+                <div className="text-sm text-blue-100 font-medium group-hover:text-white transition-colors">Total Reviews</div>
+              </Link>
               <div className="text-center">
                 <div className="text-4xl font-black mb-1">{bookings.length}</div>
                 <div className="text-sm text-blue-100 font-medium">Lesson Requests</div>

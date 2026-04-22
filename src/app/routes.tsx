@@ -7,6 +7,7 @@ import { UserProfile } from "./pages/UserProfile";
 import { Repository } from "./pages/Repository";
 import Login from "./pages/Login";
 import { TutorMyProfile } from "./pages/TutorMyProfile";
+import { TutorReviews } from "./pages/TutorReviews";
 import { PrivacySecurity } from "./pages/PrivacySecurity";
 import { ForTutors } from "./pages/ForTutors";
 import { ProtectedRoute } from "./components/ProtectedRoute";
@@ -73,6 +74,14 @@ export const router = createBrowserRouter([
     element: (
       <ProtectedRoute requiredRole="tutor">
         <TutorMyProfile />
+      </ProtectedRoute>
+    ),
+  },
+  {
+    path: "/my-reviews",
+    element: (
+      <ProtectedRoute requiredRole="tutor">
+        <TutorReviews />
       </ProtectedRoute>
     ),
   },
