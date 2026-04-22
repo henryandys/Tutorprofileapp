@@ -1,6 +1,6 @@
 // src/app/pages/TutorMyProfile.tsx
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useForm, useFieldArray } from "react-hook-form";
 import { Navbar } from "../components/Navbar";
 import {
@@ -69,8 +69,29 @@ interface TutorResource {
 
 export function TutorMyProfile() {
   const { user, profile, refreshProfile } = useAuth()
-  const [isEditing, setIsEditing] = useState(false)
-  const [saving, setSaving]       = useState(false)
+  const [isEditing, setIsEditing]       = useState(false)
+  const [saving, setSaving]             = useState(false)
+  const [uploadingAvatar, setUploadingAvatar] = useState(false)
+  const avatarInputRef = useRef<HTMLInputElement>(null)
+
+  const handleAvatarChange = useCallback(async (e: { target: HTMLInputElement & EventTarget }) => {
+    const file = e.target.files?.[0]
+    if (!file || !user) return
+    const allowed: Record<string, string> = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' }
+    if (!allowed[file.type]) { toast.error('Please upload a JPEG, PNG, or WebP image.'); return }
+    if (file.size > 5 * 1024 * 1024) { toast.error('Image must be under 5 MB.'); return }
+    setUploadingAvatar(true)
+    const path = `${user.id}/avatar.${allowed[file.type]}`
+    const { error: uploadError } = await supabase.storage
+      .from('avatars')
+      .upload(path, file, { upsert: true, contentType: file.type })
+    if (uploadError) { toast.error('Upload failed: ' + uploadError.message); setUploadingAvatar(false); return }
+    const { data: { publicUrl } } = supabase.storage.from('avatars').getPublicUrl(path)
+    const { error: updateError } = await supabase.from('profiles').update({ avatar_url: publicUrl }).eq('id', user.id)
+    if (updateError) { toast.error('Failed to save avatar.') } else { await refreshProfile(); toast.success('Profile picture updated!') }
+    setUploadingAvatar(false)
+    e.target.value = ''
+  }, [user, refreshProfile])
   const [bookings, setBookings]         = useState<Booking[]>([])
   const [loadingBookings, setLoadingBookings] = useState(true)
   const [tutorData, setTutorData]       = useState<any>(null)
@@ -283,7 +304,10 @@ export function TutorMyProfile() {
             </h2>
 
             <div className="flex flex-col md:flex-row gap-8 items-start">
-              <div className="relative group">
+              <div
+                className="relative group cursor-pointer"
+                onClick={() => avatarInputRef.current?.click()}
+              >
                 {profile?.avatar_url ? (
                   <img src={profile.avatar_url} alt="" className="w-32 h-32 rounded-full object-cover" />
                 ) : (
@@ -291,11 +315,16 @@ export function TutorMyProfile() {
                     {(profile?.full_name ?? 'T').charAt(0).toUpperCase()}
                   </div>
                 )}
-                {isEditing && (
-                  <button type="button" className="absolute bottom-0 right-0 bg-blue-600 text-white p-2 rounded-full shadow-lg hover:bg-blue-700">
-                    <Camera className="w-4 h-4" />
-                  </button>
-                )}
+                <div className="absolute bottom-0 right-0 bg-blue-600 text-white p-2 rounded-full shadow-lg hover:bg-blue-700 transition-colors">
+                  {uploadingAvatar ? <Loader2 className="w-4 h-4 animate-spin" /> : <Camera className="w-4 h-4" />}
+                </div>
+                <input
+                  ref={avatarInputRef}
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  className="hidden"
+                  onChange={handleAvatarChange}
+                />
               </div>
 
               <div className="flex-1 grid grid-cols-1 md:grid-cols-2 gap-6">

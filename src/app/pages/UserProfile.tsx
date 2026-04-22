@@ -1,7 +1,7 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useForm } from "react-hook-form";
 import { Navbar } from "../components/Navbar";
-import { User, Mail, Phone, MapPin, Camera, Save, Bell, Shield, CreditCard, GraduationCap, ChevronRight, MessageCircle, Clock } from "lucide-react";
+import { User, Mail, Phone, MapPin, Camera, Save, Bell, Shield, CreditCard, GraduationCap, ChevronRight, MessageCircle, Clock, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { Link, useNavigate } from "react-router";
 import { useAuth } from "../../context/AuthContext";
@@ -31,6 +31,27 @@ export function UserProfile() {
   const { user, profile, role, refreshProfile } = useAuth()
   const navigate = useNavigate()
   const [saving, setSaving] = useState(false)
+  const [uploadingAvatar, setUploadingAvatar] = useState(false)
+  const avatarInputRef = useRef<HTMLInputElement>(null)
+
+  const handleAvatarChange = useCallback(async (e: { target: HTMLInputElement & EventTarget }) => {
+    const file = e.target.files?.[0]
+    if (!file || !user) return
+    const allowed: Record<string, string> = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' }
+    if (!allowed[file.type]) { toast.error('Please upload a JPEG, PNG, or WebP image.'); return }
+    if (file.size > 5 * 1024 * 1024) { toast.error('Image must be under 5 MB.'); return }
+    setUploadingAvatar(true)
+    const path = `${user.id}/avatar.${allowed[file.type]}`
+    const { error: uploadError } = await supabase.storage
+      .from('avatars')
+      .upload(path, file, { upsert: true, contentType: file.type })
+    if (uploadError) { toast.error('Upload failed: ' + uploadError.message); setUploadingAvatar(false); return }
+    const { data: { publicUrl } } = supabase.storage.from('avatars').getPublicUrl(path)
+    const { error: updateError } = await supabase.from('profiles').update({ avatar_url: publicUrl }).eq('id', user.id)
+    if (updateError) { toast.error('Failed to save avatar.') } else { await refreshProfile(); toast.success('Profile picture updated!') }
+    setUploadingAvatar(false)
+    e.target.value = ''
+  }, [user, refreshProfile])
 
   const isTutor = role === 'tutor'
 
@@ -211,7 +232,10 @@ export function UserProfile() {
           <aside className="w-full lg:w-64 shrink-0">
             <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden shadow-sm">
               <div className="p-6 border-b border-gray-100 flex flex-col items-center text-center">
-                <div className="relative mb-4 group cursor-pointer">
+                <div
+                  className="relative mb-4 group cursor-pointer"
+                  onClick={() => avatarInputRef.current?.click()}
+                >
                   {profile?.avatar_url ? (
                     <img
                       src={profile.avatar_url}
@@ -223,10 +247,17 @@ export function UserProfile() {
                       <User className="w-12 h-12 text-blue-600" />
                     </div>
                   )}
-                  <div className="absolute bottom-0 right-0 bg-blue-600 p-2 rounded-full border-2 border-white text-white">
-                    <Camera className="w-3 h-3" />
+                  <div className="absolute bottom-0 right-0 bg-blue-600 p-2 rounded-full border-2 border-white text-white group-hover:bg-blue-700 transition-colors">
+                    {uploadingAvatar ? <Loader2 className="w-3 h-3 animate-spin" /> : <Camera className="w-3 h-3" />}
                   </div>
                 </div>
+                <input
+                  ref={avatarInputRef}
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  className="hidden"
+                  onChange={handleAvatarChange}
+                />
                 <h2 className="font-bold text-gray-900 text-lg">
                   {profile?.full_name ?? user?.email ?? 'Loading…'}
                 </h2>
