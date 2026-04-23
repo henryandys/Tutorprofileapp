@@ -10,6 +10,7 @@ import { TutorMyProfile } from "./pages/TutorMyProfile";
 import { TutorReviews } from "./pages/TutorReviews";
 import { PrivacySecurity } from "./pages/PrivacySecurity";
 import { ForTutors } from "./pages/ForTutors";
+import { Lessons } from "./pages/Lessons";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 
 export const router = createBrowserRouter([
@@ -56,6 +57,14 @@ export const router = createBrowserRouter([
     element: (
       <ProtectedRoute>
         <PrivacySecurity />
+      </ProtectedRoute>
+    ),
+  },
+  {
+    path: "/lessons",
+    element: (
+      <ProtectedRoute>
+        <Lessons />
       </ProtectedRoute>
     ),
   },

@@ -1,12 +1,11 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useForm } from "react-hook-form";
 import { Navbar } from "../components/Navbar";
-import { User, Mail, Phone, MapPin, Camera, Save, Bell, Shield, CreditCard, GraduationCap, ChevronRight, MessageCircle, Clock, Loader2 } from "lucide-react";
+import { User, Mail, Phone, MapPin, Camera, Save, Bell, Shield, CreditCard, GraduationCap, ChevronRight, Clock, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { Link, useNavigate } from "react-router";
 import { useAuth } from "../../context/AuthContext";
 import { supabase } from "../../lib/supabase";
-import { ConversationModal } from "../components/ConversationModal";
 
 interface StudentBooking {
   id:           string
@@ -57,7 +56,6 @@ export function UserProfile() {
   const isTutor = role === 'tutor'
 
   const [bookings, setBookings]     = useState<StudentBooking[]>([])
-  const [chatBooking, setChatBooking] = useState<{ id: string; name: string; otherUserId: string; subject: string } | null>(null)
   const [msgCount, setMsgCount]               = useState(0)
   const [sessionNotifCount, setSessionNotifCount] = useState(0)
 
@@ -431,86 +429,45 @@ export function UserProfile() {
               </form>
             </div>
 
-            {/* My Lesson Requests — also scroll target for students' notifications */}
+            {/* My Lesson Requests — link to calendar page */}
             {!isTutor && (
-              <div ref={notifSectionRef} className="mt-8 bg-white rounded-3xl border border-gray-200 shadow-sm overflow-hidden">
-                <header className="px-8 py-6 border-b border-gray-100 flex items-center gap-3">
-                  <Clock className="w-5 h-5 text-blue-600" />
-                  <h2 className="text-xl font-black text-gray-900">My Lesson Requests</h2>
-                  {sessionNotifCount > 0 && (
-                    <span className="ml-1 px-2 py-0.5 bg-red-500 text-white text-xs font-bold rounded-full">
-                      {sessionNotifCount} new
-                    </span>
-                  )}
-                  {msgCount > 0 && (
-                    <span className="px-2 py-0.5 bg-blue-600 text-white text-xs font-bold rounded-full">
-                      {msgCount} message{msgCount !== 1 ? 's' : ''}
-                    </span>
-                  )}
-                </header>
-
-                {bookings.length === 0 ? (
-                  <p className="px-8 py-10 text-gray-400 font-medium text-sm text-center">
-                    No lesson requests yet.{' '}
-                    <Link to="/search" className="text-blue-600 font-bold hover:underline">Find a tutor</Link>
-                  </p>
-                ) : (
-                  <div className="divide-y divide-gray-100">
-                    {bookings.map(b => (
-                      <div key={b.id} className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 px-8 py-5 hover:bg-gray-50 transition-colors">
-                        <div className="flex flex-col gap-1">
-                          <div className="flex items-center gap-2">
-                            <span className="font-bold text-gray-900">{b.tutor?.full_name ?? 'Tutor'}</span>
-                            <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${
-                              b.status === 'pending'  ? 'bg-yellow-100 text-yellow-700' :
-                              b.status === 'accepted' ? 'bg-green-100 text-green-700' :
-                                                        'bg-red-100 text-red-600'
-                            }`}>
-                              {b.status}
-                            </span>
-                          </div>
-                          <span className="text-sm font-bold text-blue-600">{b.subject}</span>
-                          {b.scheduled_at && (
-                            <span className="text-xs font-bold text-blue-600 flex items-center gap-1">
-                              <Clock className="w-3 h-3" />
-                              {new Date(b.scheduled_at).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
-                              {' · '}
-                              {new Date(b.scheduled_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
-                            </span>
-                          )}
-                          <span className="text-xs text-gray-400">
-                            Requested {new Date(b.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-                          </span>
-                        </div>
-
-                        {b.status === 'accepted' && (
-                          <button
-                            onClick={() => setChatBooking({ id: b.id, name: b.tutor?.full_name ?? 'Tutor', otherUserId: b.tutor_id, subject: b.subject })}
-                            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-xl font-bold text-sm hover:bg-blue-700 transition-colors shrink-0"
-                          >
-                            <MessageCircle className="w-4 h-4" />
-                            Message
-                          </button>
-                        )}
-                      </div>
-                    ))}
+              <Link
+                ref={notifSectionRef as any}
+                to="/lessons"
+                className="mt-8 bg-white rounded-3xl border border-gray-200 shadow-sm overflow-hidden flex items-center justify-between px-8 py-6 hover:border-blue-200 hover:shadow-md transition-all group"
+              >
+                <div className="flex items-center gap-4">
+                  <div className="w-12 h-12 bg-blue-100 rounded-2xl flex items-center justify-center shrink-0">
+                    <Clock className="w-6 h-6 text-blue-600" />
                   </div>
-                )}
-              </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h2 className="text-xl font-black text-gray-900">My Lesson Requests</h2>
+                      {sessionNotifCount > 0 && (
+                        <span className="px-2 py-0.5 bg-red-500 text-white text-xs font-bold rounded-full">
+                          {sessionNotifCount} new
+                        </span>
+                      )}
+                      {msgCount > 0 && (
+                        <span className="px-2 py-0.5 bg-blue-600 text-white text-xs font-bold rounded-full">
+                          {msgCount} message{msgCount !== 1 ? 's' : ''}
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-sm text-gray-500 font-medium mt-0.5">
+                      {bookings.length === 0
+                        ? 'No lesson requests yet'
+                        : `${bookings.length} request${bookings.length !== 1 ? 's' : ''} · View calendar`}
+                    </p>
+                  </div>
+                </div>
+                <ChevronRight className="w-5 h-5 text-gray-400 group-hover:text-blue-600 transition-colors shrink-0" />
+              </Link>
             )}
           </div>
         </div>
       </main>
 
-      {chatBooking && (
-        <ConversationModal
-          bookingId={chatBooking.id}
-          otherName={chatBooking.name}
-          otherUserId={chatBooking.otherUserId}
-          subject={chatBooking.subject}
-          onClose={() => setChatBooking(null)}
-        />
-      )}
     </div>
   )
 }

@@ -6,10 +6,8 @@ import { Navbar } from "../components/Navbar";
 import {
   User, BookOpen, DollarSign, MapPin, GraduationCap, Briefcase,
   Plus, X, Save, Camera, Award, Star, FileText, Calendar,
-  ChevronRight, Loader2, Clock, CheckCircle, XCircle, MessageCircle
+  ChevronRight, Loader2, Clock
 } from "lucide-react";
-import { ConversationModal } from "../components/ConversationModal";
-import { sendNotificationEmail } from "../../lib/notify";
 import { toast } from "sonner";
 import { Link } from "react-router";
 import { useAuth } from "../../context/AuthContext";
@@ -204,34 +202,6 @@ export function TutorMyProfile() {
     setSaving(false)
   }
 
-  async function updateBookingStatus(bookingId: string, status: 'accepted' | 'declined') {
-    const { error } = await supabase
-      .from('bookings')
-      .update({ status })
-      .eq('id', bookingId)
-      .eq('tutor_id', user!.id)
-
-    if (error) {
-      toast.error('Failed to update booking.')
-    } else {
-      setBookings(prev => prev.map(b => b.id === bookingId ? { ...b, status } : b))
-      toast.success(`Booking ${status}.`)
-
-      // Email the student
-      const booking = bookings.find(b => b.id === bookingId)
-      if (booking) {
-        sendNotificationEmail({
-          type: status === 'accepted' ? 'booking_accepted' : 'booking_declined',
-          recipientId: booking.student_id,
-          data: {
-            tutorName:   profile?.full_name ?? 'Your tutor',
-            studentName: booking.student_name,
-            subject:     booking.subject,
-          },
-        })
-      }
-    }
-  }
 
   async function handleDeleteResource(resource: TutorResource) {
     // Extract the storage path from the public URL
@@ -270,7 +240,6 @@ export function TutorMyProfile() {
   })()
 
   const pendingCount = bookings.filter(b => b.status === 'pending').length
-  const [chatBooking, setChatBooking] = useState<{ id: string; name: string; otherUserId: string; subject: string } | null>(null)
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
@@ -549,104 +518,44 @@ export function TutorMyProfile() {
                 <div className="text-4xl font-black mb-1 group-hover:scale-110 transition-transform">{tutorData?.review_count ?? 0}</div>
                 <div className="text-sm text-blue-100 font-medium group-hover:text-white transition-colors">Total Reviews</div>
               </Link>
-              <div className="text-center">
-                <div className="text-4xl font-black mb-1">{bookings.length}</div>
-                <div className="text-sm text-blue-100 font-medium">Lesson Requests</div>
-              </div>
-              <div className="text-center">
-                <div className="text-4xl font-black mb-1">{pendingCount}</div>
-                <div className="text-sm text-blue-100 font-medium">Pending</div>
-              </div>
+              <Link to="/lessons" className="text-center group cursor-pointer">
+                <div className="text-4xl font-black mb-1 group-hover:scale-110 transition-transform">{bookings.length}</div>
+                <div className="text-sm text-blue-100 font-medium group-hover:text-white transition-colors">Lesson Requests</div>
+              </Link>
+              <Link to="/lessons" className="text-center group cursor-pointer">
+                <div className="text-4xl font-black mb-1 group-hover:scale-110 transition-transform">{pendingCount}</div>
+                <div className="text-sm text-blue-100 font-medium group-hover:text-white transition-colors">Pending</div>
+              </Link>
             </div>
           </div>
 
-          {/* Incoming Bookings */}
-          <div className="bg-white rounded-3xl shadow-lg border border-gray-100 p-8">
-            <h2 className="text-xl font-bold text-gray-900 mb-6 flex items-center gap-2">
-              <Clock className="w-6 h-6 text-blue-600" />
-              Lesson Requests
-              {pendingCount > 0 && (
-                <span className="ml-2 px-2.5 py-0.5 bg-blue-600 text-white text-xs font-bold rounded-full">
-                  {pendingCount} new
-                </span>
-              )}
-            </h2>
-
-            {loadingBookings ? (
-              <div className="flex justify-center py-8">
-                <Loader2 className="w-6 h-6 animate-spin text-blue-600" />
+          {/* Lesson Requests — link to calendar */}
+          <Link
+            to="/lessons"
+            className="bg-white rounded-3xl shadow-lg border border-gray-100 p-8 flex items-center justify-between hover:border-blue-200 hover:shadow-xl transition-all group"
+          >
+            <div className="flex items-center gap-4">
+              <div className="w-12 h-12 bg-blue-100 rounded-2xl flex items-center justify-center shrink-0">
+                <Clock className="w-6 h-6 text-blue-600" />
               </div>
-            ) : bookings.length === 0 ? (
-              <p className="text-gray-400 text-center py-8 font-medium">No lesson requests yet.</p>
-            ) : (
-              <div className="space-y-4">
-                {bookings.map(booking => (
-                  <div key={booking.id} className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-5 border border-gray-100 rounded-2xl hover:border-blue-100 hover:bg-blue-50/30 transition-colors">
-                    <div className="flex flex-col gap-1">
-                      <div className="flex items-center gap-2">
-                        <span className="font-bold text-gray-900">{booking.student_name}</span>
-                        <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${
-                          booking.status === 'pending'  ? 'bg-yellow-100 text-yellow-700' :
-                          booking.status === 'accepted' ? 'bg-green-100 text-green-700' :
-                          'bg-red-100 text-red-600'
-                        }`}>
-                          {booking.status}
-                        </span>
-                      </div>
-                      <span className="text-sm font-medium text-blue-600">{booking.subject}</span>
-                      {booking.scheduled_at && (
-                        <span className="text-xs font-bold text-blue-600 flex items-center gap-1">
-                          <Clock className="w-3 h-3" />
-                          {new Date(booking.scheduled_at).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
-                          {' · '}
-                          {new Date(booking.scheduled_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
-                        </span>
-                      )}
-                      {booking.message && (
-                        <p className="text-sm text-gray-500 mt-1 max-w-md">{booking.message}</p>
-                      )}
-                      <span className="text-xs text-gray-400 mt-1">
-                        Requested {new Date(booking.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-                      </span>
-                    </div>
-
-                    <div className="flex items-center gap-2 shrink-0">
-                      {booking.status === 'pending' && (
-                        <>
-                          <button
-                            type="button"
-                            onClick={() => updateBookingStatus(booking.id, 'accepted')}
-                            className="flex items-center gap-1.5 px-4 py-2 bg-green-600 text-white rounded-lg font-bold text-sm hover:bg-green-700 transition-colors"
-                          >
-                            <CheckCircle className="w-4 h-4" />
-                            Accept
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => updateBookingStatus(booking.id, 'declined')}
-                            className="flex items-center gap-1.5 px-4 py-2 bg-red-100 text-red-600 rounded-lg font-bold text-sm hover:bg-red-200 transition-colors"
-                          >
-                            <XCircle className="w-4 h-4" />
-                            Decline
-                          </button>
-                        </>
-                      )}
-                      {booking.status === 'accepted' && (
-                        <button
-                          type="button"
-                          onClick={() => setChatBooking({ id: booking.id, name: booking.student_name, otherUserId: booking.student_id, subject: booking.subject })}
-                          className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 text-white rounded-lg font-bold text-sm hover:bg-blue-700 transition-colors"
-                        >
-                          <MessageCircle className="w-4 h-4" />
-                          Message
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                ))}
+              <div>
+                <div className="flex items-center gap-2">
+                  <h2 className="text-xl font-black text-gray-900">Lesson Requests</h2>
+                  {pendingCount > 0 && (
+                    <span className="px-2.5 py-0.5 bg-blue-600 text-white text-xs font-bold rounded-full">
+                      {pendingCount} pending
+                    </span>
+                  )}
+                </div>
+                <p className="text-sm text-gray-500 font-medium mt-0.5">
+                  {bookings.length === 0
+                    ? 'No lesson requests yet'
+                    : `${bookings.length} request${bookings.length !== 1 ? 's' : ''} · View calendar`}
+                </p>
               </div>
-            )}
-          </div>
+            </div>
+            <ChevronRight className="w-5 h-5 text-gray-400 group-hover:text-blue-600 transition-colors shrink-0" />
+          </Link>
 
           {/* Repository */}
           <div className="bg-white rounded-3xl shadow-lg border border-gray-100 p-8">
@@ -784,15 +693,6 @@ export function TutorMyProfile() {
         </form>
       </main>
 
-      {chatBooking && (
-        <ConversationModal
-          bookingId={chatBooking.id}
-          otherName={chatBooking.name}
-          otherUserId={chatBooking.otherUserId}
-          subject={chatBooking.subject}
-          onClose={() => setChatBooking(null)}
-        />
-      )}
     </div>
   )
 }
