@@ -1,23 +1,24 @@
 import { useState, useEffect, useMemo } from "react"
 import { Link } from "react-router"
 import { Navbar } from "../components/Navbar"
-import { ChevronLeft, ChevronRight, Calendar, Clock, Loader2, User, CheckCircle, XCircle, Users, X } from "lucide-react"
+import { ChevronLeft, ChevronRight, Calendar, Clock, Loader2, User, CheckCircle, XCircle, Users, MessageCircle, XOctagon } from "lucide-react"
 import { useAuth } from "../../context/AuthContext"
 import { supabase } from "../../lib/supabase"
 import { ConversationModal } from "../components/ConversationModal"
+import { GroupEnrollmentModal } from "../components/GroupEnrollmentModal"
 import { sendNotificationEmail } from "../../lib/notify"
 import { toast } from "sonner"
 
 interface Lesson {
   id:            string
   subject:       string
-  status:        'pending' | 'accepted' | 'declined'
+  status:        'pending' | 'accepted' | 'declined' | 'cancelled'
   scheduled_at:  string | null
   created_at:    string
   message:       string
   other_name:    string
   other_user_id: string
-  perspective:   'tutor' | 'student'  // whether the current user is the tutor or student in this booking
+  perspective:   'tutor' | 'student'
 }
 
 interface GroupEntry {
@@ -31,12 +32,14 @@ interface GroupEntry {
   enrollment_count: number
   perspective:      'tutor' | 'student'
   tutor_name:       string | null
+  tutor_id:         string | null
 }
 
 const STATUS_STYLE: Record<string, string> = {
-  pending:  'bg-yellow-100 text-yellow-700',
-  accepted: 'bg-green-100 text-green-700',
-  declined: 'bg-red-100 text-red-600',
+  pending:   'bg-yellow-100 text-yellow-700',
+  accepted:  'bg-green-100 text-green-700',
+  declined:  'bg-red-100 text-red-600',
+  cancelled: 'bg-gray-100 text-gray-500',
 }
 
 const DOW    = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat']
@@ -53,6 +56,128 @@ export function Lessons() {
   const [selectedDay, setSelectedDay] = useState<Date | null>(null)
   const [chatLesson, setChatLesson]   = useState<Lesson | null>(null)
   const [enrollmentGroup, setEnrollmentGroup] = useState<GroupEntry | null>(null)
+  const [groupChat, setGroupChat] = useState<{ bookingId: string; tutorName: string; tutorId: string; subject: string } | null>(null)
+  const [openingGroupChat, setOpeningGroupChat] = useState<string | null>(null)
+  const [cancelBooking, setCancelBooking]   = useState<Lesson | null>(null)
+  const [cancelGroup, setCancelGroup]       = useState<GroupEntry | null>(null)
+  const [cancellingId, setCancellingId]     = useState<string | null>(null)
+
+  async function handleGroupMessage(g: GroupEntry) {
+    if (!user || !g.tutor_id) return
+    setOpeningGroupChat(g.id)
+    const { data: existing } = await supabase
+      .from('bookings')
+      .select('id')
+      .eq('tutor_id', g.tutor_id)
+      .eq('student_id', user.id)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .single()
+    if (existing) {
+      setGroupChat({ bookingId: existing.id, tutorName: g.tutor_name ?? 'Tutor', tutorId: g.tutor_id, subject: g.subject })
+      setOpeningGroupChat(null)
+      return
+    }
+    const { data: created, error } = await supabase
+      .from('bookings')
+      .insert({
+        tutor_id:     g.tutor_id,
+        student_id:   user.id,
+        student_name: profile?.full_name ?? user.email?.split('@')[0] ?? 'Student',
+        subject:      g.subject,
+        message:      '',
+        status:       'pending',
+      })
+      .select('id')
+      .single()
+    if (error || !created) { toast.error('Could not open chat.') }
+    else { setGroupChat({ bookingId: created.id, tutorName: g.tutor_name ?? 'Tutor', tutorId: g.tutor_id, subject: g.subject }) }
+    setOpeningGroupChat(null)
+  }
+
+  async function handleCancelBooking(lesson: Lesson, message: string) {
+    setCancellingId(lesson.id)
+    const { error } = await supabase.from('bookings').update({ status: 'cancelled' }).eq('id', lesson.id)
+    if (error) { toast.error('Could not cancel session.'); setCancellingId(null); return }
+    if (message.trim()) {
+      await supabase.from('messages').insert({ booking_id: lesson.id, sender_id: user!.id, content: message.trim() })
+    }
+    setLessons(prev => prev.map(l => l.id === lesson.id ? { ...l, status: 'cancelled' as const } : l))
+    setCancelBooking(null)
+    setCancellingId(null)
+    toast.success('Session cancelled.')
+  }
+
+  async function handleLeaveGroup(g: GroupEntry, message: string) {
+    if (!user) return
+    setCancellingId(g.id)
+    const { error } = await supabase.from('group_lesson_enrollments')
+      .delete().eq('group_lesson_id', g.id).eq('student_id', user.id)
+    if (error) { toast.error('Could not leave session.'); setCancellingId(null); return }
+    if (message.trim() && g.tutor_id) {
+      let bookingId: string | null = null
+      const { data: existing } = await supabase.from('bookings').select('id')
+        .eq('tutor_id', g.tutor_id).eq('student_id', user.id)
+        .order('created_at', { ascending: false }).limit(1).single()
+      if (existing) {
+        bookingId = existing.id
+      } else {
+        const { data: created } = await supabase.from('bookings').insert({
+          tutor_id:     g.tutor_id,
+          student_id:   user.id,
+          student_name: profile?.full_name ?? user.email?.split('@')[0] ?? 'Student',
+          subject:      g.subject,
+          message:      '',
+          status:       'pending',
+        }).select('id').single()
+        bookingId = created?.id ?? null
+      }
+      if (bookingId) {
+        await supabase.from('messages').insert({ booking_id: bookingId, sender_id: user.id, content: message.trim() })
+      }
+    }
+    setGroupEntries(prev => prev.filter(ge => ge.id !== g.id))
+    setCancelGroup(null)
+    setCancellingId(null)
+    toast.success("You've left the group session.")
+  }
+
+  async function handleCancelGroupLesson(g: GroupEntry, message: string) {
+    if (!user) return
+    setCancellingId(g.id)
+    const { error } = await supabase.from('group_lessons').update({ status: 'cancelled' }).eq('id', g.id)
+    if (error) { toast.error('Could not cancel session.'); setCancellingId(null); return }
+    if (message.trim()) {
+      const { data: enrollments } = await supabase.from('group_lesson_enrollments')
+        .select('student_id, student_name').eq('group_lesson_id', g.id)
+      for (const e of enrollments ?? []) {
+        let bookingId: string | null = null
+        const { data: existing } = await supabase.from('bookings').select('id')
+          .eq('tutor_id', user.id).eq('student_id', e.student_id)
+          .order('created_at', { ascending: false }).limit(1).single()
+        if (existing) {
+          bookingId = existing.id
+        } else {
+          const { data: created } = await supabase.from('bookings').insert({
+            tutor_id:     user.id,
+            student_id:   e.student_id,
+            student_name: e.student_name,
+            subject:      g.subject,
+            message:      '',
+            status:       'pending',
+          }).select('id').single()
+          bookingId = created?.id ?? null
+        }
+        if (bookingId) {
+          await supabase.from('messages').insert({ booking_id: bookingId, sender_id: user.id, content: message.trim() })
+        }
+      }
+    }
+    setGroupEntries(prev => prev.filter(ge => ge.id !== g.id))
+    setCancelGroup(null)
+    setCancellingId(null)
+    toast.success('Group session cancelled.')
+  }
 
   async function updateStatus(lessonId: string, status: 'accepted' | 'declined') {
     const { error } = await supabase
@@ -89,10 +214,10 @@ export function Lessons() {
       : Promise.resolve({ data: [] })
     const groupStudentQ = supabase
       .from('group_lesson_enrollments')
-      .select('group_lesson_id, group_lessons(*, tutor:tutor_id(full_name))')
+      .select('group_lesson_id, group_lessons(*)')
       .eq('student_id', user.id)
 
-    Promise.all([queries, groupTutorQ, groupStudentQ]).then(([[tutorRes, studentRes], groupTutorRes, groupStudentRes]) => {
+    Promise.all([queries, groupTutorQ, groupStudentQ]).then(async ([[tutorRes, studentRes], groupTutorRes, groupStudentRes]) => {
       const asTutor: Lesson[] = ((tutorRes?.data ?? []) as any[]).map(b => ({
         id:            b.id,
         subject:       b.subject,
@@ -128,24 +253,35 @@ export function Lessons() {
         enrollment_count: g.group_lesson_enrollments?.[0]?.count ?? 0,
         perspective:      'tutor' as const,
         tutor_name:       null,
+        tutor_id:         g.tutor_id ?? null,
       }))
-      const groupAsStudent: GroupEntry[] = ((groupStudentRes.data ?? []) as any[])
-        .filter((e: any) => e.group_lessons)
-        .map((e: any) => {
-          const g = e.group_lessons
-          return {
-            id:               g.id,
-            title:            g.title,
-            subject:          g.subject,
-            scheduled_at:     g.scheduled_at,
-            duration_minutes: g.duration_minutes,
-            max_students:     g.max_students,
-            price:            g.price,
-            enrollment_count: 0,
-            perspective:      'student' as const,
-            tutor_name:       g.tutor?.full_name ?? null,
-          }
-        })
+      const enrolledRows = ((groupStudentRes.data ?? []) as any[]).filter((e: any) => e.group_lessons)
+      // Fetch tutor names from profiles using the tutor_ids
+      const tutorIds = [...new Set(enrolledRows.map((e: any) => e.group_lessons.tutor_id as string))]
+      const tutorNames: Record<string, string> = {}
+      if (tutorIds.length > 0) {
+        const { data: profiles } = await supabase
+          .from('profiles')
+          .select('id, full_name')
+          .in('id', tutorIds)
+        for (const p of profiles ?? []) tutorNames[p.id] = p.full_name
+      }
+      const groupAsStudent: GroupEntry[] = enrolledRows.map((e: any) => {
+        const g = e.group_lessons
+        return {
+          id:               g.id,
+          title:            g.title,
+          subject:          g.subject,
+          scheduled_at:     g.scheduled_at,
+          duration_minutes: g.duration_minutes,
+          max_students:     g.max_students,
+          price:            g.price,
+          enrollment_count: 0,
+          perspective:      'student' as const,
+          tutor_name:       tutorNames[g.tutor_id] ?? null,
+          tutor_id:         g.tutor_id ?? null,
+        }
+      })
       // Deduplicate: tutor may appear as both tutor and student
       const seen = new Set<string>()
       const merged = [...groupAsTutor, ...groupAsStudent].filter(g => {
@@ -344,6 +480,7 @@ export function Lessons() {
                       onChat={() => setChatLesson(l)}
                       onAccept={() => updateStatus(l.id, 'accepted')}
                       onDecline={() => updateStatus(l.id, 'declined')}
+                      onCancel={() => setCancelBooking(l)}
                     />
                   ))}
                 </div>
@@ -362,6 +499,7 @@ export function Lessons() {
                         onChat={() => setChatLesson(l)}
                         onAccept={() => updateStatus(l.id, 'accepted')}
                         onDecline={() => updateStatus(l.id, 'declined')}
+                        onCancel={() => setCancelBooking(l)}
                       />
                     ))}
                   </div>
@@ -381,7 +519,11 @@ export function Lessons() {
                         key={g.id}
                         group={g}
                         isTutor={isTutor}
+                        openingChat={openingGroupChat === g.id}
                         onViewEnrollments={g.perspective === 'tutor' ? () => setEnrollmentGroup(g) : undefined}
+                        onMessage={g.perspective === 'student' ? () => handleGroupMessage(g) : undefined}
+                        onLeave={g.perspective === 'student' ? () => setCancelGroup(g) : undefined}
+                        onCancelSession={g.perspective === 'tutor' ? () => setCancelGroup(g) : undefined}
                       />
                     ))}
                   </div>
@@ -403,22 +545,65 @@ export function Lessons() {
       )}
 
       {enrollmentGroup && (
-        <EnrollmentModal group={enrollmentGroup} onClose={() => setEnrollmentGroup(null)} />
+        <GroupEnrollmentModal group={enrollmentGroup} onClose={() => setEnrollmentGroup(null)} />
+      )}
+
+      {groupChat && (
+        <ConversationModal
+          bookingId={groupChat.bookingId}
+          otherName={groupChat.tutorName}
+          otherUserId={groupChat.tutorId}
+          subject={groupChat.subject}
+          onClose={() => setGroupChat(null)}
+        />
+      )}
+
+      {cancelBooking && (
+        <CancelSessionModal
+          title={`Cancel session with ${cancelBooking.other_name}?`}
+          description="This will mark the session as cancelled. You can optionally send a message to let them know why."
+          saving={cancellingId === cancelBooking.id}
+          onConfirm={msg => handleCancelBooking(cancelBooking, msg)}
+          onClose={() => setCancelBooking(null)}
+        />
+      )}
+
+      {cancelGroup && cancelGroup.perspective === 'student' && (
+        <CancelSessionModal
+          title={`Leave "${cancelGroup.title}"?`}
+          description="You'll be removed from this group session. You can optionally send a message to the tutor."
+          confirmLabel="Leave Session"
+          saving={cancellingId === cancelGroup.id}
+          onConfirm={msg => handleLeaveGroup(cancelGroup, msg)}
+          onClose={() => setCancelGroup(null)}
+        />
+      )}
+
+      {cancelGroup && cancelGroup.perspective === 'tutor' && (
+        <CancelSessionModal
+          title={`Cancel "${cancelGroup.title}"?`}
+          description={`This will cancel the session for all ${cancelGroup.enrollment_count} enrolled student${cancelGroup.enrollment_count !== 1 ? 's' : ''}. You can optionally send them all a message.`}
+          saving={cancellingId === cancelGroup.id}
+          onConfirm={msg => handleCancelGroupLesson(cancelGroup, msg)}
+          onClose={() => setCancelGroup(null)}
+        />
       )}
     </div>
   )
 }
 
-function LessonCard({ lesson: l, isTutor, onChat, onAccept, onDecline }: {
+function LessonCard({ lesson: l, isTutor, onChat, onAccept, onDecline, onCancel }: {
   lesson: Lesson
   isTutor: boolean
   onChat: () => void
   onAccept: () => void
   onDecline: () => void
+  onCancel: () => void
 }) {
   const isStudentPerspective = l.perspective === 'student'
+  const isCancellable = l.status === 'pending' || l.status === 'accepted'
   return (
-    <div className={`bg-white rounded-2xl border shadow-sm p-5 ${isStudentPerspective ? 'border-blue-100' : 'border-gray-100'}`}>
+    <div className={`bg-white rounded-2xl border shadow-sm p-5 ${l.status === 'cancelled' ? 'border-gray-100 opacity-60' : isStudentPerspective ? 'border-blue-100' : 'border-gray-100'}`}>
       <div className="flex items-start justify-between gap-3">
         <div className="flex flex-col gap-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
@@ -447,7 +632,7 @@ function LessonCard({ lesson: l, isTutor, onChat, onAccept, onDecline }: {
           )}
         </div>
 
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
           {l.perspective === 'tutor' && l.status === 'pending' && (
             <>
               <button
@@ -472,16 +657,29 @@ function LessonCard({ lesson: l, isTutor, onChat, onAccept, onDecline }: {
               Message
             </button>
           )}
+          {isCancellable && (
+            <button
+              onClick={onCancel}
+              title="Cancel session"
+              className="flex items-center gap-1.5 px-3 py-2 bg-gray-100 text-gray-500 rounded-xl font-bold text-sm hover:bg-red-50 hover:text-red-600 transition-colors"
+            >
+              <XOctagon className="w-4 h-4" /> Cancel
+            </button>
+          )}
         </div>
       </div>
     </div>
   )
 }
 
-function GroupCard({ group: g, isTutor: _isTutor, onViewEnrollments }: {
+function GroupCard({ group: g, isTutor: _isTutor, openingChat, onViewEnrollments, onMessage, onLeave, onCancelSession }: {
   group: GroupEntry
   isTutor: boolean
+  openingChat?: boolean
   onViewEnrollments?: () => void
+  onMessage?: () => void
+  onLeave?: () => void
+  onCancelSession?: () => void
 }) {
   const isTutorPerspective = g.perspective === 'tutor'
   return (
@@ -524,98 +722,93 @@ function GroupCard({ group: g, isTutor: _isTutor, onViewEnrollments }: {
             <span className="text-xs font-bold text-green-600">${g.price}/student</span>
           )}
         </div>
-        {onViewEnrollments && (
-          <ChevronRight className="w-4 h-4 text-gray-300 shrink-0 mt-0.5 group-hover:text-purple-500" />
-        )}
-      </div>
-    </div>
-  )
-}
-
-interface Enrollment {
-  id:          string
-  student_name: string
-  enrolled_at: string
-}
-
-function EnrollmentModal({ group: g, onClose }: { group: GroupEntry; onClose: () => void }) {
-  const [enrollments, setEnrollments] = useState<Enrollment[]>([])
-  const [loading, setLoading]         = useState(true)
-
-  useEffect(() => {
-    supabase
-      .from('group_lesson_enrollments')
-      .select('id, student_name, enrolled_at')
-      .eq('group_lesson_id', g.id)
-      .order('enrolled_at', { ascending: true })
-      .then(({ data }) => {
-        setEnrollments(data ?? [])
-        setLoading(false)
-      })
-  }, [g.id])
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="w-full max-w-md bg-white rounded-3xl shadow-2xl flex flex-col overflow-hidden max-h-[80vh]">
-
-        {/* Header */}
-        <div className="flex items-start justify-between px-6 py-5 border-b border-gray-100 shrink-0">
-          <div>
-            <h3 className="font-black text-gray-900">{g.title}</h3>
-            <p className="text-xs font-bold text-gray-400 uppercase tracking-widest mt-0.5">
-              {new Date(g.scheduled_at).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}{' '}
-              · {new Date(g.scheduled_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
-            </p>
-          </div>
-          <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-full text-gray-400 transition-colors shrink-0">
-            <X className="w-5 h-5" />
-          </button>
-        </div>
-
-        {/* Count bar */}
-        <div className="px-6 py-3 bg-purple-50 border-b border-purple-100 flex items-center justify-between shrink-0">
-          <span className="text-sm font-bold text-purple-700 flex items-center gap-2">
-            <Users className="w-4 h-4" />
-            {loading ? '…' : enrollments.length} / {g.max_students} enrolled
-          </span>
-          <div className="w-32 h-2 bg-purple-100 rounded-full overflow-hidden">
-            <div
-              className="h-full bg-purple-500 rounded-full transition-all"
-              style={{ width: loading ? '0%' : `${Math.min(100, ((enrollments.length / g.max_students) * 100))}%` }}
-            />
-          </div>
-        </div>
-
-        {/* Student list */}
-        <div className="flex-1 overflow-y-auto px-6 py-4">
-          {loading ? (
-            <div className="flex justify-center py-10">
-              <Loader2 className="w-6 h-6 animate-spin text-purple-600" />
-            </div>
-          ) : enrollments.length === 0 ? (
-            <div className="text-center py-10">
-              <Users className="w-10 h-10 text-gray-200 mx-auto mb-3" />
-              <p className="font-bold text-gray-400">No one enrolled yet</p>
-            </div>
-          ) : (
-            <ul className="flex flex-col divide-y divide-gray-100">
-              {enrollments.map((e, i) => (
-                <li key={e.id} className="flex items-center gap-4 py-3.5">
-                  <div className="w-8 h-8 rounded-full bg-purple-100 text-purple-700 flex items-center justify-center font-black text-sm shrink-0">
-                    {i + 1}
-                  </div>
-                  <div className="flex flex-col min-w-0">
-                    <span className="font-bold text-gray-900">{e.student_name}</span>
-                    <span className="text-xs text-gray-400 font-medium">
-                      Enrolled {new Date(e.enrolled_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-                    </span>
-                  </div>
-                </li>
-              ))}
-            </ul>
+        <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
+          {onMessage && (
+            <button
+              onClick={e => { e.stopPropagation(); onMessage() }}
+              disabled={openingChat}
+              className="flex items-center gap-1.5 px-3 py-2 bg-blue-600 text-white rounded-xl font-bold text-sm hover:bg-blue-700 transition-colors disabled:opacity-60"
+            >
+              {openingChat ? <Loader2 className="w-4 h-4 animate-spin" /> : <MessageCircle className="w-4 h-4" />}
+              Message
+            </button>
+          )}
+          {onLeave && (
+            <button
+              onClick={e => { e.stopPropagation(); onLeave() }}
+              className="flex items-center gap-1.5 px-3 py-2 bg-gray-100 text-gray-500 rounded-xl font-bold text-sm hover:bg-red-50 hover:text-red-600 transition-colors"
+            >
+              <XOctagon className="w-4 h-4" /> Leave
+            </button>
+          )}
+          {onCancelSession && (
+            <button
+              onClick={e => { e.stopPropagation(); onCancelSession() }}
+              className="flex items-center gap-1.5 px-3 py-2 bg-gray-100 text-gray-500 rounded-xl font-bold text-sm hover:bg-red-50 hover:text-red-600 transition-colors"
+            >
+              <XOctagon className="w-4 h-4" /> Cancel
+            </button>
+          )}
+          {onViewEnrollments && (
+            <ChevronRight className="w-4 h-4 text-gray-300 shrink-0 mt-0.5" />
           )}
         </div>
       </div>
     </div>
   )
 }
+
+function CancelSessionModal({ title, description, confirmLabel = 'Cancel Session', saving, onConfirm, onClose }: {
+  title:         string
+  description:   string
+  confirmLabel?: string
+  saving:        boolean
+  onConfirm:     (message: string) => void
+  onClose:       () => void
+}) {
+  const [msg, setMsg] = useState('')
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+      <div className="w-full max-w-sm bg-white rounded-3xl shadow-2xl p-6 flex flex-col gap-4">
+        <div className="flex items-start justify-between gap-3">
+          <h3 className="font-black text-gray-900 text-lg leading-snug">{title}</h3>
+          <button onClick={onClose} disabled={saving} className="p-1.5 hover:bg-gray-100 rounded-full text-gray-400 transition-colors shrink-0 disabled:opacity-50">
+            <XCircle className="w-5 h-5" />
+          </button>
+        </div>
+        <p className="text-sm text-gray-500 font-medium -mt-1">{description}</p>
+        <div className="flex flex-col gap-1.5">
+          <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">
+            Message <span className="normal-case font-medium">(optional)</span>
+          </label>
+          <textarea
+            value={msg}
+            onChange={e => setMsg(e.target.value)}
+            placeholder="Let them know why you're cancelling…"
+            rows={3}
+            disabled={saving}
+            className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm font-medium text-gray-800 bg-gray-50 focus:outline-none focus:ring-2 focus:ring-red-400 resize-none disabled:opacity-60"
+          />
+        </div>
+        <div className="flex gap-3">
+          <button
+            onClick={onClose}
+            disabled={saving}
+            className="flex-1 h-11 border-2 border-gray-200 text-gray-600 rounded-xl font-bold hover:bg-gray-50 transition-colors disabled:opacity-50"
+          >
+            Keep Session
+          </button>
+          <button
+            onClick={() => onConfirm(msg)}
+            disabled={saving}
+            className="flex-1 h-11 bg-red-600 text-white rounded-xl font-bold hover:bg-red-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+          >
+            {saving && <Loader2 className="w-4 h-4 animate-spin" />}
+            {confirmLabel}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+

@@ -13,6 +13,7 @@ import { Link } from "react-router";
 import { useAuth } from "../../context/AuthContext";
 import { supabase } from "../../lib/supabase";
 import { CreateGroupLessonModal, type GroupLesson } from "../components/CreateGroupLessonModal";
+import { GroupEnrollmentModal } from "../components/GroupEnrollmentModal";
 
 const DAYS = ['monday','tuesday','wednesday','thursday','friday','saturday','sunday'] as const
 type Day = typeof DAYS[number]
@@ -100,6 +101,7 @@ export function TutorMyProfile() {
   const [groupLessons, setGroupLessons] = useState<GroupLesson[]>([])
   const [loadingGroupLessons, setLoadingGroupLessons] = useState(true)
   const [showCreateGroup, setShowCreateGroup] = useState(false)
+  const [enrollmentGroup, setEnrollmentGroup] = useState<GroupLesson | null>(null)
 
   const [availability, setAvailability] = useState<WeekAvail>(DEFAULT_AVAIL)
 
@@ -616,7 +618,7 @@ export function TutorMyProfile() {
                   const isFull    = spotsLeft <= 0
                   const isPast    = new Date(gl.scheduled_at) < new Date()
                   return (
-                    <div key={gl.id} className="py-4 flex items-start justify-between gap-4">
+                    <div key={gl.id} className="py-4 flex items-start justify-between gap-4 cursor-pointer hover:bg-purple-50 -mx-2 px-2 rounded-xl transition-colors" onClick={() => setEnrollmentGroup(gl)}>
                       <div className="flex items-start gap-4 min-w-0">
                         <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
                           isPast ? 'bg-gray-100' : 'bg-purple-100'
@@ -643,6 +645,7 @@ export function TutorMyProfile() {
                             <span className="text-xs font-bold text-gray-500 flex items-center gap-1">
                               <Users className="w-3 h-3" />
                               {gl.enrollment_count ?? 0} / {gl.max_students} enrolled
+                              <span className="text-purple-500 font-bold ml-1">· View roster</span>
                             </span>
                             {gl.price > 0 && (
                               <span className="text-xs font-bold text-green-600">${gl.price}/student</span>
@@ -659,7 +662,8 @@ export function TutorMyProfile() {
                       {gl.status === 'open' && !isPast && (
                         <button
                           type="button"
-                          onClick={async () => {
+                          onClick={async (e) => {
+                            e.stopPropagation()
                             const { error } = await supabase
                               .from('group_lessons')
                               .update({ status: 'cancelled' })
@@ -843,6 +847,20 @@ export function TutorMyProfile() {
             setShowCreateGroup(false)
           }}
           onClose={() => setShowCreateGroup(false)}
+        />
+      )}
+
+      {enrollmentGroup && (
+        <GroupEnrollmentModal
+          group={enrollmentGroup}
+          onClose={() => setEnrollmentGroup(null)}
+          onRemove={() => {
+            setGroupLessons(prev => prev.map(g =>
+              g.id === enrollmentGroup.id
+                ? { ...g, enrollment_count: Math.max(0, (g.enrollment_count ?? 1) - 1) }
+                : g
+            ))
+          }}
         />
       )}
     </div>
