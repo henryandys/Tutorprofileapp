@@ -14,13 +14,15 @@ import { useAuth } from "../../context/AuthContext";
 import { supabase } from "../../lib/supabase";
 
 export function Search() {
-  const { profile } = useAuth()
+  const { user, profile } = useAuth()
   const navigate = useNavigate()
   const [allTutors, setAllTutors]             = useState<Tutor[]>([])
   const [loading, setLoading]                 = useState(true)
   const [selectedTutorId, setSelectedTutorId]   = useState<string | undefined>(undefined)
   const [groupLessons, setGroupLessons]         = useState<GroupLessonPin[]>([])
   const [selectedGroupId, setSelectedGroupId]   = useState<string | undefined>(undefined)
+  const [myEnrollments, setMyEnrollments]       = useState<Set<string>>(new Set())
+  const [enrollingId, setEnrollingId]           = useState<string | null>(null)
   const [mapMode, setMapMode]                   = useState<'all' | 'tutors' | 'groups'>('all')
   const [mobileView, setMobileView]             = useState<"list" | "map">("map")
   const [filters, setFilters]                 = useState<FilterState>({
@@ -53,7 +55,7 @@ export function Search() {
     async function loadGroupLessons() {
       const { data: glData } = await supabase
         .from('group_lessons')
-        .select('id, title, subject, scheduled_at, price, max_students, tutor_id, group_lesson_enrollments(count)')
+        .select('id, title, subject, description, scheduled_at, price, max_students, tutor_id, group_lesson_enrollments(count)')
         .eq('status', 'open')
         .gte('scheduled_at', new Date().toISOString())
         .order('scheduled_at', { ascending: true })
@@ -74,6 +76,7 @@ export function Search() {
         id:               g.id,
         title:            g.title,
         subject:          g.subject,
+        description:      g.description ?? null,
         scheduled_at:     g.scheduled_at,
         price:            g.price,
         max_students:     g.max_students,
@@ -86,6 +89,38 @@ export function Search() {
     }
     loadGroupLessons()
   }, [])
+
+  // Fetch the signed-in user's existing group enrollments
+  useEffect(() => {
+    if (!user) return
+    supabase
+      .from('group_lesson_enrollments')
+      .select('group_lesson_id')
+      .eq('student_id', user.id)
+      .then(({ data }) => {
+        setMyEnrollments(new Set((data ?? []).map((r: any) => r.group_lesson_id as string)))
+      })
+  }, [user])
+
+  async function handleEnroll(gl: GroupLessonPin) {
+    if (!user) { toast.error('Please sign in to enroll.'); return }
+    setEnrollingId(gl.id)
+    const { error } = await supabase.from('group_lesson_enrollments').insert({
+      group_lesson_id: gl.id,
+      student_id:      user.id,
+      student_name:    profile?.full_name ?? user.email?.split('@')[0] ?? 'Student',
+    })
+    if (error) {
+      toast.error(error.code === '23505' ? 'Already enrolled.' : 'Enrollment failed: ' + error.message)
+    } else {
+      setMyEnrollments(prev => new Set([...prev, gl.id]))
+      setGroupLessons(prev => prev.map(g =>
+        g.id === gl.id ? { ...g, enrollment_count: g.enrollment_count + 1 } : g
+      ))
+      toast.success(`Enrolled in "${gl.title}"!`)
+    }
+    setEnrollingId(null)
+  }
 
   // Whenever allTutors gets geocoded coordinates, push them into groupLessons too.
   // The profiles table stores null lat/lng until geocoded client-side, so we sync
@@ -143,6 +178,8 @@ export function Search() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [profile?.location])
 
+  const [groupDateFilter, setGroupDateFilter] = useState<'all' | 'today' | 'week' | 'month'>('all')
+
   const tutors = useMemo(() => {
     return allTutors.filter(t => {
       const q = filters.query.toLowerCase()
@@ -156,6 +193,25 @@ export function Search() {
       return matchesQuery && matchesRate && matchesRating
     })
   }, [allTutors, filters])
+
+  const filteredGroupLessons = useMemo(() => {
+    const now = new Date()
+    const q   = filters.query.toLowerCase()
+    return groupLessons.filter(gl => {
+      const matchesQuery = !q ||
+        gl.title.toLowerCase().includes(q) ||
+        gl.subject.toLowerCase().includes(q) ||
+        gl.tutor_name.toLowerCase().includes(q)
+      const matchesPrice = gl.price >= filters.minRate && (filters.maxRate >= 300 || gl.price <= filters.maxRate)
+      const d = new Date(gl.scheduled_at)
+      const matchesDate =
+        groupDateFilter === 'all'   ? true :
+        groupDateFilter === 'today' ? d.toDateString() === now.toDateString() :
+        groupDateFilter === 'week'  ? d >= now && d <= new Date(now.getFullYear(), now.getMonth(), now.getDate() + 7) :
+        /* month */                   d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear()
+      return matchesQuery && matchesPrice && matchesDate
+    })
+  }, [groupLessons, filters, groupDateFilter])
 
   const selectedTutor = tutors.find(t => t.id === selectedTutorId)
 
@@ -179,19 +235,37 @@ export function Search() {
           bg-white border-r border-gray-100 flex flex-col overflow-hidden
           ${mobileView === "map" ? "hidden md:flex" : "flex"}
         `}>
-          <div className="px-4 pt-4 pb-2 border-b border-gray-100">
+          <div className="px-4 pt-4 pb-2 border-b border-gray-100 flex flex-col gap-2">
             <span className="text-sm font-bold text-gray-500">
               {mapMode === 'groups'
-                ? `${groupLessons.length} group session${groupLessons.length !== 1 ? 's' : ''}`
+                ? `${filteredGroupLessons.length} group session${filteredGroupLessons.length !== 1 ? 's' : ''}`
                 : mapMode === 'tutors'
                   ? `${tutors.length} tutor${tutors.length !== 1 ? 's' : ''}`
-                  : `${tutors.length} tutor${tutors.length !== 1 ? 's' : ''} · ${groupLessons.length} group session${groupLessons.length !== 1 ? 's' : ''}`}
+                  : `${tutors.length} tutor${tutors.length !== 1 ? 's' : ''} · ${filteredGroupLessons.length} group session${filteredGroupLessons.length !== 1 ? 's' : ''}`}
             </span>
+            {/* Date filter chips — only shown when group sessions are visible */}
+            {mapMode !== 'tutors' && (
+              <div className="flex items-center gap-1.5 flex-wrap">
+                {(['all', 'today', 'week', 'month'] as const).map(opt => (
+                  <button
+                    key={opt}
+                    onClick={() => setGroupDateFilter(opt)}
+                    className={`px-2.5 py-1 rounded-full text-xs font-bold border transition-colors ${
+                      groupDateFilter === opt
+                        ? 'bg-purple-600 text-white border-purple-600'
+                        : 'border-gray-200 text-gray-500 hover:border-purple-300 hover:text-purple-600'
+                    }`}
+                  >
+                    {opt === 'all' ? 'Any date' : opt === 'today' ? 'Today' : opt === 'week' ? 'This week' : 'This month'}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
 
           <div className="flex-1 overflow-y-auto p-3 pb-24 md:pb-3 space-y-3">
             {/* Group sessions — shown in 'all' and 'groups' mode */}
-            {mapMode !== 'tutors' && groupLessons.map(gl => {
+            {mapMode !== 'tutors' && filteredGroupLessons.map(gl => {
               const spotsLeft = gl.max_students - gl.enrollment_count
               const isSelected = selectedGroupId === gl.id
               return (
@@ -209,21 +283,47 @@ export function Search() {
                     <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-purple-100 text-purple-700 shrink-0">Group</span>
                   </div>
                   <p className="text-sm font-bold text-purple-600 mb-1">{gl.subject}</p>
-                  <p className="text-xs text-gray-500 font-medium flex items-center gap-1 mb-2">
+                  <p className="text-xs text-gray-500 font-medium flex items-center gap-1">
                     <Users className="w-3 h-3 shrink-0" /> {gl.tutor_name}
                   </p>
-                  <div className="flex items-center gap-3 flex-wrap">
-                    <span className="text-xs text-gray-500 font-medium flex items-center gap-1">
-                      <Calendar className="w-3 h-3 shrink-0" />
-                      {new Date(gl.scheduled_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                      {' · '}
-                      {new Date(gl.scheduled_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
-                    </span>
-                    <span className={`text-xs font-bold ${spotsLeft > 0 ? 'text-green-600' : 'text-red-500'}`}>
-                      {spotsLeft > 0 ? `${spotsLeft} spot${spotsLeft !== 1 ? 's' : ''} left` : 'Full'}
-                    </span>
-                    {gl.price > 0 && (
-                      <span className="text-xs font-bold text-gray-700">${gl.price}/student</span>
+                  {gl.description && (
+                    <p className="text-xs text-gray-500 mt-1.5 line-clamp-2">{gl.description}</p>
+                  )}
+                  <div className="flex items-center justify-between gap-2 mt-2">
+                    <div className="flex items-center gap-3 flex-wrap">
+                      <span className="text-xs text-gray-500 font-medium flex items-center gap-1">
+                        <Calendar className="w-3 h-3 shrink-0" />
+                        {new Date(gl.scheduled_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                        {' · '}
+                        {new Date(gl.scheduled_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
+                      </span>
+                      <span className={`text-xs font-bold ${spotsLeft > 0 ? 'text-green-600' : 'text-red-500'}`}>
+                        {spotsLeft > 0 ? `${spotsLeft} spot${spotsLeft !== 1 ? 's' : ''} left` : 'Full'}
+                      </span>
+                      {gl.price > 0 && (
+                        <span className="text-xs font-bold text-gray-700">${gl.price}/student</span>
+                      )}
+                    </div>
+                    {gl.tutor_id !== user?.id && (
+                      <button
+                        onClick={e => { e.stopPropagation(); handleEnroll(gl) }}
+                        disabled={myEnrollments.has(gl.id) || spotsLeft <= 0 || enrollingId === gl.id}
+                        className={`shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-colors ${
+                          myEnrollments.has(gl.id)
+                            ? 'bg-green-100 text-green-700 cursor-default'
+                            : spotsLeft <= 0
+                              ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                              : 'bg-purple-600 text-white hover:bg-purple-700'
+                        } disabled:opacity-70`}
+                      >
+                        {enrollingId === gl.id
+                          ? <Loader2 className="w-3 h-3 animate-spin" />
+                          : myEnrollments.has(gl.id)
+                            ? '✓ Enrolled'
+                            : spotsLeft <= 0
+                              ? 'Full'
+                              : 'Enroll'}
+                      </button>
                     )}
                   </div>
                 </div>
@@ -271,7 +371,7 @@ export function Search() {
             onSelect={id => { setSelectedTutorId(id); setSelectedGroupId(undefined) }}
             flyTo={flyTo}
             initialCenter={homeCoords.current}
-            groupLessons={mapMode === 'tutors' ? [] : groupLessons}
+            groupLessons={mapMode === 'tutors' ? [] : filteredGroupLessons}
             selectedGroupId={selectedGroupId}
             onSelectGroup={id => { setSelectedGroupId(id); setSelectedTutorId(undefined) }}
           />

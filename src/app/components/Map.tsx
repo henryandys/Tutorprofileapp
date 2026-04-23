@@ -9,6 +9,7 @@ export interface GroupLessonPin {
   id:               string
   title:            string
   subject:          string
+  description:      string | null
   scheduled_at:     string
   price:            number
   max_students:     number

@@ -118,7 +118,7 @@ export function FilterBar({ onFilter }: FilterBarProps) {
           {/* Price range */}
           <div className="flex flex-col gap-1.5 min-w-[200px]">
             <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">
-              Hourly Rate: ${filters.minRate} – ${filters.maxRate === 300 ? '300+' : filters.maxRate}
+              Rate / Price: ${filters.minRate} – ${filters.maxRate === 300 ? '300+' : filters.maxRate}
             </label>
             <div className="flex items-center gap-3">
               <input
