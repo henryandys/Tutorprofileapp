@@ -6,12 +6,13 @@ import { Navbar } from "../components/Navbar";
 import {
   User, BookOpen, DollarSign, MapPin, GraduationCap, Briefcase,
   Plus, X, Save, Camera, Award, Star, FileText, Calendar,
-  ChevronRight, Loader2, Clock
+  ChevronRight, Loader2, Clock, Shield, CreditCard, Users
 } from "lucide-react";
 import { toast } from "sonner";
 import { Link } from "react-router";
 import { useAuth } from "../../context/AuthContext";
 import { supabase } from "../../lib/supabase";
+import { CreateGroupLessonModal, type GroupLesson } from "../components/CreateGroupLessonModal";
 
 const DAYS = ['monday','tuesday','wednesday','thursday','friday','saturday','sunday'] as const
 type Day = typeof DAYS[number]
@@ -96,6 +97,9 @@ export function TutorMyProfile() {
   const [tutorData, setTutorData]       = useState<any>(null)
   const [myResources, setMyResources]   = useState<TutorResource[]>([])
   const [loadingResources, setLoadingResources] = useState(true)
+  const [groupLessons, setGroupLessons] = useState<GroupLesson[]>([])
+  const [loadingGroupLessons, setLoadingGroupLessons] = useState(true)
+  const [showCreateGroup, setShowCreateGroup] = useState(false)
 
   const [availability, setAvailability] = useState<WeekAvail>(DEFAULT_AVAIL)
 
@@ -157,6 +161,22 @@ export function TutorMyProfile() {
       .then(({ data }) => {
         setMyResources(data ?? [])
         setLoadingResources(false)
+      })
+
+    // Fetch group lessons with enrollment counts
+    supabase
+      .from('group_lessons')
+      .select('*, group_lesson_enrollments(count)')
+      .eq('tutor_id', user.id)
+      .order('scheduled_at', { ascending: true })
+      .then(({ data }) => {
+        setGroupLessons(
+          (data ?? []).map((g: any) => ({
+            ...g,
+            enrollment_count: g.group_lesson_enrollments?.[0]?.count ?? 0,
+          }))
+        )
+        setLoadingGroupLessons(false)
       })
   }, [user, profile])
 
@@ -557,6 +577,110 @@ export function TutorMyProfile() {
             <ChevronRight className="w-5 h-5 text-gray-400 group-hover:text-blue-600 transition-colors shrink-0" />
           </Link>
 
+          {/* Group Sessions */}
+          <div className="bg-white rounded-3xl shadow-lg border border-gray-100 p-8">
+            <div className="flex items-center justify-between mb-6">
+              <div>
+                <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2 mb-1">
+                  <Users className="w-6 h-6 text-purple-600" />
+                  Group Sessions
+                </h2>
+                <p className="text-gray-500 text-sm font-medium">Sessions multiple students can enroll in</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowCreateGroup(true)}
+                className="flex items-center gap-2 px-5 py-2.5 bg-purple-600 text-white rounded-xl font-bold hover:bg-purple-700 transition-all shadow-lg shadow-purple-200 text-sm"
+              >
+                <Plus className="w-4 h-4" />
+                New Session
+              </button>
+            </div>
+
+            {loadingGroupLessons ? (
+              <div className="flex justify-center py-8">
+                <Loader2 className="w-6 h-6 animate-spin text-purple-600" />
+              </div>
+            ) : groupLessons.length === 0 ? (
+              <div className="text-center py-8 border-2 border-dashed border-gray-200 rounded-2xl">
+                <Users className="w-8 h-8 text-gray-300 mx-auto mb-2" />
+                <p className="text-gray-400 font-medium text-sm">No group sessions yet.</p>
+                <button type="button" onClick={() => setShowCreateGroup(true)} className="text-purple-600 font-bold text-sm hover:underline mt-1">
+                  Create your first one
+                </button>
+              </div>
+            ) : (
+              <div className="divide-y divide-gray-100">
+                {groupLessons.map(gl => {
+                  const spotsLeft = gl.max_students - (gl.enrollment_count ?? 0)
+                  const isFull    = spotsLeft <= 0
+                  const isPast    = new Date(gl.scheduled_at) < new Date()
+                  return (
+                    <div key={gl.id} className="py-4 flex items-start justify-between gap-4">
+                      <div className="flex items-start gap-4 min-w-0">
+                        <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
+                          isPast ? 'bg-gray-100' : 'bg-purple-100'
+                        }`}>
+                          <Users className={`w-5 h-5 ${isPast ? 'text-gray-400' : 'text-purple-600'}`} />
+                        </div>
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <p className="font-bold text-gray-900 truncate">{gl.title}</p>
+                            {gl.status === 'cancelled' && (
+                              <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-red-100 text-red-600">Cancelled</span>
+                            )}
+                            {isFull && gl.status === 'open' && (
+                              <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-orange-100 text-orange-600">Full</span>
+                            )}
+                          </div>
+                          <p className="text-xs text-gray-400 font-medium mt-0.5">
+                            {gl.subject} ·{' '}
+                            {new Date(gl.scheduled_at).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}{' '}
+                            {new Date(gl.scheduled_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}{' '}
+                            · {gl.duration_minutes} min
+                          </p>
+                          <div className="flex items-center gap-3 mt-1">
+                            <span className="text-xs font-bold text-gray-500 flex items-center gap-1">
+                              <Users className="w-3 h-3" />
+                              {gl.enrollment_count ?? 0} / {gl.max_students} enrolled
+                            </span>
+                            {gl.price > 0 && (
+                              <span className="text-xs font-bold text-green-600">${gl.price}/student</span>
+                            )}
+                            {gl.price === 0 && (
+                              <span className="text-xs font-bold text-green-600">Free</span>
+                            )}
+                          </div>
+                          {gl.description && (
+                            <p className="text-sm text-gray-500 font-medium mt-1 line-clamp-1">{gl.description}</p>
+                          )}
+                        </div>
+                      </div>
+                      {gl.status === 'open' && !isPast && (
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            const { error } = await supabase
+                              .from('group_lessons')
+                              .update({ status: 'cancelled' })
+                              .eq('id', gl.id)
+                              .eq('tutor_id', user!.id)
+                            if (error) { toast.error('Could not cancel session.'); return }
+                            setGroupLessons(prev => prev.map(g => g.id === gl.id ? { ...g, status: 'cancelled' } : g))
+                            toast.success('Session cancelled.')
+                          }}
+                          className="shrink-0 text-xs font-bold text-red-500 hover:text-red-700 px-3 py-1.5 border border-red-200 rounded-lg hover:bg-red-50 transition-colors"
+                        >
+                          Cancel
+                        </button>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+
           {/* Repository */}
           <div className="bg-white rounded-3xl shadow-lg border border-gray-100 p-8">
             <div className="flex items-center justify-between mb-6">
@@ -677,6 +801,24 @@ export function TutorMyProfile() {
             )}
           </div>
 
+          {/* Account links */}
+          <div className="bg-white rounded-3xl shadow-lg border border-gray-100 overflow-hidden">
+            <Link to="/privacy-security" className="flex items-center justify-between px-6 py-4 hover:bg-gray-50 transition-colors border-b border-gray-100 group">
+              <div className="flex items-center gap-3">
+                <Shield className="w-5 h-5 text-gray-400" />
+                <span className="font-bold text-gray-700">Privacy &amp; Security</span>
+              </div>
+              <ChevronRight className="w-4 h-4 text-gray-400 group-hover:text-blue-600 transition-colors" />
+            </Link>
+            <button className="w-full flex items-center justify-between px-6 py-4 hover:bg-gray-50 transition-colors group">
+              <div className="flex items-center gap-3">
+                <CreditCard className="w-5 h-5 text-gray-400" />
+                <span className="font-bold text-gray-700">Payments</span>
+              </div>
+              <ChevronRight className="w-4 h-4 text-gray-400 group-hover:text-blue-600 transition-colors" />
+            </button>
+          </div>
+
           {/* Save button */}
           {isEditing && (
             <div className="flex justify-end gap-4 pt-4">
@@ -693,6 +835,16 @@ export function TutorMyProfile() {
         </form>
       </main>
 
+      {showCreateGroup && (
+        <CreateGroupLessonModal
+          tutorSubjects={(tutorData?.subjects ?? []) as string[]}
+          onCreated={lesson => {
+            setGroupLessons(prev => [lesson, ...prev])
+            setShowCreateGroup(false)
+          }}
+          onClose={() => setShowCreateGroup(false)}
+        />
+      )}
     </div>
   )
 }

@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from "react"
 import { Link } from "react-router"
 import { Navbar } from "../components/Navbar"
-import { ChevronLeft, ChevronRight, Calendar, Clock, Loader2, User, CheckCircle, XCircle } from "lucide-react"
+import { ChevronLeft, ChevronRight, Calendar, Clock, Loader2, User, CheckCircle, XCircle, Users } from "lucide-react"
 import { useAuth } from "../../context/AuthContext"
 import { supabase } from "../../lib/supabase"
 import { ConversationModal } from "../components/ConversationModal"
@@ -9,14 +9,27 @@ import { sendNotificationEmail } from "../../lib/notify"
 import { toast } from "sonner"
 
 interface Lesson {
-  id:           string
-  subject:      string
-  status:       'pending' | 'accepted' | 'declined'
-  scheduled_at: string | null
-  created_at:   string
-  message:      string
-  other_name:   string
+  id:            string
+  subject:       string
+  status:        'pending' | 'accepted' | 'declined'
+  scheduled_at:  string | null
+  created_at:    string
+  message:       string
+  other_name:    string
   other_user_id: string
+  perspective:   'tutor' | 'student'  // whether the current user is the tutor or student in this booking
+}
+
+interface GroupEntry {
+  id:               string
+  title:            string
+  subject:          string
+  scheduled_at:     string
+  duration_minutes: number
+  max_students:     number
+  price:            number
+  enrollment_count: number
+  perspective:      'tutor' | 'student'
 }
 
 const STATUS_STYLE: Record<string, string> = {
@@ -32,11 +45,12 @@ export function Lessons() {
   const { user, role, profile } = useAuth()
   const isTutor = role === 'tutor'
 
-  const [lessons, setLessons]       = useState<Lesson[]>([])
-  const [loading, setLoading]       = useState(true)
-  const [calMonth, setCalMonth]     = useState(() => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), 1) })
+  const [lessons, setLessons]         = useState<Lesson[]>([])
+  const [groupEntries, setGroupEntries] = useState<GroupEntry[]>([])
+  const [loading, setLoading]         = useState(true)
+  const [calMonth, setCalMonth]       = useState(() => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), 1) })
   const [selectedDay, setSelectedDay] = useState<Date | null>(null)
-  const [chatLesson, setChatLesson]  = useState<Lesson | null>(null)
+  const [chatLesson, setChatLesson]   = useState<Lesson | null>(null)
 
   async function updateStatus(lessonId: string, status: 'accepted' | 'declined') {
     const { error } = await supabase
@@ -59,20 +73,83 @@ export function Lessons() {
 
   useEffect(() => {
     if (!user) return
-    const q = isTutor
-      ? supabase.from('bookings').select('id,subject,status,scheduled_at,created_at,message,student_name,student_id').eq('tutor_id', user.id)
-      : supabase.from('bookings').select('id,subject,status,scheduled_at,created_at,message,tutor_id,tutor:tutor_id(full_name)').eq('student_id', user.id)
-    q.then(({ data }) => {
-      setLessons((data ?? []).map((b: any) => ({
+
+    const asTutorQ   = supabase.from('bookings').select('id,subject,status,scheduled_at,created_at,message,student_name,student_id').eq('tutor_id', user.id)
+    const asStudentQ = supabase.from('bookings').select('id,subject,status,scheduled_at,created_at,message,tutor_id,tutor:tutor_id(full_name)').eq('student_id', user.id)
+
+    // Tutors see both sets; students see only their own bookings
+    const queries = isTutor
+      ? Promise.all([asTutorQ, asStudentQ])
+      : Promise.all([asStudentQ]).then(([r]) => [null, r])
+
+    const groupTutorQ   = isTutor
+      ? supabase.from('group_lessons').select('*, group_lesson_enrollments(count)').eq('tutor_id', user.id)
+      : Promise.resolve({ data: [] })
+    const groupStudentQ = supabase
+      .from('group_lesson_enrollments')
+      .select('group_lesson_id, group_lessons(*)')
+      .eq('student_id', user.id)
+
+    Promise.all([queries, groupTutorQ, groupStudentQ]).then(([[tutorRes, studentRes], groupTutorRes, groupStudentRes]) => {
+      const asTutor: Lesson[] = ((tutorRes?.data ?? []) as any[]).map(b => ({
         id:            b.id,
         subject:       b.subject,
         status:        b.status,
         scheduled_at:  b.scheduled_at ?? null,
         created_at:    b.created_at,
         message:       b.message ?? '',
-        other_name:    isTutor ? b.student_name : (b.tutor?.full_name ?? 'Tutor'),
-        other_user_id: isTutor ? b.student_id   : b.tutor_id,
-      })))
+        other_name:    b.student_name,
+        other_user_id: b.student_id,
+        perspective:   'tutor' as const,
+      }))
+      const asStudent: Lesson[] = ((studentRes?.data ?? []) as any[]).map(b => ({
+        id:            b.id,
+        subject:       b.subject,
+        status:        b.status,
+        scheduled_at:  b.scheduled_at ?? null,
+        created_at:    b.created_at,
+        message:       b.message ?? '',
+        other_name:    b.tutor?.full_name ?? 'Tutor',
+        other_user_id: b.tutor_id,
+        perspective:   'student' as const,
+      }))
+      setLessons([...asTutor, ...asStudent])
+
+      const groupAsTutor: GroupEntry[] = ((groupTutorRes.data ?? []) as any[]).map(g => ({
+        id:               g.id,
+        title:            g.title,
+        subject:          g.subject,
+        scheduled_at:     g.scheduled_at,
+        duration_minutes: g.duration_minutes,
+        max_students:     g.max_students,
+        price:            g.price,
+        enrollment_count: g.group_lesson_enrollments?.[0]?.count ?? 0,
+        perspective:      'tutor' as const,
+      }))
+      const groupAsStudent: GroupEntry[] = ((groupStudentRes.data ?? []) as any[])
+        .filter((e: any) => e.group_lessons)
+        .map((e: any) => {
+          const g = e.group_lessons
+          return {
+            id:               g.id,
+            title:            g.title,
+            subject:          g.subject,
+            scheduled_at:     g.scheduled_at,
+            duration_minutes: g.duration_minutes,
+            max_students:     g.max_students,
+            price:            g.price,
+            enrollment_count: 0,
+            perspective:      'student' as const,
+          }
+        })
+      // Deduplicate: tutor may appear as both tutor and student
+      const seen = new Set<string>()
+      const merged = [...groupAsTutor, ...groupAsStudent].filter(g => {
+        if (seen.has(g.id)) return false
+        seen.add(g.id)
+        return true
+      })
+      setGroupEntries(merged)
       setLoading(false)
     })
   }, [user, isTutor])
@@ -86,6 +163,16 @@ export function Lessons() {
     }
     return map
   }, [lessons])
+
+  const groupByDate = useMemo(() => {
+    const map: Record<string, GroupEntry[]> = {}
+    for (const g of groupEntries) {
+      if (!g.scheduled_at) continue
+      const key = new Date(g.scheduled_at).toDateString()
+      ;(map[key] ??= []).push(g)
+    }
+    return map
+  }, [groupEntries])
 
   const cells = useMemo(() => {
     const firstDay    = new Date(calMonth.getFullYear(), calMonth.getMonth(), 1).getDay()
@@ -108,6 +195,15 @@ export function Lessons() {
 
   const unscheduled = useMemo(() =>
     lessons.filter(l => !l.scheduled_at), [lessons])
+
+  const visibleGroups = useMemo(() => {
+    if (selectedDay) return (groupByDate[selectedDay.toDateString()] ?? []).sort((a, b) =>
+      new Date(a.scheduled_at).getTime() - new Date(b.scheduled_at).getTime()
+    )
+    return groupEntries
+      .filter(g => new Date(g.scheduled_at) >= today)
+      .sort((a, b) => new Date(a.scheduled_at).getTime() - new Date(b.scheduled_at).getTime())
+  }, [selectedDay, groupByDate, groupEntries, today])
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -165,10 +261,16 @@ export function Lessons() {
                     if (!date) return <div key={i} />
                     const key        = date.toDateString()
                     const dayLessons = byDate[key] ?? []
+                    const dayGroups  = groupByDate[key] ?? []
                     const isToday    = key === today.toDateString()
                     const isSelected = selectedDay?.toDateString() === key
-                    const hasAccepted = dayLessons.some(l => l.status === 'accepted')
-                    const hasPending  = dayLessons.some(l => l.status === 'pending')
+                    const tutorLessons   = dayLessons.filter(l => l.perspective === 'tutor')
+                    const studentLessons = dayLessons.filter(l => l.perspective === 'student')
+                    const hasAccepted    = tutorLessons.some(l => l.status === 'accepted')
+                    const hasPending     = tutorLessons.some(l => l.status === 'pending')
+                    const hasOwn         = studentLessons.some(l => l.status !== 'declined')
+                    const hasGroup       = dayGroups.length > 0
+                    const hasAny         = dayLessons.length > 0 || hasGroup
                     return (
                       <button
                         key={key}
@@ -180,10 +282,12 @@ export function Lessons() {
                         }`}
                       >
                         <span className="text-xs font-bold leading-none">{date.getDate()}</span>
-                        {dayLessons.length > 0 && (
+                        {hasAny && (
                           <div className="flex gap-0.5 mt-0.5">
                             {hasAccepted && <span className={`w-1 h-1 rounded-full ${isSelected ? 'bg-white' : 'bg-green-500'}`} />}
                             {hasPending  && <span className={`w-1 h-1 rounded-full ${isSelected ? 'bg-white/80' : 'bg-yellow-400'}`} />}
+                            {hasOwn      && <span className={`w-1 h-1 rounded-full ${isSelected ? 'bg-white/60' : 'bg-blue-400'}`} />}
+                            {hasGroup    && <span className={`w-1 h-1 rounded-full ${isSelected ? 'bg-white/60' : 'bg-purple-500'}`} />}
                           </div>
                         )}
                       </button>
@@ -192,12 +296,20 @@ export function Lessons() {
                 </div>
 
                 {/* Legend */}
-                <div className="flex items-center gap-4 mt-4 pt-4 border-t border-gray-100">
+                <div className="flex flex-wrap gap-x-3 gap-y-1.5 mt-4 pt-4 border-t border-gray-100">
                   <span className="flex items-center gap-1.5 text-xs font-medium text-gray-500">
                     <span className="w-2 h-2 rounded-full bg-green-500 shrink-0" /> Accepted
                   </span>
                   <span className="flex items-center gap-1.5 text-xs font-medium text-gray-500">
                     <span className="w-2 h-2 rounded-full bg-yellow-400 shrink-0" /> Pending
+                  </span>
+                  {isTutor && (
+                    <span className="flex items-center gap-1.5 text-xs font-medium text-gray-500">
+                      <span className="w-2 h-2 rounded-full bg-blue-400 shrink-0" /> Your session
+                    </span>
+                  )}
+                  <span className="flex items-center gap-1.5 text-xs font-medium text-gray-500">
+                    <span className="w-2 h-2 rounded-full bg-purple-500 shrink-0" /> Group
                   </span>
                 </div>
               </div>
@@ -251,6 +363,19 @@ export function Lessons() {
                   </div>
                 </div>
               )}
+
+              {/* Group Sessions */}
+              {visibleGroups.length > 0 && (
+                <div className="mt-8">
+                  <h2 className="text-lg font-black text-gray-900 mb-4 flex items-center gap-2">
+                    <Users className="w-5 h-5 text-purple-600" />
+                    Group Sessions
+                  </h2>
+                  <div className="flex flex-col gap-3">
+                    {visibleGroups.map(g => <GroupCard key={g.id} group={g} isTutor={isTutor} />)}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -276,11 +401,15 @@ function LessonCard({ lesson: l, isTutor, onChat, onAccept, onDecline }: {
   onAccept: () => void
   onDecline: () => void
 }) {
+  const isStudentPerspective = l.perspective === 'student'
   return (
-    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+    <div className={`bg-white rounded-2xl border shadow-sm p-5 ${isStudentPerspective ? 'border-blue-100' : 'border-gray-100'}`}>
       <div className="flex items-start justify-between gap-3">
         <div className="flex flex-col gap-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
+            {isStudentPerspective && (
+              <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-blue-100 text-blue-700">Your session</span>
+            )}
             <div className="flex items-center gap-1.5">
               <User className="w-4 h-4 text-gray-400 shrink-0" />
               <span className="font-bold text-gray-900">{l.other_name}</span>
@@ -304,7 +433,7 @@ function LessonCard({ lesson: l, isTutor, onChat, onAccept, onDecline }: {
         </div>
 
         <div className="flex items-center gap-2 shrink-0">
-          {isTutor && l.status === 'pending' && (
+          {l.perspective === 'tutor' && l.status === 'pending' && (
             <>
               <button
                 onClick={onAccept}
@@ -327,6 +456,43 @@ function LessonCard({ lesson: l, isTutor, onChat, onAccept, onDecline }: {
             >
               Message
             </button>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function GroupCard({ group: g, isTutor }: { group: GroupEntry; isTutor: boolean }) {
+  const isTutorPerspective = g.perspective === 'tutor'
+  return (
+    <div className={`bg-white rounded-2xl border shadow-sm p-5 ${isTutorPerspective ? 'border-purple-100' : 'border-blue-100'}`}>
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex flex-col gap-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <Users className="w-4 h-4 text-purple-500 shrink-0" />
+            <span className="font-bold text-gray-900">{g.title}</span>
+            <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-purple-100 text-purple-700">Group</span>
+            {!isTutorPerspective && (
+              <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-blue-100 text-blue-700">Enrolled</span>
+            )}
+          </div>
+          <span className="text-sm font-bold text-purple-600">{g.subject}</span>
+          <span className="text-xs text-gray-500 font-medium flex items-center gap-1">
+            <Clock className="w-3 h-3 shrink-0" />
+            {new Date(g.scheduled_at).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}
+            {' · '}
+            {new Date(g.scheduled_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
+            {' · '}{g.duration_minutes} min
+          </span>
+          {isTutorPerspective && (
+            <span className="text-xs text-gray-500 font-medium flex items-center gap-1">
+              <Users className="w-3 h-3 shrink-0" />
+              {g.enrollment_count} / {g.max_students} enrolled
+            </span>
+          )}
+          {g.price > 0 && (
+            <span className="text-xs font-bold text-green-600">${g.price}/student</span>
           )}
         </div>
       </div>

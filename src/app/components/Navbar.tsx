@@ -1,11 +1,11 @@
 // src/app/components/Navbar.tsx
 
-import { Search, Menu, User, Bell, ChevronDown, LogOut } from "lucide-react";
+import { Search, Menu, User, Bell, LogOut } from "lucide-react";
 import { Link, useNavigate } from "react-router";
 import { useAuth } from "../../context/AuthContext";
 
 export function Navbar() {
-  const { user, profile, signOut } = useAuth()
+  const { user, profile, role, signOut } = useAuth()
   const navigate = useNavigate()
 
   const handleLogout = async () => {
@@ -68,7 +68,7 @@ export function Navbar() {
               <span className="hidden sm:block">Sign Out</span>
             </button>
             <Link
-              to="/profile"
+              to={role === 'tutor' ? '/my-profile' : '/profile'}
               className="flex items-center gap-2 border border-gray-300 rounded-full py-1.5 px-3 hover:shadow-md transition-shadow"
             >
               <Menu className="w-4 h-4 text-gray-500" />

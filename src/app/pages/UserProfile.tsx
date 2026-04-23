@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useForm } from "react-hook-form";
 import { Navbar } from "../components/Navbar";
-import { User, Mail, Phone, MapPin, Camera, Save, Bell, Shield, CreditCard, GraduationCap, ChevronRight, Clock, Loader2 } from "lucide-react";
+import { User, Mail, Phone, MapPin, Camera, Save, Bell, Shield, CreditCard, ChevronRight, Clock, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { Link, useNavigate } from "react-router";
 import { useAuth } from "../../context/AuthContext";
@@ -53,67 +53,39 @@ export function UserProfile() {
     e.target.value = ''
   }, [user, refreshProfile])
 
-  const isTutor = role === 'tutor'
+  useEffect(() => {
+    if (role === 'tutor') navigate('/my-profile')
+  }, [role, navigate])
 
-  const [bookings, setBookings]     = useState<StudentBooking[]>([])
+  const [bookings, setBookings]               = useState<StudentBooking[]>([])
   const [msgCount, setMsgCount]               = useState(0)
   const [sessionNotifCount, setSessionNotifCount] = useState(0)
-
   const notifSectionRef = useRef<HTMLDivElement>(null)
 
-  // Fetch notification counts — only items newer than the user's last check
+  // Fetch notification counts for students
   useEffect(() => {
     if (!user) return
-    const lastCheck  = localStorage.getItem(`notifLastCheck_${user.id}`)  ?? new Date(0).toISOString()
+    const lastCheck = localStorage.getItem(`notifLastCheck_${user.id}`) ?? new Date(0).toISOString()
     const seenIds: string[] = JSON.parse(localStorage.getItem(`notifSeenBookings_${user.id}`) ?? '[]')
-
-    if (!isTutor) {
-      supabase
-        .from('bookings')
-        .select('id, status')
-        .eq('student_id', user.id)
-        .then(({ data }) => {
-          const all = data ?? []
-          const newStatus = all.filter(b => b.status !== 'pending' && !seenIds.includes(b.id))
-          setSessionNotifCount(newStatus.length)
-          const acceptedIds = all.filter(b => b.status === 'accepted').map(b => b.id)
-          if (acceptedIds.length > 0) {
-            supabase
-              .from('messages')
-              .select('id', { count: 'exact', head: true })
-              .in('booking_id', acceptedIds)
-              .neq('sender_id', user.id)
-              .gt('created_at', lastCheck)
-              .then(({ count }) => setMsgCount(count ?? 0))
-          }
-        })
-    } else {
-      supabase
-        .from('bookings')
-        .select('id', { count: 'exact', head: true })
-        .eq('tutor_id', user.id)
-        .eq('status', 'pending')
-        .gt('created_at', lastCheck)
-        .then(({ count }) => setSessionNotifCount(count ?? 0))
-      supabase
-        .from('bookings')
-        .select('id')
-        .eq('tutor_id', user.id)
-        .eq('status', 'accepted')
-        .then(({ data }) => {
-          const ids = (data ?? []).map(b => b.id)
-          if (ids.length > 0) {
-            supabase
-              .from('messages')
-              .select('id', { count: 'exact', head: true })
-              .in('booking_id', ids)
-              .neq('sender_id', user.id)
-              .gt('created_at', lastCheck)
-              .then(({ count }) => setMsgCount(count ?? 0))
-          }
-        })
-    }
-  }, [user, isTutor])
+    supabase
+      .from('bookings')
+      .select('id, status')
+      .eq('student_id', user.id)
+      .then(({ data }) => {
+        const all = data ?? []
+        setSessionNotifCount(all.filter(b => b.status !== 'pending' && !seenIds.includes(b.id)).length)
+        const acceptedIds = all.filter(b => b.status === 'accepted').map(b => b.id)
+        if (acceptedIds.length > 0) {
+          supabase
+            .from('messages')
+            .select('id', { count: 'exact', head: true })
+            .in('booking_id', acceptedIds)
+            .neq('sender_id', user.id)
+            .gt('created_at', lastCheck)
+            .then(({ count }) => setMsgCount(count ?? 0))
+        }
+      })
+  }, [user])
 
   // Fetch student bookings for the My Lesson Requests section
   useEffect(() => {
@@ -131,11 +103,7 @@ export function UserProfile() {
     localStorage.setItem(`notifLastCheck_${user.id}`, new Date().toISOString())
     setMsgCount(0)
     setSessionNotifCount(0)
-    if (isTutor) {
-      navigate('/my-profile')
-      return
-    }
-    // Students: mark booking IDs as seen, then scroll to section
+    // Mark booking IDs as seen, then scroll to section
     supabase
       .from('bookings')
       .select('id')
@@ -199,31 +167,6 @@ export function UserProfile() {
 
       <main className="flex-1 max-w-6xl mx-auto w-full px-4 md:px-8 py-10">
 
-        {/* Tutor banner — also serves as the scroll target for tutors' notifications */}
-        {isTutor && (
-          <div ref={notifSectionRef} className="mb-6 bg-gradient-to-r from-blue-600 to-purple-600 rounded-3xl p-6 shadow-lg">
-            <div className="flex flex-col md:flex-row items-center justify-between gap-4">
-              <div className="flex items-center gap-4">
-                <div className="w-16 h-16 bg-white/20 backdrop-blur-sm rounded-full flex items-center justify-center">
-                  <GraduationCap className="w-8 h-8 text-white" />
-                </div>
-                <div className="text-white">
-                  <h3 className="text-xl font-black mb-1">Tutor Profile</h3>
-                  <p className="text-blue-100 text-sm font-medium">
-                    Manage your teaching profile, specialties, and availability
-                  </p>
-                </div>
-              </div>
-              <Link
-                to="/my-profile"
-                className="flex items-center gap-2 px-6 py-3 bg-white text-blue-600 rounded-xl font-bold hover:shadow-xl transition-all"
-              >
-                Go to Tutor Profile
-                <ChevronRight className="w-5 h-5" />
-              </Link>
-            </div>
-          </div>
-        )}
 
         <div className="flex flex-col lg:flex-row gap-8">
 
@@ -405,13 +348,11 @@ export function UserProfile() {
                 <section>
                   <div className="flex items-center gap-2 mb-6">
                     <div className="w-1 h-6 bg-blue-600 rounded-full" />
-                    <h3 className="text-lg font-black text-gray-900 uppercase tracking-tight">
-                      {isTutor ? 'Tutor Bio' : 'Student Bio'}
-                    </h3>
+                    <h3 className="text-lg font-black text-gray-900 uppercase tracking-tight">Bio</h3>
                   </div>
                   <div className="flex flex-col gap-1.5">
                     <label className="text-xs font-bold text-gray-400 uppercase tracking-widest px-1">
-                      {isTutor ? 'DESCRIBE YOUR TEACHING STYLE' : 'TELL TUTORS ABOUT YOUR GOALS'}
+                      TELL TUTORS ABOUT YOUR GOALS
                     </label>
                     <textarea
                       {...register("bio")}
@@ -430,8 +371,7 @@ export function UserProfile() {
             </div>
 
             {/* My Lesson Requests — link to calendar page */}
-            {!isTutor && (
-              <Link
+            <Link
                 ref={notifSectionRef as any}
                 to="/lessons"
                 className="mt-8 bg-white rounded-3xl border border-gray-200 shadow-sm overflow-hidden flex items-center justify-between px-8 py-6 hover:border-blue-200 hover:shadow-md transition-all group"
@@ -463,7 +403,6 @@ export function UserProfile() {
                 </div>
                 <ChevronRight className="w-5 h-5 text-gray-400 group-hover:text-blue-600 transition-colors shrink-0" />
               </Link>
-            )}
           </div>
         </div>
       </main>
