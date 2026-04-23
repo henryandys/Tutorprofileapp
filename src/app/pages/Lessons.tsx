@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from "react"
 import { Link } from "react-router"
 import { Navbar } from "../components/Navbar"
-import { ChevronLeft, ChevronRight, Calendar, Clock, Loader2, User, CheckCircle, XCircle, Users } from "lucide-react"
+import { ChevronLeft, ChevronRight, Calendar, Clock, Loader2, User, CheckCircle, XCircle, Users, X } from "lucide-react"
 import { useAuth } from "../../context/AuthContext"
 import { supabase } from "../../lib/supabase"
 import { ConversationModal } from "../components/ConversationModal"
@@ -30,6 +30,7 @@ interface GroupEntry {
   price:            number
   enrollment_count: number
   perspective:      'tutor' | 'student'
+  tutor_name:       string | null
 }
 
 const STATUS_STYLE: Record<string, string> = {
@@ -51,6 +52,7 @@ export function Lessons() {
   const [calMonth, setCalMonth]       = useState(() => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), 1) })
   const [selectedDay, setSelectedDay] = useState<Date | null>(null)
   const [chatLesson, setChatLesson]   = useState<Lesson | null>(null)
+  const [enrollmentGroup, setEnrollmentGroup] = useState<GroupEntry | null>(null)
 
   async function updateStatus(lessonId: string, status: 'accepted' | 'declined') {
     const { error } = await supabase
@@ -87,7 +89,7 @@ export function Lessons() {
       : Promise.resolve({ data: [] })
     const groupStudentQ = supabase
       .from('group_lesson_enrollments')
-      .select('group_lesson_id, group_lessons(*)')
+      .select('group_lesson_id, group_lessons(*, tutor:tutor_id(full_name))')
       .eq('student_id', user.id)
 
     Promise.all([queries, groupTutorQ, groupStudentQ]).then(([[tutorRes, studentRes], groupTutorRes, groupStudentRes]) => {
@@ -125,6 +127,7 @@ export function Lessons() {
         price:            g.price,
         enrollment_count: g.group_lesson_enrollments?.[0]?.count ?? 0,
         perspective:      'tutor' as const,
+        tutor_name:       null,
       }))
       const groupAsStudent: GroupEntry[] = ((groupStudentRes.data ?? []) as any[])
         .filter((e: any) => e.group_lessons)
@@ -140,6 +143,7 @@ export function Lessons() {
             price:            g.price,
             enrollment_count: 0,
             perspective:      'student' as const,
+            tutor_name:       g.tutor?.full_name ?? null,
           }
         })
       // Deduplicate: tutor may appear as both tutor and student
@@ -372,7 +376,14 @@ export function Lessons() {
                     Group Sessions
                   </h2>
                   <div className="flex flex-col gap-3">
-                    {visibleGroups.map(g => <GroupCard key={g.id} group={g} isTutor={isTutor} />)}
+                    {visibleGroups.map(g => (
+                      <GroupCard
+                        key={g.id}
+                        group={g}
+                        isTutor={isTutor}
+                        onViewEnrollments={g.perspective === 'tutor' ? () => setEnrollmentGroup(g) : undefined}
+                      />
+                    ))}
                   </div>
                 </div>
               )}
@@ -389,6 +400,10 @@ export function Lessons() {
           subject={chatLesson.subject}
           onClose={() => setChatLesson(null)}
         />
+      )}
+
+      {enrollmentGroup && (
+        <EnrollmentModal group={enrollmentGroup} onClose={() => setEnrollmentGroup(null)} />
       )}
     </div>
   )
@@ -463,10 +478,17 @@ function LessonCard({ lesson: l, isTutor, onChat, onAccept, onDecline }: {
   )
 }
 
-function GroupCard({ group: g, isTutor }: { group: GroupEntry; isTutor: boolean }) {
+function GroupCard({ group: g, isTutor: _isTutor, onViewEnrollments }: {
+  group: GroupEntry
+  isTutor: boolean
+  onViewEnrollments?: () => void
+}) {
   const isTutorPerspective = g.perspective === 'tutor'
   return (
-    <div className={`bg-white rounded-2xl border shadow-sm p-5 ${isTutorPerspective ? 'border-purple-100' : 'border-blue-100'}`}>
+    <div
+      className={`bg-white rounded-2xl border shadow-sm p-5 ${isTutorPerspective ? 'border-purple-100' : 'border-blue-100'} ${onViewEnrollments ? 'cursor-pointer hover:border-purple-300 hover:shadow-md transition-all' : ''}`}
+      onClick={onViewEnrollments}
+    >
       <div className="flex items-start justify-between gap-3">
         <div className="flex flex-col gap-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
@@ -478,6 +500,12 @@ function GroupCard({ group: g, isTutor }: { group: GroupEntry; isTutor: boolean 
             )}
           </div>
           <span className="text-sm font-bold text-purple-600">{g.subject}</span>
+          {!isTutorPerspective && g.tutor_name && (
+            <span className="text-sm font-medium text-gray-600 flex items-center gap-1">
+              <User className="w-3.5 h-3.5 shrink-0 text-gray-400" />
+              {g.tutor_name}
+            </span>
+          )}
           <span className="text-xs text-gray-500 font-medium flex items-center gap-1">
             <Clock className="w-3 h-3 shrink-0" />
             {new Date(g.scheduled_at).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}
@@ -489,10 +517,102 @@ function GroupCard({ group: g, isTutor }: { group: GroupEntry; isTutor: boolean 
             <span className="text-xs text-gray-500 font-medium flex items-center gap-1">
               <Users className="w-3 h-3 shrink-0" />
               {g.enrollment_count} / {g.max_students} enrolled
+              {onViewEnrollments && <span className="text-purple-500 font-bold ml-1">· View roster</span>}
             </span>
           )}
           {g.price > 0 && (
             <span className="text-xs font-bold text-green-600">${g.price}/student</span>
+          )}
+        </div>
+        {onViewEnrollments && (
+          <ChevronRight className="w-4 h-4 text-gray-300 shrink-0 mt-0.5 group-hover:text-purple-500" />
+        )}
+      </div>
+    </div>
+  )
+}
+
+interface Enrollment {
+  id:          string
+  student_name: string
+  enrolled_at: string
+}
+
+function EnrollmentModal({ group: g, onClose }: { group: GroupEntry; onClose: () => void }) {
+  const [enrollments, setEnrollments] = useState<Enrollment[]>([])
+  const [loading, setLoading]         = useState(true)
+
+  useEffect(() => {
+    supabase
+      .from('group_lesson_enrollments')
+      .select('id, student_name, enrolled_at')
+      .eq('group_lesson_id', g.id)
+      .order('enrolled_at', { ascending: true })
+      .then(({ data }) => {
+        setEnrollments(data ?? [])
+        setLoading(false)
+      })
+  }, [g.id])
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+      <div className="w-full max-w-md bg-white rounded-3xl shadow-2xl flex flex-col overflow-hidden max-h-[80vh]">
+
+        {/* Header */}
+        <div className="flex items-start justify-between px-6 py-5 border-b border-gray-100 shrink-0">
+          <div>
+            <h3 className="font-black text-gray-900">{g.title}</h3>
+            <p className="text-xs font-bold text-gray-400 uppercase tracking-widest mt-0.5">
+              {new Date(g.scheduled_at).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}{' '}
+              · {new Date(g.scheduled_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
+            </p>
+          </div>
+          <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-full text-gray-400 transition-colors shrink-0">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        {/* Count bar */}
+        <div className="px-6 py-3 bg-purple-50 border-b border-purple-100 flex items-center justify-between shrink-0">
+          <span className="text-sm font-bold text-purple-700 flex items-center gap-2">
+            <Users className="w-4 h-4" />
+            {loading ? '…' : enrollments.length} / {g.max_students} enrolled
+          </span>
+          <div className="w-32 h-2 bg-purple-100 rounded-full overflow-hidden">
+            <div
+              className="h-full bg-purple-500 rounded-full transition-all"
+              style={{ width: loading ? '0%' : `${Math.min(100, ((enrollments.length / g.max_students) * 100))}%` }}
+            />
+          </div>
+        </div>
+
+        {/* Student list */}
+        <div className="flex-1 overflow-y-auto px-6 py-4">
+          {loading ? (
+            <div className="flex justify-center py-10">
+              <Loader2 className="w-6 h-6 animate-spin text-purple-600" />
+            </div>
+          ) : enrollments.length === 0 ? (
+            <div className="text-center py-10">
+              <Users className="w-10 h-10 text-gray-200 mx-auto mb-3" />
+              <p className="font-bold text-gray-400">No one enrolled yet</p>
+            </div>
+          ) : (
+            <ul className="flex flex-col divide-y divide-gray-100">
+              {enrollments.map((e, i) => (
+                <li key={e.id} className="flex items-center gap-4 py-3.5">
+                  <div className="w-8 h-8 rounded-full bg-purple-100 text-purple-700 flex items-center justify-center font-black text-sm shrink-0">
+                    {i + 1}
+                  </div>
+                  <div className="flex flex-col min-w-0">
+                    <span className="font-bold text-gray-900">{e.student_name}</span>
+                    <span className="text-xs text-gray-400 font-medium">
+                      Enrolled {new Date(e.enrolled_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                    </span>
+                  </div>
+                </li>
+              ))}
+            </ul>
           )}
         </div>
       </div>
