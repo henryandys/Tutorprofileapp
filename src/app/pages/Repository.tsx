@@ -359,6 +359,7 @@ export function Repository() {
                 <div>
                   <h2 className="text-2xl font-black text-gray-900">Upload Resource</h2>
                   <p className="text-gray-500 font-medium text-sm mt-1">Share your materials with the community.</p>
+                  <p className="text-gray-500 font-medium text-sm mt-1">Note:  Do not upload any 3rd party documents without permission.  You are liable for any actions by the 3rd party.</p>
                 </div>
                 <button
                   onClick={() => setIsUploadOpen(false)}
