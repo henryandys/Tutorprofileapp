@@ -21,6 +21,7 @@ export interface Tutor {
   education:        string
   experience:       string
   availability:     WeeklyAvailability
+  blackoutDates:    string[]          // ISO date strings "YYYY-MM-DD"
   policy:           string
   coordinates:      { x: number; y: number }
   lat:              number | null
@@ -97,6 +98,7 @@ function rowToTutor(row: any): Tutor {
     tutoringLocation: row.tutoring_location ?? '',
     bio:              row.bio ?? '',
     availability:     (row.availability as WeeklyAvailability) ?? {},
+    blackoutDates:    (row.blackout_dates as string[]) ?? [],
     policy:           row.policy ?? '',
     imageUrl:    row.avatar_url ?? '',
     education:   row.education ?? '',

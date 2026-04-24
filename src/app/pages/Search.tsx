@@ -454,12 +454,20 @@ export function Search() {
                 >
                   {/* Avatar + core info */}
                   <div className="flex items-center gap-3 p-4">
-                    <img
-                      src={selectedTutor.imageUrl || '/placeholder-avatar.png'}
-                      alt={selectedTutor.name}
-                      className="w-14 h-14 rounded-xl object-cover shrink-0 bg-gray-100"
-                      onError={e => { (e.target as HTMLImageElement).src = '/placeholder-avatar.png' }}
-                    />
+                    {selectedTutor.imageUrl ? (
+                      <img
+                        src={selectedTutor.imageUrl}
+                        alt={selectedTutor.name}
+                        className="w-14 h-14 rounded-xl object-cover shrink-0 bg-gray-100"
+                        onError={e => { (e.target as HTMLImageElement).style.display = 'none' }}
+                      />
+                    ) : (
+                      <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-blue-400 to-purple-500 flex items-center justify-center shrink-0">
+                        <span className="text-white font-black text-2xl select-none">
+                          {selectedTutor.name.charAt(0).toUpperCase()}
+                        </span>
+                      </div>
+                    )}
                     <div className="min-w-0 flex-1">
                       <p className="font-black text-gray-900 truncate">{selectedTutor.name}</p>
                       <p className="text-sm text-gray-500 font-medium truncate">{selectedTutor.subject}</p>

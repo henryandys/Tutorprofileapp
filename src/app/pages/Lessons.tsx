@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from "react"
 import { Link } from "react-router"
 import { Navbar } from "../components/Navbar"
-import { ChevronLeft, ChevronRight, Calendar, Clock, Loader2, User, CheckCircle, XCircle, Users, MessageCircle, XOctagon, MapPin } from "lucide-react"
+import { ChevronLeft, ChevronRight, Calendar, Clock, Loader2, User, CheckCircle, XCircle, Users, MessageCircle, XOctagon, MapPin, Star } from "lucide-react"
 import { useAuth } from "../../context/AuthContext"
 import { supabase } from "../../lib/supabase"
 import { ConversationModal } from "../components/ConversationModal"
@@ -12,7 +12,7 @@ import { toast } from "sonner"
 interface Lesson {
   id:            string
   subject:       string
-  status:        'pending' | 'accepted' | 'declined' | 'cancelled'
+  status:        'pending' | 'accepted' | 'declined' | 'cancelled' | 'completed'
   scheduled_at:  string | null
   created_at:    string
   message:       string
@@ -41,6 +41,7 @@ const STATUS_STYLE: Record<string, string> = {
   accepted:  'bg-green-100 text-green-700',
   declined:  'bg-red-100 text-red-600',
   cancelled: 'bg-gray-100 text-gray-500',
+  completed: 'bg-teal-100 text-teal-700',
 }
 
 const DOW    = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat']
@@ -62,6 +63,9 @@ export function Lessons() {
   const [cancelBooking, setCancelBooking]   = useState<Lesson | null>(null)
   const [cancelGroup, setCancelGroup]       = useState<GroupEntry | null>(null)
   const [cancellingId, setCancellingId]     = useState<string | null>(null)
+  const [completingId, setCompletingId]     = useState<string | null>(null)
+  const [reviewLesson, setReviewLesson]     = useState<Lesson | null>(null)
+  const [reviewedTutors, setReviewedTutors] = useState<Set<string>>(new Set())
 
   async function handleGroupMessage(g: GroupEntry) {
     if (!user || !g.tutor_id) return
@@ -178,6 +182,32 @@ export function Lessons() {
     setCancelGroup(null)
     setCancellingId(null)
     toast.success('Group session cancelled.')
+  }
+
+  async function handleMarkComplete(lesson: Lesson) {
+    setCompletingId(lesson.id)
+    const { error } = await supabase.from('bookings').update({ status: 'completed' }).eq('id', lesson.id)
+    if (error) { toast.error('Failed to mark complete.') }
+    else {
+      setLessons(prev => prev.map(l => l.id === lesson.id ? { ...l, status: 'completed' } : l))
+      toast.success('Session marked complete!')
+    }
+    setCompletingId(null)
+  }
+
+  async function handleSubmitReview(lesson: Lesson, rating: number, body: string) {
+    if (!user) return
+    const { error } = await supabase.from('reviews').insert({
+      tutor_id:     lesson.other_user_id,
+      student_id:   user.id,
+      student_name: profile?.full_name ?? user.email?.split('@')[0] ?? 'Student',
+      rating,
+      body: body.trim(),
+    })
+    if (error) { toast.error('Failed to submit review: ' + error.message); return }
+    setReviewedTutors(prev => new Set([...prev, lesson.other_user_id]))
+    setReviewLesson(null)
+    toast.success('Review submitted!')
   }
 
   async function updateStatus(lessonId: string, status: 'accepted' | 'declined') {
@@ -297,6 +327,15 @@ export function Lessons() {
     })
   }, [user, isTutor])
 
+  // Load which tutors this student has already reviewed so we can hide the prompt.
+  useEffect(() => {
+    if (!user || isTutor) return
+    supabase.from('reviews').select('tutor_id').eq('student_id', user.id)
+      .then(({ data }) => {
+        setReviewedTutors(new Set((data ?? []).map((r: any) => r.tutor_id as string)))
+      })
+  }, [user, isTutor])
+
   const byDate = useMemo(() => {
     const map: Record<string, Lesson[]> = {}
     for (const l of lessons) {
@@ -338,6 +377,13 @@ export function Lessons() {
 
   const unscheduled = useMemo(() =>
     lessons.filter(l => !l.scheduled_at), [lessons])
+
+  const needsReview = useMemo(() =>
+    lessons.filter(l =>
+      l.status === 'completed' &&
+      l.perspective === 'student' &&
+      !reviewedTutors.has(l.other_user_id)
+    ), [lessons, reviewedTutors])
 
   const visibleGroups = useMemo(() => {
     if (selectedDay) return (groupByDate[selectedDay.toDateString()] ?? []).sort((a, b) =>
@@ -484,6 +530,8 @@ export function Lessons() {
                       onAccept={() => updateStatus(l.id, 'accepted')}
                       onDecline={() => updateStatus(l.id, 'declined')}
                       onCancel={() => setCancelBooking(l)}
+                      onMarkComplete={isTutor ? () => handleMarkComplete(l) : undefined}
+                      completing={completingId === l.id}
                     />
                   ))}
                 </div>
@@ -503,6 +551,8 @@ export function Lessons() {
                         onAccept={() => updateStatus(l.id, 'accepted')}
                         onDecline={() => updateStatus(l.id, 'declined')}
                         onCancel={() => setCancelBooking(l)}
+                        onMarkComplete={isTutor ? () => handleMarkComplete(l) : undefined}
+                        completing={completingId === l.id}
                       />
                     ))}
                   </div>
@@ -532,6 +582,37 @@ export function Lessons() {
                   </div>
                 </div>
               )}
+            </div>
+          </div>
+        )}
+
+        {/* ── Pending Reviews (students only) ── */}
+        {!isTutor && needsReview.length > 0 && (
+          <div className="mt-8">
+            <h2 className="text-lg font-black text-gray-900 mb-4 flex items-center gap-2">
+              <Star className="w-5 h-5 text-yellow-400 fill-yellow-400" />
+              Leave a Review
+            </h2>
+            <div className="flex flex-col gap-3">
+              {needsReview.map(l => (
+                <div key={l.id} className="bg-white rounded-2xl border border-yellow-100 shadow-sm p-5 flex items-center justify-between gap-4">
+                  <div className="flex flex-col gap-0.5 min-w-0">
+                    <span className="font-bold text-gray-900">{l.other_name}</span>
+                    <span className="text-sm font-bold text-blue-600">{l.subject}</span>
+                    {l.scheduled_at && (
+                      <span className="text-xs text-gray-400 font-medium">
+                        {new Date(l.scheduled_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                      </span>
+                    )}
+                  </div>
+                  <button
+                    onClick={() => setReviewLesson(l)}
+                    className="shrink-0 flex items-center gap-1.5 px-4 py-2 bg-yellow-400 text-yellow-900 rounded-xl font-bold text-sm hover:bg-yellow-500 transition-colors"
+                  >
+                    <Star className="w-4 h-4 fill-yellow-900" /> Rate Session
+                  </button>
+                </div>
+              ))}
             </div>
           </div>
         )}
@@ -591,22 +672,33 @@ export function Lessons() {
           onClose={() => setCancelGroup(null)}
         />
       )}
+
+      {reviewLesson && (
+        <ReviewModal
+          lesson={reviewLesson}
+          onSubmit={(rating, body) => handleSubmitReview(reviewLesson, rating, body)}
+          onClose={() => setReviewLesson(null)}
+        />
+      )}
     </div>
   )
 }
 
-function LessonCard({ lesson: l, isTutor, onChat, onAccept, onDecline, onCancel }: {
+function LessonCard({ lesson: l, isTutor, onChat, onAccept, onDecline, onCancel, onMarkComplete, completing }: {
   lesson: Lesson
   isTutor: boolean
   onChat: () => void
   onAccept: () => void
   onDecline: () => void
   onCancel: () => void
+  onMarkComplete?: () => void
+  completing?: boolean
 }) {
   const isStudentPerspective = l.perspective === 'student'
   const isCancellable = l.status === 'pending' || l.status === 'accepted'
+  const isDimmed = l.status === 'cancelled' || l.status === 'completed'
   return (
-    <div className={`bg-white rounded-2xl border shadow-sm p-5 ${l.status === 'cancelled' ? 'border-gray-100 opacity-60' : isStudentPerspective ? 'border-blue-100' : 'border-gray-100'}`}>
+    <div className={`bg-white rounded-2xl border shadow-sm p-5 ${isDimmed ? 'border-gray-100 opacity-60' : isStudentPerspective ? 'border-blue-100' : 'border-gray-100'}`}>
       <div className="flex items-start justify-between gap-3">
         <div className="flex flex-col gap-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
@@ -658,6 +750,17 @@ function LessonCard({ lesson: l, isTutor, onChat, onAccept, onDecline, onCancel 
               className="flex items-center gap-1.5 px-3 py-2 bg-blue-600 text-white rounded-xl font-bold text-sm hover:bg-blue-700 transition-colors"
             >
               Message
+            </button>
+          )}
+          {l.status === 'accepted' && onMarkComplete && (
+            <button
+              onClick={onMarkComplete}
+              disabled={completing}
+              title="Mark session as completed"
+              className="flex items-center gap-1.5 px-3 py-2 bg-teal-50 text-teal-700 rounded-xl font-bold text-sm hover:bg-teal-100 transition-colors border border-teal-200 disabled:opacity-60"
+            >
+              {completing ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />}
+              Complete
             </button>
           )}
           {isCancellable && (
@@ -821,3 +924,95 @@ function CancelSessionModal({ title, description, confirmLabel = 'Cancel Session
   )
 }
 
+function ReviewModal({ lesson, onSubmit, onClose }: {
+  lesson:   Lesson
+  onSubmit: (rating: number, body: string) => void
+  onClose:  () => void
+}) {
+  const [rating, setRating]   = useState(0)
+  const [hover, setHover]     = useState(0)
+  const [body, setBody]       = useState('')
+  const [saving, setSaving]   = useState(false)
+
+  async function handleSubmit() {
+    if (rating === 0) { toast.error('Please select a star rating.'); return }
+    if (!body.trim()) { toast.error('Please write a short review.'); return }
+    setSaving(true)
+    await onSubmit(rating, body)
+    setSaving(false)
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+      <div className="w-full max-w-sm bg-white rounded-3xl shadow-2xl p-6 flex flex-col gap-4">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h3 className="font-black text-gray-900 text-lg">Rate Your Session</h3>
+            <p className="text-sm text-gray-500 font-medium mt-0.5">with {lesson.other_name} · {lesson.subject}</p>
+          </div>
+          <button onClick={onClose} disabled={saving} className="p-1.5 hover:bg-gray-100 rounded-full text-gray-400 transition-colors shrink-0 disabled:opacity-50">
+            <XCircle className="w-5 h-5" />
+          </button>
+        </div>
+
+        {/* Star picker */}
+        <div className="flex items-center gap-2">
+          {[1, 2, 3, 4, 5].map(i => (
+            <button
+              key={i}
+              type="button"
+              onClick={() => setRating(i)}
+              onMouseEnter={() => setHover(i)}
+              onMouseLeave={() => setHover(0)}
+              className="transition-transform hover:scale-110"
+            >
+              <Star
+                className={`w-8 h-8 transition-colors ${
+                  i <= (hover || rating)
+                    ? 'fill-yellow-400 text-yellow-400'
+                    : 'fill-gray-100 text-gray-300'
+                }`}
+              />
+            </button>
+          ))}
+          {rating > 0 && (
+            <span className="text-sm font-bold text-gray-500 ml-1">
+              {['', 'Poor', 'Fair', 'Good', 'Great', 'Excellent'][rating]}
+            </span>
+          )}
+        </div>
+
+        {/* Review text */}
+        <div className="flex flex-col gap-1.5">
+          <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Your Review</label>
+          <textarea
+            value={body}
+            onChange={e => setBody(e.target.value)}
+            placeholder="Share what you liked, what could be better, or anything that might help other students…"
+            rows={4}
+            disabled={saving}
+            className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm font-medium text-gray-800 bg-gray-50 focus:outline-none focus:ring-2 focus:ring-yellow-400 resize-none disabled:opacity-60"
+          />
+        </div>
+
+        <div className="flex gap-3">
+          <button
+            onClick={onClose}
+            disabled={saving}
+            className="flex-1 h-11 border-2 border-gray-200 text-gray-600 rounded-xl font-bold hover:bg-gray-50 transition-colors disabled:opacity-50"
+          >
+            Not Now
+          </button>
+          <button
+            onClick={handleSubmit}
+            disabled={saving || rating === 0}
+            className="flex-1 h-11 bg-yellow-400 text-yellow-900 rounded-xl font-bold hover:bg-yellow-500 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+          >
+            {saving && <Loader2 className="w-4 h-4 animate-spin" />}
+            Submit Review
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}

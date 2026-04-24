@@ -103,7 +103,9 @@ export function TutorMyProfile() {
   const [showCreateGroup, setShowCreateGroup] = useState(false)
   const [enrollmentGroup, setEnrollmentGroup] = useState<GroupLesson | null>(null)
 
-  const [availability, setAvailability] = useState<WeekAvail>(DEFAULT_AVAIL)
+  const [availability, setAvailability]   = useState<WeekAvail>(DEFAULT_AVAIL)
+  const [blackoutDates, setBlackoutDates] = useState<string[]>([])
+  const [newBlackout, setNewBlackout]     = useState('')
 
   const { register, handleSubmit, control, reset, formState: { errors } } = useForm<TutorProfileForm>()
   const { fields, append, remove } = useFieldArray({ control, name: "specialties" })
@@ -129,6 +131,9 @@ export function TutorMyProfile() {
         setTutorData(data)
         if (data?.availability) {
           setAvailability({ ...DEFAULT_AVAIL, ...data.availability })
+        }
+        if (data?.blackout_dates) {
+          setBlackoutDates(data.blackout_dates)
         }
         reset({
           name:             profile?.full_name ?? '',
@@ -209,6 +214,7 @@ export function TutorMyProfile() {
         experience_yrs:    experienceYrs,
         subjects:          data.specialties.map(s => s.value).filter(Boolean),
         availability:      availability,
+        blackout_dates:    blackoutDates,
         policy:            data.policy,
         is_available:      true,
       }, { onConflict: 'id' })
@@ -522,6 +528,59 @@ export function TutorMyProfile() {
                   </div>
                 )
               })}
+            </div>
+
+            {/* Blocked Dates */}
+            <div className="mt-6 pt-6 border-t border-gray-100">
+              <h3 className="text-sm font-black text-gray-700 mb-1 flex items-center gap-1.5">
+                <Calendar className="w-4 h-4 text-red-400" /> Blocked Dates
+              </h3>
+              <p className="text-xs text-gray-400 font-medium mb-3">Specific dates you won't be available — overrides your weekly schedule.</p>
+
+              {isEditing && (
+                <div className="flex items-center gap-2 mb-3">
+                  <input
+                    type="date"
+                    value={newBlackout}
+                    min={new Date().toISOString().split('T')[0]}
+                    onChange={e => setNewBlackout(e.target.value)}
+                    className="h-9 px-3 border border-gray-200 rounded-lg text-sm font-bold text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-gray-50"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!newBlackout || blackoutDates.includes(newBlackout)) return
+                      setBlackoutDates(prev => [...prev, newBlackout].sort())
+                      setNewBlackout('')
+                    }}
+                    disabled={!newBlackout}
+                    className="h-9 px-4 bg-red-50 text-red-600 border border-red-200 rounded-lg text-sm font-bold hover:bg-red-100 transition-colors disabled:opacity-40"
+                  >
+                    Block Date
+                  </button>
+                </div>
+              )}
+
+              {blackoutDates.length === 0 ? (
+                <p className="text-xs text-gray-400 italic">No dates blocked.</p>
+              ) : (
+                <div className="flex flex-wrap gap-2">
+                  {blackoutDates.map(d => (
+                    <span key={d} className="flex items-center gap-1.5 px-3 py-1 bg-red-50 border border-red-100 rounded-full text-xs font-bold text-red-600">
+                      {new Date(d + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                      {isEditing && (
+                        <button
+                          type="button"
+                          onClick={() => setBlackoutDates(prev => prev.filter(x => x !== d))}
+                          className="hover:text-red-800 transition-colors"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      )}
+                    </span>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
 

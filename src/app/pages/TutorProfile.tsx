@@ -18,21 +18,37 @@ const DOW = ['sunday','monday','tuesday','wednesday','thursday','friday','saturd
 function getDayKey(d: Date) { return DOW[d.getDay()] }
 function generateSlots(start: string, end: string): string[] {
   const slots: string[] = []
-  const s = parseInt(start), e = parseInt(end)
-  for (let h = s; h < e; h++) slots.push(`${h % 12 || 12}:00 ${h >= 12 ? 'PM' : 'AM'}`)
+  const [sh, sm] = start.split(':').map(Number)
+  const [eh, em] = end.split(':').map(Number)
+  let mins = sh * 60 + sm
+  const endMins = eh * 60 + em
+  while (mins < endMins) {
+    const h = Math.floor(mins / 60)
+    const m = mins % 60
+    const period = h >= 12 ? 'PM' : 'AM'
+    const hour = h % 12 || 12
+    slots.push(`${hour}:${String(m).padStart(2, '0')} ${period}`)
+    mins += 30
+  }
   return slots
 }
-function slotToHour(slot: string): number {
+function slotToMinutes(slot: string): number {
   const [time, period] = slot.split(' ')
-  let h = parseInt(time)
+  const [hStr, mStr] = time.split(':')
+  let h = parseInt(hStr)
+  const m = parseInt(mStr)
   if (period === 'PM' && h !== 12) h += 12
   if (period === 'AM' && h === 12) h = 0
-  return h
+  return h * 60 + m
 }
 function toScheduledAt(date: Date, slot: string): string {
   const d = new Date(date)
-  d.setHours(slotToHour(slot), 0, 0, 0)
+  const mins = slotToMinutes(slot)
+  d.setHours(Math.floor(mins / 60), mins % 60, 0, 0)
   return d.toISOString()
+}
+function localDateStr(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
 interface Review {
@@ -56,10 +72,11 @@ export function TutorProfile() {
   const [subject, setSubject]       = useState('')
   const [studentName, setStudentName] = useState('')
   const [message, setMessage]       = useState('')
-  const [selectedDate, setSelectedDate] = useState<Date | null>(null)
-  const [selectedSlot, setSelectedSlot] = useState<string | null>(null)
-  const [takenHours, setTakenHours]     = useState<number[]>([])
-  const [calendarOffset, setCalendarOffset] = useState(0) // weeks offset for navigation
+  const [selectedDate, setSelectedDate]     = useState<Date | null>(null)
+  const [selectedSlot, setSelectedSlot]     = useState<string | null>(null)
+  const [duration, setDuration]             = useState(60)
+  const [takenMinutes, setTakenMinutes]     = useState<Set<number>>(new Set())
+  const [calendarOffset, setCalendarOffset] = useState(0)
 
   const nextDates = useMemo(() => {
     const dates: Date[] = []
@@ -128,7 +145,16 @@ export function TutorProfile() {
 
   useEffect(() => {
     if (!id) { setLoading(false); return }
-    fetchTutorById(id).then(data => {
+    fetchTutorById(id).then(async data => {
+      if (data) {
+        // tutors_view doesn't include blackout_dates — fetch it separately
+        const { data: tp } = await supabase
+          .from('tutor_profiles')
+          .select('blackout_dates')
+          .eq('id', id)
+          .single()
+        data.blackoutDates = (tp?.blackout_dates as string[]) ?? []
+      }
       setTutor(data)
       setLoading(false)
     })
@@ -185,22 +211,29 @@ export function TutorProfile() {
     if (profile?.full_name) setStudentName(profile.full_name)
   }, [profile])
 
-  // Fetch booked hours for the selected date
+  // Fetch booked slots for the selected date; each booking blocks its start + its duration in 30-min chunks.
   useEffect(() => {
-    if (!selectedDate || !tutor) { setTakenHours([]); return }
+    if (!selectedDate || !tutor) { setTakenMinutes(new Set()); return }
     const start = new Date(selectedDate); start.setHours(0, 0, 0, 0)
     const end   = new Date(selectedDate); end.setHours(23, 59, 59, 999)
     supabase
       .from('bookings')
-      .select('scheduled_at')
+      .select('scheduled_at, duration_minutes')
       .eq('tutor_id', tutor.id)
       .neq('status', 'declined')
+      .neq('status', 'cancelled')
       .gte('scheduled_at', start.toISOString())
       .lte('scheduled_at', end.toISOString())
       .then(({ data }) => {
-        setTakenHours(
-          (data ?? []).filter(b => b.scheduled_at).map(b => new Date(b.scheduled_at).getHours())
-        )
+        const blocked = new Set<number>()
+        for (const b of data ?? []) {
+          if (!b.scheduled_at) continue
+          const d = new Date(b.scheduled_at)
+          const startM = d.getHours() * 60 + d.getMinutes()
+          const dur = (b.duration_minutes ?? 60)
+          for (let m = startM; m < startM + dur; m += 30) blocked.add(m)
+        }
+        setTakenMinutes(blocked)
       })
   }, [selectedDate, tutor])
 
@@ -274,13 +307,14 @@ export function TutorProfile() {
     setSubmitting(true)
 
     const { error } = await supabase.from('bookings').insert({
-      tutor_id:     tutor.id,
-      student_id:   user.id,
-      student_name: studentName,
-      subject:      subject || tutor.subject.split(' & ')[0],
-      message:      message,
-      status:       'pending',
-      scheduled_at: toScheduledAt(selectedDate, selectedSlot),
+      tutor_id:         tutor.id,
+      student_id:       user.id,
+      student_name:     studentName,
+      subject:          subject || tutor.subject.split(' & ')[0],
+      message:          message,
+      status:           'pending',
+      scheduled_at:     toScheduledAt(selectedDate, selectedSlot),
+      duration_minutes: duration,
     })
 
     if (error) {
@@ -335,11 +369,19 @@ export function TutorProfile() {
 
       {/* Hero */}
       <div className="relative h-[400px] md:h-[500px] bg-gray-900 overflow-hidden group">
-        <ImageWithFallback
-          src={tutor.imageUrl}
-          alt={tutor.name}
-          className="w-full h-full object-cover object-top opacity-90 group-hover:scale-105 transition-transform duration-700"
-        />
+        {tutor.imageUrl ? (
+          <ImageWithFallback
+            src={tutor.imageUrl}
+            alt={tutor.name}
+            className="w-full h-full object-cover object-top opacity-90 group-hover:scale-105 transition-transform duration-700"
+          />
+        ) : (
+          <div className="w-full h-full bg-gradient-to-br from-blue-500 to-purple-700 flex items-center justify-center">
+            <span className="text-white font-black select-none opacity-30" style={{ fontSize: '220px', lineHeight: 1 }}>
+              {tutor.name.charAt(0).toUpperCase()}
+            </span>
+          </div>
+        )}
         <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent" />
 
         <div className="absolute top-6 left-6 md:left-12">
@@ -672,10 +714,35 @@ export function TutorProfile() {
             <div className="sticky top-28 flex flex-col gap-6 bg-white rounded-3xl border border-gray-200 shadow-2xl p-8">
               <div>
                 <h3 className="text-2xl font-black text-gray-900">Book a Session</h3>
-                <p className="text-sm text-gray-500 mt-1">Free 15-minute consultation for new students</p>
               </div>
 
               <form onSubmit={handleBooking} className="flex flex-col gap-4">
+
+                {/* ── Duration picker ── */}
+                <div className="flex flex-col gap-2">
+                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest px-1">Session Duration</label>
+                  <div className="flex gap-1.5 flex-wrap">
+                    {[
+                      { label: '30 min', value: 30 },
+                      { label: '1 hr',   value: 60 },
+                      { label: '1.5 hr', value: 90 },
+                      { label: '2 hr',   value: 120 },
+                    ].map(opt => (
+                      <button
+                        key={opt.value}
+                        type="button"
+                        onClick={() => { setDuration(opt.value); setSelectedSlot(null) }}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${
+                          duration === opt.value
+                            ? 'bg-blue-600 text-white'
+                            : 'bg-gray-100 text-gray-700 hover:bg-blue-50 hover:text-blue-600'
+                        }`}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
 
                 {/* ── Date picker ── */}
                 <div className="flex flex-col gap-2">
@@ -695,19 +762,23 @@ export function TutorProfile() {
                       <span key={i} className="text-center text-[10px] font-bold text-gray-400">{d}</span>
                     ))}
                     {nextDates.slice(calendarOffset * 7, calendarOffset * 7 + 7).map(date => {
-                      const avail = tutor.availability[getDayKey(date)]
-                      const isAvail = !!avail?.available
-                      const isSelected = selectedDate?.toDateString() === date.toDateString()
+                      const avail       = tutor.availability[getDayKey(date)]
+                      const isAvail     = !!avail?.available
+                      const isBlackedOut = tutor.blackoutDates.includes(localDateStr(date))
+                      const bookable    = isAvail && !isBlackedOut
+                      const isSelected  = selectedDate?.toDateString() === date.toDateString()
                       return (
                         <button
                           key={date.toISOString()}
                           type="button"
-                          disabled={!isAvail}
+                          disabled={!bookable}
                           onClick={() => { setSelectedDate(date); setSelectedSlot(null) }}
+                          title={isBlackedOut ? 'Tutor unavailable this date' : undefined}
                           className={`flex flex-col items-center py-1.5 rounded-lg text-xs font-bold transition-colors ${
-                            isSelected   ? 'bg-blue-600 text-white' :
-                            isAvail      ? 'hover:bg-blue-50 text-gray-700' :
-                                           'text-gray-300 cursor-not-allowed'
+                            isSelected    ? 'bg-blue-600 text-white' :
+                            isBlackedOut  ? 'text-red-300 bg-red-50 cursor-not-allowed' :
+                            bookable      ? 'hover:bg-blue-50 text-gray-700' :
+                                            'text-gray-300 cursor-not-allowed'
                           }`}
                         >
                           <span className="text-[9px] leading-none">{date.toLocaleDateString('en-US', { month: 'short' })}</span>
@@ -725,10 +796,14 @@ export function TutorProfile() {
                   const slots = generateSlots(avail.start, avail.end)
                   return (
                     <div className="flex flex-col gap-1.5">
-                      <label className="text-xs font-bold text-gray-400 uppercase tracking-widest px-1">Select Time</label>
+                      <label className="text-xs font-bold text-gray-400 uppercase tracking-widest px-1">Select Start Time</label>
                       <div className="flex flex-wrap gap-1.5">
                         {slots.map(slot => {
-                          const taken    = takenHours.includes(slotToHour(slot))
+                          const slotMins = slotToMinutes(slot)
+                          // Slot is blocked if any 30-min chunk it would occupy is already taken
+                          const taken = Array.from({ length: duration / 30 }, (_, i) =>
+                            takenMinutes.has(slotMins + i * 30)
+                          ).some(Boolean)
                           const isSelected = selectedSlot === slot
                           return (
                             <button
@@ -756,7 +831,9 @@ export function TutorProfile() {
                   <div className="flex items-center gap-2 px-3 py-2 bg-blue-50 rounded-xl border border-blue-100">
                     <Calendar className="w-4 h-4 text-blue-600 shrink-0" />
                     <span className="text-xs font-bold text-blue-700">
-                      {selectedDate.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })} · {selectedSlot}
+                      {selectedDate.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
+                      {' · '}{selectedSlot}
+                      {' · '}{duration < 60 ? `${duration} min` : `${duration / 60} hr`}
                     </span>
                   </div>
                 )}

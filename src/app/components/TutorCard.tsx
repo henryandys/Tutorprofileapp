@@ -13,11 +13,19 @@ export function TutorCard({ tutor, isSelected, onClick }: TutorCardProps) {
   const content = (
     <div className={`block relative rounded-xl border border-gray-200 overflow-hidden bg-white shadow-sm hover:shadow-md transition-shadow group ${isSelected ? "ring-2 ring-blue-500" : ""}`}>
       <div className="relative aspect-[4/3] overflow-hidden">
-        <ImageWithFallback 
-          src={tutor.imageUrl} 
-          alt={tutor.name}
-          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-        />
+        {tutor.imageUrl ? (
+          <ImageWithFallback
+            src={tutor.imageUrl}
+            alt={tutor.name}
+            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+          />
+        ) : (
+          <div className="w-full h-full bg-gradient-to-br from-blue-400 to-purple-500 flex items-center justify-center group-hover:scale-105 transition-transform duration-500">
+            <span className="text-white font-black select-none" style={{ fontSize: '72px', lineHeight: 1 }}>
+              {tutor.name.charAt(0).toUpperCase()}
+            </span>
+          </div>
+        )}
         <div className="absolute top-3 left-3 bg-white/90 backdrop-blur-sm px-2 py-1 rounded text-xs font-bold text-gray-800 uppercase tracking-wider">
           {tutor.subject.split(" & ")[0]}
         </div>
