@@ -333,6 +333,10 @@ export function TutorProfile() {
     setSubmitting(true)
 
     const baseDate = toScheduledAt(selectedDate, selectedSlot)
+    const price_cents = tutor.hourlyRate > 0
+      ? Math.round(tutor.hourlyRate * (duration / 60) * 100)
+      : null
+
     const common = {
       tutor_id:         tutor.id,
       student_id:       user.id,
@@ -341,6 +345,7 @@ export function TutorProfile() {
       message:          message,
       status:           'pending',
       duration_minutes: duration,
+      price_cents,
     }
 
     if (recurrence === 'none') {
@@ -884,6 +889,9 @@ export function TutorProfile() {
                       {selectedDate.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
                       {' · '}{selectedSlot}
                       {' · '}{duration < 60 ? `${duration} min` : `${duration / 60} hr`}
+                      {tutor.hourlyRate > 0 && (
+                        <> · <span className="text-green-700">${(tutor.hourlyRate * (duration / 60)).toFixed(2)}</span></>
+                      )}
                     </span>
                   </div>
                 )}

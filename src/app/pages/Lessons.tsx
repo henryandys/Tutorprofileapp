@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from "react"
-import { Link } from "react-router"
+import { Link, useSearchParams } from "react-router"
 import { Navbar } from "../components/Navbar"
-import { ChevronLeft, ChevronRight, Calendar, Clock, Loader2, User, CheckCircle, XCircle, Users, MessageCircle, XOctagon, MapPin, Star, RefreshCw } from "lucide-react"
+import { ChevronLeft, ChevronRight, Calendar, Clock, Loader2, User, CheckCircle, XCircle, Users, MessageCircle, XOctagon, MapPin, Star, RefreshCw, Square, CheckSquare, CreditCard } from "lucide-react"
 import { useAuth } from "../../context/AuthContext"
 import { supabase } from "../../lib/supabase"
 import { ConversationModal } from "../components/ConversationModal"
@@ -19,6 +19,10 @@ interface Lesson {
   other_name:    string
   other_user_id: string
   perspective:   'tutor' | 'student'
+  reschedule_proposed_at: string | null
+  reschedule_status:      'pending' | 'accepted' | 'declined' | null
+  price_cents:            number | null
+  payment_status:         'pending' | 'paid' | 'refunded' | null
 }
 
 interface GroupEntry {
@@ -45,8 +49,38 @@ const STATUS_STYLE: Record<string, string> = {
   completed: 'bg-teal-100 text-teal-700',
 }
 
-const DOW    = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat']
-const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December']
+const DOW      = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat']
+const DOW_KEYS = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday']
+const MONTHS   = ['January','February','March','April','May','June','July','August','September','October','November','December']
+
+function generateSlots(start: string, end: string): string[] {
+  const slots: string[] = []
+  const [sh, sm] = start.split(':').map(Number)
+  const [eh, em] = end.split(':').map(Number)
+  let mins = sh * 60 + sm
+  const endMins = eh * 60 + em
+  while (mins < endMins) {
+    const h = Math.floor(mins / 60); const m = mins % 60
+    const period = h >= 12 ? 'PM' : 'AM'; const hour = h % 12 || 12
+    slots.push(`${hour}:${String(m).padStart(2, '0')} ${period}`)
+    mins += 30
+  }
+  return slots
+}
+function slotToMinutes(slot: string): number {
+  const [time, period] = slot.split(' '); const [hStr, mStr] = time.split(':')
+  let h = parseInt(hStr); const m = parseInt(mStr)
+  if (period === 'PM' && h !== 12) h += 12
+  if (period === 'AM' && h === 12) h = 0
+  return h * 60 + m
+}
+function toScheduledAt(date: Date, slot: string): string {
+  const d = new Date(date); const mins = slotToMinutes(slot)
+  d.setHours(Math.floor(mins / 60), mins % 60, 0, 0); return d.toISOString()
+}
+function localDateStr(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
 
 export function Lessons() {
   const { user, role, profile } = useAuth()
@@ -61,6 +95,7 @@ export function Lessons() {
   const [enrollmentGroup, setEnrollmentGroup] = useState<GroupEntry | null>(null)
   const [groupChat, setGroupChat] = useState<{ bookingId: string; tutorName: string; tutorId: string; subject: string } | null>(null)
   const [openingGroupChat, setOpeningGroupChat] = useState<string | null>(null)
+  const [rescheduleLesson, setRescheduleLesson] = useState<Lesson | null>(null)
   const [cancelBooking, setCancelBooking]   = useState<Lesson | null>(null)
   const [cancelGroup, setCancelGroup]       = useState<GroupEntry | null>(null)
   const [cancellingId, setCancellingId]     = useState<string | null>(null)
@@ -68,6 +103,10 @@ export function Lessons() {
   const [reviewLesson, setReviewLesson]     = useState<Lesson | null>(null)
   const [reviewedTutors, setReviewedTutors] = useState<Set<string>>(new Set())
   const [dismissedIds, setDismissedIds]     = useState<Set<string>>(new Set())
+  const [selectedIds, setSelectedIds]       = useState<Set<string>>(new Set())
+  const [batchProcessing, setBatchProcessing] = useState(false)
+  const [payingId, setPayingId]             = useState<string | null>(null)
+  const [searchParams, setSearchParams]     = useSearchParams()
 
   async function handleGroupMessage(g: GroupEntry) {
     if (!user || !g.tutor_id) return
@@ -228,14 +267,15 @@ export function Lessons() {
       })
       return { ...l, status }
     }))
+    setSelectedIds(prev => { const next = new Set(prev); next.delete(lessonId); return next })
     toast.success(`Booking ${status}.`)
   }
 
   useEffect(() => {
     if (!user) return
 
-    const asTutorQ   = supabase.from('bookings').select('id,subject,status,scheduled_at,created_at,message,student_name,student_id').eq('tutor_id', user.id)
-    const asStudentQ = supabase.from('bookings').select('id,subject,status,scheduled_at,created_at,message,tutor_id,tutor:tutor_id(full_name)').eq('student_id', user.id)
+    const asTutorQ   = supabase.from('bookings').select('*').eq('tutor_id', user.id)
+    const asStudentQ = supabase.from('bookings').select('*, tutor:tutor_id(full_name)').eq('student_id', user.id)
 
     // Tutors see both sets; students see only their own bookings
     const queries = isTutor
@@ -252,26 +292,34 @@ export function Lessons() {
 
     Promise.all([queries, groupTutorQ, groupStudentQ]).then(async ([[tutorRes, studentRes], groupTutorRes, groupStudentRes]) => {
       const asTutor: Lesson[] = ((tutorRes?.data ?? []) as any[]).map(b => ({
-        id:            b.id,
-        subject:       b.subject,
-        status:        b.status,
-        scheduled_at:  b.scheduled_at ?? null,
-        created_at:    b.created_at,
-        message:       b.message ?? '',
-        other_name:    b.student_name,
-        other_user_id: b.student_id,
-        perspective:   'tutor' as const,
+        id:                     b.id,
+        subject:                b.subject,
+        status:                 b.status,
+        scheduled_at:           b.scheduled_at ?? null,
+        created_at:             b.created_at,
+        message:                b.message ?? '',
+        other_name:             b.student_name,
+        other_user_id:          b.student_id,
+        perspective:            'tutor' as const,
+        reschedule_proposed_at: b.reschedule_proposed_at ?? null,
+        reschedule_status:      b.reschedule_status ?? null,
+        price_cents:            b.price_cents ?? null,
+        payment_status:         b.payment_status ?? null,
       }))
       const asStudent: Lesson[] = ((studentRes?.data ?? []) as any[]).map(b => ({
-        id:            b.id,
-        subject:       b.subject,
-        status:        b.status,
-        scheduled_at:  b.scheduled_at ?? null,
-        created_at:    b.created_at,
-        message:       b.message ?? '',
-        other_name:    b.tutor?.full_name ?? 'Tutor',
-        other_user_id: b.tutor_id,
-        perspective:   'student' as const,
+        id:                     b.id,
+        subject:                b.subject,
+        status:                 b.status,
+        scheduled_at:           b.scheduled_at ?? null,
+        created_at:             b.created_at,
+        message:                b.message ?? '',
+        other_name:             b.tutor?.full_name ?? 'Tutor',
+        other_user_id:          b.tutor_id,
+        perspective:            'student' as const,
+        reschedule_proposed_at: b.reschedule_proposed_at ?? null,
+        reschedule_status:      b.reschedule_status ?? null,
+        price_cents:            b.price_cents ?? null,
+        payment_status:         b.payment_status ?? null,
       }))
       setLessons([...asTutor, ...asStudent])
 
@@ -353,6 +401,106 @@ export function Lessons() {
     if (user) localStorage.setItem(`dismissedLessons_${user.id}`, JSON.stringify([...next]))
   }
 
+  async function handleRescheduleRequest(lesson: Lesson, proposedAt: string) {
+    const { error } = await supabase
+      .from('bookings')
+      .update({ reschedule_proposed_at: proposedAt, reschedule_status: 'pending' })
+      .eq('id', lesson.id)
+    if (error) { toast.error('Failed to send reschedule request.'); return }
+    setLessons(prev => prev.map(l =>
+      l.id === lesson.id ? { ...l, reschedule_proposed_at: proposedAt, reschedule_status: 'pending' as const } : l
+    ))
+    setRescheduleLesson(null)
+    toast.success('Reschedule request sent!')
+  }
+
+  async function handleRescheduleResponse(lesson: Lesson, accept: boolean) {
+    const updates = accept
+      ? { scheduled_at: lesson.reschedule_proposed_at, reschedule_proposed_at: null, reschedule_status: 'accepted' as const }
+      : { reschedule_proposed_at: null, reschedule_status: 'declined' as const }
+    const { error } = await supabase
+      .from('bookings')
+      .update(updates)
+      .eq('id', lesson.id)
+      .eq('tutor_id', user!.id)
+    if (error) { toast.error('Failed to update reschedule.'); return }
+    setLessons(prev => prev.map(l => l.id === lesson.id ? { ...l, ...updates } : l))
+    toast.success(accept ? 'Reschedule approved!' : 'Reschedule declined.')
+  }
+
+  function toggleSelect(id: string) {
+    setSelectedIds(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id); else next.add(id)
+      return next
+    })
+  }
+
+  async function handleBatchAction(status: 'accepted' | 'declined') {
+    const ids = [...selectedIds]
+    if (ids.length === 0) return
+    setBatchProcessing(true)
+    const { error } = await supabase
+      .from('bookings')
+      .update({ status })
+      .in('id', ids)
+      .eq('tutor_id', user!.id)
+    if (error) { toast.error('Batch update failed.'); setBatchProcessing(false); return }
+    const updated = lessons.filter(l => ids.includes(l.id))
+    for (const l of updated) {
+      sendNotificationEmail({
+        type: status === 'accepted' ? 'booking_accepted' : 'booking_declined',
+        recipientId: l.other_user_id,
+        data: { tutorName: profile?.full_name ?? 'Your tutor', studentName: l.other_name, subject: l.subject },
+      })
+    }
+    setLessons(prev => prev.map(l => ids.includes(l.id) ? { ...l, status } : l))
+    setSelectedIds(new Set())
+    setBatchProcessing(false)
+    toast.success(`${ids.length} booking${ids.length !== 1 ? 's' : ''} ${status}.`)
+  }
+
+  // Show toast when Stripe redirects back
+  useEffect(() => {
+    const result = searchParams.get('payment')
+    if (!result) return
+    if (result === 'success') toast.success('Payment successful! Your session is confirmed.')
+    if (result === 'cancelled') toast.info('Payment cancelled.')
+    setSearchParams({}, { replace: true })
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function handlePay(lesson: Lesson) {
+    if (!user) return
+    setPayingId(lesson.id)
+    const { data: { session } } = await import('../../lib/supabase').then(m => m.supabase.auth.getSession())
+    if (!session?.access_token) { toast.error('Please sign in to pay.'); setPayingId(null); return }
+
+    try {
+      const res = await fetch('/api/create-checkout-session', {
+        method:  'POST',
+        headers: {
+          'Content-Type':  'application/json',
+          'Authorization': `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          bookingId:   lesson.id,
+          amountCents: lesson.price_cents,
+          subject:     lesson.subject,
+          studentName: profile?.full_name ?? user.email?.split('@')[0] ?? 'Student',
+          tutorName:   lesson.other_name,
+          successUrl:  `${window.location.origin}/lessons?payment=success`,
+          cancelUrl:   `${window.location.origin}/lessons?payment=cancelled`,
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok || !data.url) { toast.error(data.error ?? 'Could not start checkout.'); setPayingId(null); return }
+      window.location.href = data.url
+    } catch {
+      toast.error('Network error starting checkout.')
+      setPayingId(null)
+    }
+  }
+
   const activeLessons = useMemo(
     () => lessons.filter(l => !dismissedIds.has(l.id)),
     [lessons, dismissedIds]
@@ -406,6 +554,11 @@ export function Lessons() {
       l.perspective === 'student' &&
       !reviewedTutors.has(l.other_user_id)
     ), [activeLessons, reviewedTutors])
+
+  const pendingFromStudents = useMemo(
+    () => activeLessons.filter(l => l.perspective === 'tutor' && l.status === 'pending'),
+    [activeLessons]
+  )
 
   const visibleGroups = useMemo(() => {
     if (selectedDay) return (groupByDate[selectedDay.toDateString()] ?? []).sort((a, b) =>
@@ -528,11 +681,57 @@ export function Lessons() {
 
             {/* ── Lesson list ── */}
             <div className="flex-1 min-w-0">
-              <h2 className="text-lg font-black text-gray-900 mb-4">
-                {selectedDay
-                  ? selectedDay.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
-                  : 'Upcoming Lessons'}
-              </h2>
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-lg font-black text-gray-900">
+                  {selectedDay
+                    ? selectedDay.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
+                    : 'Upcoming Lessons'}
+                </h2>
+                {isTutor && pendingFromStudents.length > 1 && !selectedDay && (
+                  <button
+                    onClick={() => {
+                      if (selectedIds.size === pendingFromStudents.length) setSelectedIds(new Set())
+                      else setSelectedIds(new Set(pendingFromStudents.map(l => l.id)))
+                    }}
+                    className="text-xs font-bold text-blue-600 hover:text-blue-700 transition-colors"
+                  >
+                    {selectedIds.size === pendingFromStudents.length
+                      ? 'Deselect all'
+                      : `Select all ${pendingFromStudents.length} pending`}
+                  </button>
+                )}
+              </div>
+
+              {/* Batch action bar */}
+              {isTutor && selectedIds.size > 0 && (
+                <div className="flex items-center justify-between gap-4 bg-blue-600 text-white rounded-2xl px-5 py-3 mb-4 shadow-lg">
+                  <span className="text-sm font-bold">{selectedIds.size} selected</span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => handleBatchAction('accepted')}
+                      disabled={batchProcessing}
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-white text-green-700 rounded-lg font-bold text-sm hover:bg-green-50 transition-colors disabled:opacity-60"
+                    >
+                      {batchProcessing ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />}
+                      Accept all
+                    </button>
+                    <button
+                      onClick={() => handleBatchAction('declined')}
+                      disabled={batchProcessing}
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-white/20 text-white rounded-lg font-bold text-sm hover:bg-white/30 transition-colors disabled:opacity-60"
+                    >
+                      <XCircle className="w-4 h-4" /> Decline all
+                    </button>
+                    <button
+                      onClick={() => setSelectedIds(new Set())}
+                      disabled={batchProcessing}
+                      className="px-2 py-1.5 text-white/70 hover:text-white font-bold text-xs transition-colors"
+                    >
+                      Clear
+                    </button>
+                  </div>
+                </div>
+              )}
 
               {visibleLessons.length === 0 ? (
                 <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-10 text-center">
@@ -555,6 +754,13 @@ export function Lessons() {
                       onMarkComplete={isTutor ? () => handleMarkComplete(l) : undefined}
                       completing={completingId === l.id}
                       onDismiss={() => handleDismiss(l.id)}
+                      onReschedule={l.perspective === 'student' && l.status === 'accepted' ? () => setRescheduleLesson(l) : undefined}
+                      onRescheduleAccept={l.perspective === 'tutor' && l.reschedule_status === 'pending' ? () => handleRescheduleResponse(l, true) : undefined}
+                      onRescheduleDecline={l.perspective === 'tutor' && l.reschedule_status === 'pending' ? () => handleRescheduleResponse(l, false) : undefined}
+                      selected={selectedIds.has(l.id)}
+                      onToggleSelect={isTutor && l.perspective === 'tutor' && l.status === 'pending' ? () => toggleSelect(l.id) : undefined}
+                      onPay={l.perspective === 'student' && l.status === 'accepted' && (l.price_cents ?? 0) > 0 && l.payment_status !== 'paid' ? () => handlePay(l) : undefined}
+                      paying={payingId === l.id}
                     />
                   ))}
                 </div>
@@ -704,11 +910,19 @@ export function Lessons() {
           onClose={() => setReviewLesson(null)}
         />
       )}
+
+      {rescheduleLesson && (
+        <RescheduleModal
+          lesson={rescheduleLesson}
+          onConfirm={async (proposedAt) => { await handleRescheduleRequest(rescheduleLesson, proposedAt) }}
+          onClose={() => setRescheduleLesson(null)}
+        />
+      )}
     </div>
   )
 }
 
-function LessonCard({ lesson: l, isTutor, onChat, onAccept, onDecline, onCancel, onMarkComplete, completing, onDismiss }: {
+function LessonCard({ lesson: l, isTutor, onChat, onAccept, onDecline, onCancel, onMarkComplete, completing, onDismiss, onReschedule, onRescheduleAccept, onRescheduleDecline, selected, onToggleSelect, onPay, paying }: {
   lesson: Lesson
   isTutor: boolean
   onChat: () => void
@@ -718,13 +932,39 @@ function LessonCard({ lesson: l, isTutor, onChat, onAccept, onDecline, onCancel,
   onMarkComplete?: () => void
   completing?: boolean
   onDismiss: () => void
+  onReschedule?: () => void
+  onRescheduleAccept?: () => void
+  onRescheduleDecline?: () => void
+  selected?: boolean
+  onToggleSelect?: () => void
+  onPay?: () => void
+  paying?: boolean
 }) {
   const isStudentPerspective = l.perspective === 'student'
   const isCancellable = l.status === 'pending' || l.status === 'accepted'
   const isDimmed = l.status === 'cancelled' || l.status === 'completed' || l.status === 'declined'
   const isDismissible = l.status === 'declined' || l.status === 'cancelled' || l.status === 'completed'
+  const hasPendingReschedule = l.reschedule_status === 'pending'
   return (
-    <div className={`bg-white rounded-2xl border shadow-sm p-5 relative ${isDimmed ? 'border-gray-100 opacity-60' : isStudentPerspective ? 'border-blue-100' : 'border-gray-100'}`}>
+    <div className={`bg-white rounded-2xl border shadow-sm p-5 relative transition-colors ${
+      selected           ? 'border-blue-400 bg-blue-50/40' :
+      isDimmed           ? 'border-gray-100 opacity-60' :
+      hasPendingReschedule ? 'border-orange-200' :
+      isStudentPerspective ? 'border-blue-100' :
+                             'border-gray-100'
+    }`}>
+      {onToggleSelect && (
+        <button
+          type="button"
+          onClick={onToggleSelect}
+          className="absolute top-4 left-4 text-blue-500 hover:text-blue-700 z-10 transition-colors"
+          title={selected ? 'Deselect' : 'Select'}
+        >
+          {selected
+            ? <CheckSquare className="w-5 h-5" />
+            : <Square className="w-5 h-5 text-gray-300 hover:text-blue-400" />}
+        </button>
+      )}
       {isDismissible && (
         <button
           onClick={onDismiss}
@@ -734,7 +974,7 @@ function LessonCard({ lesson: l, isTutor, onChat, onAccept, onDecline, onCancel,
           <XCircle className="w-4 h-4" />
         </button>
       )}
-      <div className={`flex items-start justify-between gap-3 ${isDismissible ? 'pr-6' : ''}`}>
+      <div className={`flex items-start justify-between gap-3 ${isDismissible ? 'pr-6' : ''} ${onToggleSelect ? 'pl-8' : ''}`}>
         <div className="flex flex-col gap-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
             {isStudentPerspective && (
@@ -747,6 +987,21 @@ function LessonCard({ lesson: l, isTutor, onChat, onAccept, onDecline, onCancel,
             <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${STATUS_STYLE[l.status]}`}>
               {l.status}
             </span>
+            {hasPendingReschedule && (
+              <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-orange-100 text-orange-600 flex items-center gap-1">
+                <RefreshCw className="w-2.5 h-2.5" /> Reschedule requested
+              </span>
+            )}
+            {l.payment_status === 'paid' && (
+              <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-green-100 text-green-700 flex items-center gap-1">
+                <CreditCard className="w-2.5 h-2.5" /> Paid
+              </span>
+            )}
+            {l.perspective === 'student' && l.status === 'accepted' && (l.price_cents ?? 0) > 0 && l.payment_status !== 'paid' && (
+              <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-amber-100 text-amber-700 flex items-center gap-1">
+                <CreditCard className="w-2.5 h-2.5" /> Payment required
+              </span>
+            )}
           </div>
           <span className="text-sm font-bold text-blue-600">{l.subject}</span>
           {l.scheduled_at && (
@@ -755,6 +1010,27 @@ function LessonCard({ lesson: l, isTutor, onChat, onAccept, onDecline, onCancel,
               {new Date(l.scheduled_at).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}
               {' · '}
               {new Date(l.scheduled_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
+            </span>
+          )}
+          {/* Tutor: show what the student is proposing */}
+          {l.perspective === 'tutor' && hasPendingReschedule && l.reschedule_proposed_at && (
+            <span className="text-xs text-orange-600 font-bold flex items-center gap-1 mt-0.5">
+              <RefreshCw className="w-3 h-3 shrink-0" />
+              Proposes:{' '}
+              {new Date(l.reschedule_proposed_at).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}
+              {' · '}
+              {new Date(l.reschedule_proposed_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
+            </span>
+          )}
+          {/* Student: show status of their request */}
+          {l.perspective === 'student' && l.reschedule_status === 'accepted' && (
+            <span className="text-xs text-green-600 font-bold flex items-center gap-1 mt-0.5">
+              <CheckCircle className="w-3 h-3 shrink-0" /> Reschedule approved — time updated above
+            </span>
+          )}
+          {l.perspective === 'student' && l.reschedule_status === 'declined' && (
+            <span className="text-xs text-red-500 font-bold flex items-center gap-1 mt-0.5">
+              <XCircle className="w-3 h-3 shrink-0" /> Reschedule declined — original time kept
             </span>
           )}
           {l.message && (
@@ -779,7 +1055,24 @@ function LessonCard({ lesson: l, isTutor, onChat, onAccept, onDecline, onCancel,
               </button>
             </>
           )}
-          {l.status === 'accepted' && (
+          {/* Tutor: approve or decline a reschedule request */}
+          {l.perspective === 'tutor' && hasPendingReschedule && (
+            <>
+              <button
+                onClick={onRescheduleAccept}
+                className="flex items-center gap-1.5 px-3 py-2 bg-blue-600 text-white rounded-xl font-bold text-sm hover:bg-blue-700 transition-colors"
+              >
+                <CheckCircle className="w-4 h-4" /> Approve
+              </button>
+              <button
+                onClick={onRescheduleDecline}
+                className="flex items-center gap-1.5 px-3 py-2 bg-gray-100 text-gray-500 rounded-xl font-bold text-sm hover:bg-red-50 hover:text-red-600 transition-colors"
+              >
+                <XCircle className="w-4 h-4" /> Keep original
+              </button>
+            </>
+          )}
+          {l.status === 'accepted' && !hasPendingReschedule && (
             <button
               onClick={onChat}
               className="flex items-center gap-1.5 px-3 py-2 bg-blue-600 text-white rounded-xl font-bold text-sm hover:bg-blue-700 transition-colors"
@@ -787,7 +1080,7 @@ function LessonCard({ lesson: l, isTutor, onChat, onAccept, onDecline, onCancel,
               Message
             </button>
           )}
-          {l.status === 'accepted' && onMarkComplete && (
+          {l.status === 'accepted' && onMarkComplete && !hasPendingReschedule && (
             <button
               onClick={onMarkComplete}
               disabled={completing}
@@ -796,6 +1089,26 @@ function LessonCard({ lesson: l, isTutor, onChat, onAccept, onDecline, onCancel,
             >
               {completing ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />}
               Complete
+            </button>
+          )}
+          {/* Student: pay for accepted lesson */}
+          {onPay && (
+            <button
+              onClick={onPay}
+              disabled={paying}
+              className="flex items-center gap-1.5 px-3 py-2 bg-green-600 text-white rounded-xl font-bold text-sm hover:bg-green-700 transition-colors disabled:opacity-60"
+            >
+              {paying ? <Loader2 className="w-4 h-4 animate-spin" /> : <CreditCard className="w-4 h-4" />}
+              Pay ${((l.price_cents ?? 0) / 100).toFixed(2)}
+            </button>
+          )}
+          {/* Student: request a reschedule */}
+          {onReschedule && !hasPendingReschedule && (
+            <button
+              onClick={onReschedule}
+              className="flex items-center gap-1.5 px-3 py-2 bg-orange-50 text-orange-600 rounded-xl font-bold text-sm hover:bg-orange-100 transition-colors border border-orange-200"
+            >
+              <RefreshCw className="w-4 h-4" /> Reschedule
             </button>
           )}
           {isCancellable && (
@@ -960,6 +1273,191 @@ function CancelSessionModal({ title, description, confirmLabel = 'Cancel Session
             {confirmLabel}
           </button>
         </div>
+      </div>
+    </div>
+  )
+}
+
+function RescheduleModal({ lesson, onConfirm, onClose }: {
+  lesson:    Lesson
+  onConfirm: (proposedAt: string) => Promise<void>
+  onClose:   () => void
+}) {
+  const tutorId = lesson.other_user_id
+  const [avail, setAvail]             = useState<Record<string, { available: boolean; start: string; end: string }> | null>(null)
+  const [blackoutDates, setBlackout]  = useState<string[]>([])
+  const [selectedDate, setSelectedDate] = useState<Date | null>(null)
+  const [selectedSlot, setSelectedSlot] = useState<string | null>(null)
+  const [calendarOffset, setCalOff]   = useState(0)
+  const [takenMinutes, setTaken]      = useState<Set<number>>(new Set())
+  const [loading, setLoading]         = useState(true)
+  const [saving, setSaving]           = useState(false)
+  const duration = 60
+
+  const weekDates = useMemo(() => {
+    const today = new Date(); today.setHours(0, 0, 0, 0)
+    const sunday = new Date(today)
+    sunday.setDate(today.getDate() - today.getDay() + calendarOffset * 7)
+    return Array.from({ length: 7 }, (_, i) => { const d = new Date(sunday); d.setDate(sunday.getDate() + i); return d })
+  }, [calendarOffset])
+
+  useEffect(() => {
+    supabase.from('tutor_profiles').select('availability, blackout_dates').eq('id', tutorId).single()
+      .then(({ data }) => {
+        setAvail(data?.availability ?? {})
+        setBlackout(data?.blackout_dates ?? [])
+        setLoading(false)
+      })
+  }, [tutorId])
+
+  useEffect(() => {
+    if (!selectedDate) { setTaken(new Set()); return }
+    const start = new Date(selectedDate); start.setHours(0, 0, 0, 0)
+    const end   = new Date(selectedDate); end.setHours(23, 59, 59, 999)
+    supabase.from('bookings').select('scheduled_at, duration_minutes')
+      .eq('tutor_id', tutorId).neq('status', 'declined').neq('status', 'cancelled')
+      .gte('scheduled_at', start.toISOString()).lte('scheduled_at', end.toISOString())
+      .then(({ data }) => {
+        const blocked = new Set<number>()
+        for (const b of data ?? []) {
+          if (!b.scheduled_at) continue
+          const d = new Date(b.scheduled_at)
+          const startM = d.getHours() * 60 + d.getMinutes()
+          for (let m = startM; m < startM + (b.duration_minutes ?? 60); m += 30) blocked.add(m)
+        }
+        setTaken(blocked)
+      })
+  }, [selectedDate, tutorId])
+
+  async function handleConfirm() {
+    if (!selectedDate || !selectedSlot) return
+    setSaving(true)
+    await onConfirm(toScheduledAt(selectedDate, selectedSlot))
+    setSaving(false)
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+      <div className="w-full max-w-sm bg-white rounded-3xl shadow-2xl p-6 flex flex-col gap-4">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h3 className="font-black text-gray-900 text-lg">Request Reschedule</h3>
+            <p className="text-sm text-gray-500 font-medium mt-0.5">{lesson.subject} with {lesson.other_name}</p>
+          </div>
+          <button onClick={onClose} disabled={saving} className="p-1.5 hover:bg-gray-100 rounded-full text-gray-400 transition-colors shrink-0 disabled:opacity-50">
+            <XCircle className="w-5 h-5" />
+          </button>
+        </div>
+
+        {loading ? (
+          <div className="flex justify-center py-8"><Loader2 className="w-6 h-6 animate-spin text-blue-600" /></div>
+        ) : (
+          <>
+            {/* Date picker */}
+            <div className="flex flex-col gap-2">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Select New Date</label>
+                <div className="flex items-center gap-1">
+                  <button type="button" onClick={() => setCalOff(o => Math.max(0, o - 1))} disabled={calendarOffset === 0} className="p-0.5 rounded text-gray-400 hover:text-gray-700 disabled:opacity-30"><ChevronLeft className="w-4 h-4" /></button>
+                  <button type="button" onClick={() => setCalOff(o => Math.min(3, o + 1))} disabled={calendarOffset === 3} className="p-0.5 rounded text-gray-400 hover:text-gray-700 disabled:opacity-30"><ChevronRight className="w-4 h-4" /></button>
+                </div>
+              </div>
+              <div className="grid grid-cols-7 gap-1">
+                {['S','M','T','W','T','F','S'].map((d, i) => (
+                  <span key={i} className="text-center text-[10px] font-bold text-gray-400">{d}</span>
+                ))}
+                {weekDates.map(date => {
+                  const today      = new Date(); today.setHours(0, 0, 0, 0)
+                  const isPast     = date < today
+                  const dayKey     = DOW_KEYS[date.getDay()]
+                  const dayAvail   = avail?.[dayKey]
+                  const isAvail    = !!dayAvail?.available
+                  const dateStr    = localDateStr(date)
+                  const isBlackedOut = blackoutDates.includes(dateStr)
+                  const bookable   = !isPast && isAvail && !isBlackedOut
+                  const isSelected = selectedDate?.toDateString() === date.toDateString()
+                  return (
+                    <button
+                      key={date.toISOString()}
+                      type="button"
+                      disabled={!bookable}
+                      onClick={() => { setSelectedDate(date); setSelectedSlot(null) }}
+                      className={`flex flex-col items-center py-1.5 rounded-lg text-xs font-bold transition-colors ${
+                        isSelected    ? 'bg-blue-600 text-white' :
+                        isBlackedOut  ? 'text-red-300 bg-red-50 cursor-not-allowed' :
+                        bookable      ? 'hover:bg-blue-50 text-gray-700' :
+                                        'text-gray-300 cursor-not-allowed'
+                      }`}
+                    >
+                      <span className="text-[9px] leading-none">{date.toLocaleDateString('en-US', { month: 'short' })}</span>
+                      <span className="text-sm leading-tight">{date.getDate()}</span>
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+
+            {/* Time slot picker */}
+            {selectedDate && avail && (() => {
+              const dayKey  = DOW_KEYS[selectedDate.getDay()]
+              const dayAvail = avail[dayKey]
+              if (!dayAvail?.available) return null
+              const slots = generateSlots(dayAvail.start, dayAvail.end)
+              return (
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Select Time</label>
+                  <div className="flex flex-wrap gap-1.5">
+                    {slots.map(slot => {
+                      const slotMins = slotToMinutes(slot)
+                      const taken = Array.from({ length: duration / 30 }, (_, i) => takenMinutes.has(slotMins + i * 30)).some(Boolean)
+                      const isSel  = selectedSlot === slot
+                      return (
+                        <button
+                          key={slot}
+                          type="button"
+                          disabled={taken}
+                          onClick={() => setSelectedSlot(slot)}
+                          className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${
+                            isSel  ? 'bg-blue-600 text-white' :
+                            taken  ? 'bg-gray-100 text-gray-300 line-through cursor-not-allowed' :
+                                     'bg-gray-100 text-gray-700 hover:bg-blue-50 hover:text-blue-600'
+                          }`}
+                        >
+                          {slot}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+              )
+            })()}
+
+            {/* Summary */}
+            {selectedDate && selectedSlot && (
+              <div className="flex items-center gap-2 px-3 py-2 bg-blue-50 rounded-xl border border-blue-100">
+                <Calendar className="w-4 h-4 text-blue-600 shrink-0" />
+                <span className="text-xs font-bold text-blue-700">
+                  {selectedDate.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
+                  {' · '}{selectedSlot}
+                </span>
+              </div>
+            )}
+
+            <div className="flex gap-3 mt-1">
+              <button onClick={onClose} disabled={saving} className="flex-1 h-11 border-2 border-gray-200 text-gray-600 rounded-xl font-bold hover:bg-gray-50 transition-colors disabled:opacity-50">
+                Cancel
+              </button>
+              <button
+                onClick={handleConfirm}
+                disabled={saving || !selectedDate || !selectedSlot}
+                className="flex-1 h-11 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {saving && <Loader2 className="w-4 h-4 animate-spin" />}
+                Send Request
+              </button>
+            </div>
+          </>
+        )}
       </div>
     </div>
   )
