@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from "react"
 import { Link, useSearchParams } from "react-router"
 import { Navbar } from "../components/Navbar"
-import { ChevronLeft, ChevronRight, Calendar, Clock, Loader2, User, CheckCircle, XCircle, Users, MessageCircle, XOctagon, MapPin, Star, RefreshCw, Square, CheckSquare, CreditCard } from "lucide-react"
+import { ChevronLeft, ChevronRight, Calendar, Clock, Loader2, User, CheckCircle, XCircle, Users, MessageCircle, XOctagon, MapPin, Star, RefreshCw, Square, CheckSquare, CreditCard, Timer, StickyNote } from "lucide-react"
 import { useAuth } from "../../context/AuthContext"
 import { supabase } from "../../lib/supabase"
 import { ConversationModal } from "../components/ConversationModal"
@@ -82,6 +82,28 @@ function localDateStr(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
+function getCountdown(scheduledAt: string): { label: string; cls: string } | null {
+  const now = new Date()
+  const t = new Date(scheduledAt)
+  const diffMs = t.getTime() - now.getTime()
+  if (diffMs <= 0) return null
+
+  const todayMidnight = new Date(now); todayMidnight.setHours(0, 0, 0, 0)
+  const lessonMidnight = new Date(t); lessonMidnight.setHours(0, 0, 0, 0)
+  const daysDiff = Math.round((lessonMidnight.getTime() - todayMidnight.getTime()) / 86_400_000)
+
+  const hrs  = Math.floor(diffMs / 3_600_000)
+  const mins = Math.ceil(diffMs / 60_000)
+
+  if (daysDiff === 0) {
+    if (mins < 60) return { label: `in ${mins}m`, cls: 'bg-red-100 text-red-700' }
+    return { label: `Today · ${hrs}h away`, cls: 'bg-red-100 text-red-700' }
+  }
+  if (daysDiff === 1) return { label: 'Tomorrow', cls: 'bg-amber-100 text-amber-700' }
+  if (daysDiff <= 7)  return { label: `in ${daysDiff} days`, cls: 'bg-blue-100 text-blue-700' }
+  return null
+}
+
 export function Lessons() {
   const { user, role, profile } = useAuth()
   const isTutor = role === 'tutor'
@@ -107,6 +129,8 @@ export function Lessons() {
   const [batchProcessing, setBatchProcessing] = useState(false)
   const [payingId, setPayingId]             = useState<string | null>(null)
   const [searchParams, setSearchParams]     = useSearchParams()
+  const [notes, setNotes]                   = useState<Record<string, string>>({})
+  const [noteLesson, setNoteLesson]         = useState<Lesson | null>(null)
 
   async function handleGroupMessage(g: GroupEntry) {
     if (!user || !g.tutor_id) return
@@ -395,6 +419,23 @@ export function Lessons() {
     setDismissedIds(new Set(stored))
   }, [user])
 
+  // Load private notes for all completed lessons
+  useEffect(() => {
+    if (!user || lessons.length === 0) return
+    const completedIds = lessons.filter(l => l.status === 'completed').map(l => l.id)
+    if (completedIds.length === 0) return
+    supabase
+      .from('session_notes')
+      .select('booking_id, content')
+      .eq('user_id', user.id)
+      .in('booking_id', completedIds)
+      .then(({ data }) => {
+        const map: Record<string, string> = {}
+        for (const n of data ?? []) map[n.booking_id] = n.content
+        setNotes(map)
+      })
+  }, [user, lessons])
+
   function handleDismiss(id: string) {
     const next = new Set([...dismissedIds, id])
     setDismissedIds(next)
@@ -501,6 +542,20 @@ export function Lessons() {
     }
   }
 
+  async function handleSaveNote(bookingId: string, content: string) {
+    if (!user) return
+    const { error } = await supabase
+      .from('session_notes')
+      .upsert(
+        { booking_id: bookingId, user_id: user.id, content, updated_at: new Date().toISOString() },
+        { onConflict: 'booking_id,user_id' },
+      )
+    if (error) { toast.error('Failed to save note.'); return }
+    setNotes(prev => ({ ...prev, [bookingId]: content }))
+    setNoteLesson(null)
+    toast.success('Note saved!')
+  }
+
   const activeLessons = useMemo(
     () => lessons.filter(l => !dismissedIds.has(l.id)),
     [lessons, dismissedIds]
@@ -558,6 +613,17 @@ export function Lessons() {
   const pendingFromStudents = useMemo(
     () => activeLessons.filter(l => l.perspective === 'tutor' && l.status === 'pending'),
     [activeLessons]
+  )
+
+  // Completed lessons not still prompting a review (reviewed, or tutor-side)
+  const pastLessons = useMemo(() =>
+    activeLessons
+      .filter(l => l.status === 'completed' && (isTutor || reviewedTutors.has(l.other_user_id)))
+      .sort((a, b) =>
+        new Date(b.scheduled_at ?? b.created_at).getTime() -
+        new Date(a.scheduled_at ?? a.created_at).getTime()
+      ),
+    [activeLessons, isTutor, reviewedTutors]
   )
 
   const visibleGroups = useMemo(() => {
@@ -761,6 +827,8 @@ export function Lessons() {
                       onToggleSelect={isTutor && l.perspective === 'tutor' && l.status === 'pending' ? () => toggleSelect(l.id) : undefined}
                       onPay={l.perspective === 'student' && l.status === 'accepted' && (l.price_cents ?? 0) > 0 && l.payment_status !== 'paid' ? () => handlePay(l) : undefined}
                       paying={payingId === l.id}
+                      onNote={l.status === 'completed' ? () => setNoteLesson(l) : undefined}
+                      notePreview={notes[l.id]}
                     />
                   ))}
                 </div>
@@ -783,6 +851,8 @@ export function Lessons() {
                         onMarkComplete={isTutor ? () => handleMarkComplete(l) : undefined}
                         completing={completingId === l.id}
                         onDismiss={() => handleDismiss(l.id)}
+                        onNote={l.status === 'completed' ? () => setNoteLesson(l) : undefined}
+                        notePreview={notes[l.id]}
                       />
                     ))}
                   </div>
@@ -834,14 +904,52 @@ export function Lessons() {
                         {new Date(l.scheduled_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                       </span>
                     )}
+                    {notes[l.id] && (
+                      <span className="text-xs text-gray-400 italic line-clamp-1 flex items-center gap-1 mt-0.5">
+                        <StickyNote className="w-3 h-3 shrink-0 text-gray-300" /> {notes[l.id]}
+                      </span>
+                    )}
                   </div>
-                  <button
-                    onClick={() => setReviewLesson(l)}
-                    className="shrink-0 flex items-center gap-1.5 px-4 py-2 bg-yellow-400 text-yellow-900 rounded-xl font-bold text-sm hover:bg-yellow-500 transition-colors"
-                  >
-                    <Star className="w-4 h-4 fill-yellow-900" /> Rate Session
-                  </button>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button
+                      onClick={() => setNoteLesson(l)}
+                      className="flex items-center gap-1.5 px-3 py-2 bg-gray-100 text-gray-600 rounded-xl font-bold text-sm hover:bg-blue-50 hover:text-blue-600 transition-colors"
+                    >
+                      <StickyNote className="w-4 h-4" /> {notes[l.id] ? 'Note' : 'Add Note'}
+                    </button>
+                    <button
+                      onClick={() => setReviewLesson(l)}
+                      className="flex items-center gap-1.5 px-4 py-2 bg-yellow-400 text-yellow-900 rounded-xl font-bold text-sm hover:bg-yellow-500 transition-colors"
+                    >
+                      <Star className="w-4 h-4 fill-yellow-900" /> Rate Session
+                    </button>
+                  </div>
                 </div>
+              ))}
+            </div>
+          </div>
+        )}
+        {/* ── Past Sessions (with notes) ── */}
+        {!loading && pastLessons.length > 0 && (
+          <div className="mt-8">
+            <h2 className="text-lg font-black text-gray-900 mb-4 flex items-center gap-2">
+              <StickyNote className="w-5 h-5 text-gray-400" />
+              Past Sessions
+            </h2>
+            <div className="flex flex-col gap-3">
+              {pastLessons.map(l => (
+                <LessonCard
+                  key={`past-${l.id}`}
+                  lesson={l}
+                  isTutor={isTutor}
+                  onChat={() => setChatLesson(l)}
+                  onAccept={() => {}}
+                  onDecline={() => {}}
+                  onCancel={() => {}}
+                  onDismiss={() => handleDismiss(l.id)}
+                  onNote={() => setNoteLesson(l)}
+                  notePreview={notes[l.id]}
+                />
               ))}
             </div>
           </div>
@@ -918,11 +1026,20 @@ export function Lessons() {
           onClose={() => setRescheduleLesson(null)}
         />
       )}
+
+      {noteLesson && (
+        <SessionNoteModal
+          lesson={noteLesson}
+          initialContent={notes[noteLesson.id] ?? ''}
+          onSave={handleSaveNote}
+          onClose={() => setNoteLesson(null)}
+        />
+      )}
     </div>
   )
 }
 
-function LessonCard({ lesson: l, isTutor, onChat, onAccept, onDecline, onCancel, onMarkComplete, completing, onDismiss, onReschedule, onRescheduleAccept, onRescheduleDecline, selected, onToggleSelect, onPay, paying }: {
+function LessonCard({ lesson: l, isTutor, onChat, onAccept, onDecline, onCancel, onMarkComplete, completing, onDismiss, onReschedule, onRescheduleAccept, onRescheduleDecline, selected, onToggleSelect, onPay, paying, onNote, notePreview }: {
   lesson: Lesson
   isTutor: boolean
   onChat: () => void
@@ -939,12 +1056,15 @@ function LessonCard({ lesson: l, isTutor, onChat, onAccept, onDecline, onCancel,
   onToggleSelect?: () => void
   onPay?: () => void
   paying?: boolean
+  onNote?: () => void
+  notePreview?: string
 }) {
   const isStudentPerspective = l.perspective === 'student'
   const isCancellable = l.status === 'pending' || l.status === 'accepted'
   const isDimmed = l.status === 'cancelled' || l.status === 'completed' || l.status === 'declined'
   const isDismissible = l.status === 'declined' || l.status === 'cancelled' || l.status === 'completed'
   const hasPendingReschedule = l.reschedule_status === 'pending'
+  const countdown = l.status === 'accepted' && l.scheduled_at ? getCountdown(l.scheduled_at) : null
   return (
     <div className={`bg-white rounded-2xl border shadow-sm p-5 relative transition-colors ${
       selected           ? 'border-blue-400 bg-blue-50/40' :
@@ -987,6 +1107,11 @@ function LessonCard({ lesson: l, isTutor, onChat, onAccept, onDecline, onCancel,
             <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${STATUS_STYLE[l.status]}`}>
               {l.status}
             </span>
+            {countdown && (
+              <span className={`px-2 py-0.5 rounded-full text-xs font-bold flex items-center gap-1 ${countdown.cls}`}>
+                <Timer className="w-2.5 h-2.5" /> {countdown.label}
+              </span>
+            )}
             {hasPendingReschedule && (
               <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-orange-100 text-orange-600 flex items-center gap-1">
                 <RefreshCw className="w-2.5 h-2.5" /> Reschedule requested
@@ -1035,6 +1160,11 @@ function LessonCard({ lesson: l, isTutor, onChat, onAccept, onDecline, onCancel,
           )}
           {l.message && (
             <p className="text-sm text-gray-500 font-medium mt-1 line-clamp-2">{l.message}</p>
+          )}
+          {notePreview && (
+            <p className="text-xs text-gray-400 italic line-clamp-1 flex items-center gap-1 mt-1">
+              <StickyNote className="w-3 h-3 shrink-0 text-gray-300" /> {notePreview}
+            </p>
           )}
         </div>
 
@@ -1118,6 +1248,14 @@ function LessonCard({ lesson: l, isTutor, onChat, onAccept, onDecline, onCancel,
               className="flex items-center gap-1.5 px-3 py-2 bg-gray-100 text-gray-500 rounded-xl font-bold text-sm hover:bg-red-50 hover:text-red-600 transition-colors"
             >
               <XOctagon className="w-4 h-4" /> Cancel
+            </button>
+          )}
+          {onNote && (
+            <button
+              onClick={onNote}
+              className="flex items-center gap-1.5 px-3 py-2 bg-gray-100 text-gray-600 rounded-xl font-bold text-sm hover:bg-blue-50 hover:text-blue-600 transition-colors"
+            >
+              <StickyNote className="w-4 h-4" /> {notePreview ? 'Edit Note' : 'Add Note'}
             </button>
           )}
         </div>
@@ -1549,6 +1687,66 @@ function ReviewModal({ lesson, onSubmit, onClose }: {
           >
             {saving && <Loader2 className="w-4 h-4 animate-spin" />}
             Submit Review
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function SessionNoteModal({ lesson, initialContent, onSave, onClose }: {
+  lesson:         Lesson
+  initialContent: string
+  onSave:         (bookingId: string, content: string) => Promise<void>
+  onClose:        () => void
+}) {
+  const [content, setContent] = useState(initialContent)
+  const [saving, setSaving]   = useState(false)
+
+  async function handleSave() {
+    setSaving(true)
+    await onSave(lesson.id, content.trim())
+    setSaving(false)
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+      <div className="w-full max-w-sm bg-white rounded-3xl shadow-2xl p-6 flex flex-col gap-4">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h3 className="font-black text-gray-900 text-lg flex items-center gap-2">
+              <StickyNote className="w-5 h-5 text-blue-500" /> Session Note
+            </h3>
+            <p className="text-sm text-gray-500 font-medium mt-0.5">{lesson.subject} · {lesson.other_name}</p>
+          </div>
+          <button onClick={onClose} disabled={saving} className="p-1.5 hover:bg-gray-100 rounded-full text-gray-400 transition-colors shrink-0 disabled:opacity-50">
+            <XCircle className="w-5 h-5" />
+          </button>
+        </div>
+        <p className="text-xs text-gray-400 font-medium -mt-1">Private — only you can see this note.</p>
+        <div className="flex flex-col gap-1.5">
+          <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Your Note</label>
+          <textarea
+            value={content}
+            onChange={e => setContent(e.target.value)}
+            placeholder="What did you cover? What to review next time? Any thoughts on the session…"
+            rows={5}
+            disabled={saving}
+            autoFocus
+            className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm font-medium text-gray-800 bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-400 resize-none disabled:opacity-60"
+          />
+        </div>
+        <div className="flex gap-3">
+          <button onClick={onClose} disabled={saving} className="flex-1 h-11 border-2 border-gray-200 text-gray-600 rounded-xl font-bold hover:bg-gray-50 transition-colors disabled:opacity-50">
+            Cancel
+          </button>
+          <button
+            onClick={handleSave}
+            disabled={saving}
+            className="flex-1 h-11 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+          >
+            {saving && <Loader2 className="w-4 h-4 animate-spin" />}
+            Save Note
           </button>
         </div>
       </div>
