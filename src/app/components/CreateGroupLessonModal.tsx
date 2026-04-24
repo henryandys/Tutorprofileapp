@@ -1,8 +1,10 @@
-import { useState } from "react"
-import { X, Loader2, Users, DollarSign, MapPin } from "lucide-react"
+import { useState, useMemo } from "react"
+import { X, Loader2, Users, DollarSign, MapPin, RefreshCw } from "lucide-react"
 import { toast } from "sonner"
 import { supabase } from "../../lib/supabase"
 import { useAuth } from "../../context/AuthContext"
+
+export type RecurrenceType = 'none' | 'weekly' | 'biweekly' | 'monthly'
 
 export interface GroupLesson {
   id:               string
@@ -17,11 +19,13 @@ export interface GroupLesson {
   status:           'open' | 'cancelled' | 'completed'
   created_at:       string
   enrollment_count?: number
+  recurrence_type:  RecurrenceType
+  parent_lesson_id: string | null
 }
 
 interface Props {
   tutorSubjects: string[]
-  onCreated:     (lesson: GroupLesson) => void
+  onCreated:     (lessons: GroupLesson[]) => void
   onClose:       () => void
 }
 
@@ -32,19 +36,45 @@ const DURATIONS = [
   { label: '2 hours', value: 120 },
 ]
 
+const RECURRENCE_OPTIONS: { label: string; value: RecurrenceType }[] = [
+  { label: 'No repeat',      value: 'none'     },
+  { label: 'Weekly',         value: 'weekly'   },
+  { label: 'Every 2 weeks',  value: 'biweekly' },
+  { label: 'Monthly',        value: 'monthly'  },
+]
+
+function addOccurrence(base: Date, type: RecurrenceType, n: number): Date {
+  const d = new Date(base)
+  if (type === 'weekly')   d.setDate(d.getDate() + 7 * n)
+  if (type === 'biweekly') d.setDate(d.getDate() + 14 * n)
+  if (type === 'monthly')  d.setMonth(d.getMonth() + n)
+  return d
+}
+
 export function CreateGroupLessonModal({ tutorSubjects, onCreated, onClose }: Props) {
   const { user } = useAuth()
   const [saving, setSaving] = useState(false)
 
-  const [title,    setTitle]    = useState('')
-  const [subject,  setSubject]  = useState(tutorSubjects[0] ?? '')
-  const [date,     setDate]     = useState('')
-  const [time,     setTime]     = useState('10:00')
-  const [duration, setDuration] = useState(60)
+  const [title,      setTitle]      = useState('')
+  const [subject,    setSubject]    = useState(tutorSubjects[0] ?? '')
+  const [date,       setDate]       = useState('')
+  const [time,       setTime]       = useState('10:00')
+  const [duration,   setDuration]   = useState(60)
   const [maxStudents, setMaxStudents] = useState(8)
-  const [price,    setPrice]    = useState(0)
-  const [desc,     setDesc]     = useState('')
-  const [location, setLocation] = useState('')
+  const [price,      setPrice]      = useState(0)
+  const [desc,       setDesc]       = useState('')
+  const [location,   setLocation]   = useState('')
+  const [recurrence, setRecurrence] = useState<RecurrenceType>('none')
+  const [occurrences, setOccurrences] = useState(8)
+
+  const previewDates = useMemo(() => {
+    if (recurrence === 'none' || !date) return []
+    const base = new Date(`${date}T${time}:00`)
+    return Array.from({ length: occurrences }, (_, i) =>
+      (i === 0 ? base : addOccurrence(base, recurrence, i))
+        .toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })
+    )
+  }, [recurrence, date, time, occurrences])
 
   async function handleSubmit(e: { preventDefault(): void }) {
     e.preventDefault()
@@ -52,32 +82,71 @@ export function CreateGroupLessonModal({ tutorSubjects, onCreated, onClose }: Pr
     if (!title.trim()) { toast.error('Please add a session title.'); return }
     if (!date)         { toast.error('Please select a date.'); return }
 
-    const scheduled_at = new Date(`${date}T${time}:00`).toISOString()
     setSaving(true)
+    const base = new Date(`${date}T${time}:00`)
 
-    const { data, error } = await supabase
+    // Insert the first (parent) occurrence
+    const { data: parent, error: parentError } = await supabase
       .from('group_lessons')
       .insert({
         tutor_id:         user.id,
         title:            title.trim(),
-        subject:          subject,
+        subject,
         description:      desc.trim() || null,
         location:         location.trim() || null,
-        scheduled_at,
+        scheduled_at:     base.toISOString(),
         duration_minutes: duration,
         max_students:     maxStudents,
         price,
         status:           'open',
+        recurrence_type:  recurrence,
+        parent_lesson_id: null,
       })
       .select('*')
       .single()
 
-    if (error || !data) {
-      toast.error('Failed to create session: ' + (error?.message ?? 'unknown error'))
+    if (parentError || !parent) {
+      toast.error('Failed to create session: ' + (parentError?.message ?? 'unknown error'))
+      setSaving(false)
+      return
+    }
+
+    const allCreated: GroupLesson[] = [{ ...parent, enrollment_count: 0 }]
+
+    // Insert child occurrences for recurring sessions
+    if (recurrence !== 'none' && occurrences > 1) {
+      const childRows = Array.from({ length: occurrences - 1 }, (_, i) => ({
+        tutor_id:         user.id,
+        title:            title.trim(),
+        subject,
+        description:      desc.trim() || null,
+        location:         location.trim() || null,
+        scheduled_at:     addOccurrence(base, recurrence, i + 1).toISOString(),
+        duration_minutes: duration,
+        max_students:     maxStudents,
+        price,
+        status:           'open',
+        recurrence_type:  recurrence,
+        parent_lesson_id: parent.id,
+      }))
+
+      const { data: children, error: childError } = await supabase
+        .from('group_lessons')
+        .insert(childRows)
+        .select('*')
+
+      if (childError) {
+        toast.error('Series partially created — some sessions failed: ' + childError.message)
+      } else {
+        allCreated.push(...(children ?? []).map((c: any) => ({ ...c, enrollment_count: 0 })))
+      }
+
+      toast.success(`${allCreated.length} session${allCreated.length !== 1 ? 's' : ''} created!`)
     } else {
       toast.success('Group session created!')
-      onCreated({ ...data, enrollment_count: 0 })
     }
+
+    onCreated(allCreated)
     setSaving(false)
   }
 
@@ -134,7 +203,7 @@ export function CreateGroupLessonModal({ tutorSubjects, onCreated, onClose }: Pr
           {/* Date + Time */}
           <div className="grid grid-cols-2 gap-3">
             <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Date</label>
+              <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">First Date</label>
               <input
                 type="date"
                 min={today}
@@ -233,6 +302,56 @@ export function CreateGroupLessonModal({ tutorSubjects, onCreated, onClose }: Pr
             />
           </div>
 
+          {/* Recurrence */}
+          <div className="flex flex-col gap-2">
+            <label className="text-xs font-bold text-gray-400 uppercase tracking-widest flex items-center gap-1">
+              <RefreshCw className="w-3 h-3" /> Repeat
+            </label>
+            <div className="flex gap-2 flex-wrap">
+              {RECURRENCE_OPTIONS.map(opt => (
+                <button
+                  key={opt.value}
+                  type="button"
+                  onClick={() => setRecurrence(opt.value)}
+                  className={`px-3 py-2 rounded-xl font-bold text-sm border transition-colors ${
+                    recurrence === opt.value
+                      ? 'bg-purple-600 text-white border-purple-600'
+                      : 'border-gray-200 text-gray-600 hover:border-purple-400 bg-gray-50'
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+
+            {recurrence !== 'none' && (
+              <div className="flex items-center gap-3 mt-1">
+                <label className="text-xs font-bold text-gray-500 whitespace-nowrap">Number of sessions</label>
+                <input
+                  type="number"
+                  min={2}
+                  max={52}
+                  value={occurrences}
+                  onChange={e => setOccurrences(Math.max(2, Math.min(52, Number(e.target.value))))}
+                  className="w-20 h-9 px-3 border border-gray-200 rounded-lg text-sm font-bold text-gray-800 focus:outline-none focus:ring-2 focus:ring-purple-500 bg-gray-50"
+                />
+              </div>
+            )}
+
+            {/* Schedule preview */}
+            {previewDates.length > 0 && (
+              <div className="bg-purple-50 border border-purple-100 rounded-xl p-3 flex flex-col gap-1 max-h-36 overflow-y-auto">
+                <p className="text-[10px] font-black text-purple-400 uppercase tracking-widest mb-1">Schedule Preview</p>
+                {previewDates.map((d, i) => (
+                  <span key={i} className="text-xs font-medium text-purple-700 flex items-center gap-2">
+                    <span className="w-4 h-4 rounded-full bg-purple-200 text-purple-700 flex items-center justify-center text-[9px] font-black shrink-0">{i + 1}</span>
+                    {d}
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+
           {/* Actions */}
           <div className="flex gap-3 pt-1 pb-2">
             <button
@@ -248,7 +367,7 @@ export function CreateGroupLessonModal({ tutorSubjects, onCreated, onClose }: Pr
               className="flex-1 h-12 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 transition-colors shadow-lg shadow-blue-200 disabled:opacity-60 flex items-center justify-center gap-2"
             >
               {saving && <Loader2 className="w-4 h-4 animate-spin" />}
-              {saving ? 'Creating…' : 'Create Session'}
+              {saving ? 'Creating…' : recurrence !== 'none' ? `Create ${occurrences} Sessions` : 'Create Session'}
             </button>
           </div>
         </form>

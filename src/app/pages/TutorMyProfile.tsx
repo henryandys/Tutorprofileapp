@@ -6,7 +6,7 @@ import { Navbar } from "../components/Navbar";
 import {
   User, BookOpen, DollarSign, MapPin, GraduationCap, Briefcase,
   Plus, X, Save, Camera, Award, Star, FileText, Calendar,
-  ChevronRight, Loader2, Clock, Shield, CreditCard, Users
+  ChevronRight, Loader2, Clock, Shield, CreditCard, Users, RefreshCw
 } from "lucide-react";
 import { toast } from "sonner";
 import { Link } from "react-router";
@@ -102,6 +102,7 @@ export function TutorMyProfile() {
   const [loadingGroupLessons, setLoadingGroupLessons] = useState(true)
   const [showCreateGroup, setShowCreateGroup] = useState(false)
   const [enrollmentGroup, setEnrollmentGroup] = useState<GroupLesson | null>(null)
+  const [cancelMenuId, setCancelMenuId]       = useState<string | null>(null)
 
   const [availability, setAvailability]   = useState<WeekAvail>(DEFAULT_AVAIL)
   const [blackoutDates, setBlackoutDates] = useState<string[]>([])
@@ -673,9 +674,43 @@ export function TutorMyProfile() {
             ) : (
               <div className="divide-y divide-gray-100">
                 {groupLessons.map(gl => {
-                  const spotsLeft = gl.max_students - (gl.enrollment_count ?? 0)
-                  const isFull    = spotsLeft <= 0
-                  const isPast    = new Date(gl.scheduled_at) < new Date()
+                  const spotsLeft  = gl.max_students - (gl.enrollment_count ?? 0)
+                  const isFull     = spotsLeft <= 0
+                  const isPast     = new Date(gl.scheduled_at) < new Date()
+                  const isRecurring = gl.recurrence_type && gl.recurrence_type !== 'none'
+                  const recurringLabel: Record<string, string> = {
+                    weekly: 'Weekly', biweekly: 'Every 2 wks', monthly: 'Monthly',
+                  }
+                  const showCancelMenu = cancelMenuId === gl.id
+
+                  async function cancelThis() {
+                    const { error } = await supabase
+                      .from('group_lessons').update({ status: 'cancelled' })
+                      .eq('id', gl.id).eq('tutor_id', user!.id)
+                    if (error) { toast.error('Could not cancel session.'); return }
+                    setGroupLessons(prev => prev.map(g => g.id === gl.id ? { ...g, status: 'cancelled' } : g))
+                    setCancelMenuId(null)
+                    toast.success('Session cancelled.')
+                  }
+
+                  async function cancelAllFuture() {
+                    const parentId = gl.parent_lesson_id ?? gl.id
+                    const { error } = await supabase
+                      .from('group_lessons').update({ status: 'cancelled' })
+                      .or(`id.eq.${gl.id},parent_lesson_id.eq.${parentId}`)
+                      .gte('scheduled_at', gl.scheduled_at)
+                      .eq('tutor_id', user!.id)
+                    if (error) { toast.error('Could not cancel series.'); return }
+                    setGroupLessons(prev => prev.map(g => {
+                      const isThis = g.id === gl.id
+                      const isFutureChild = (g.parent_lesson_id === parentId || g.id === parentId) &&
+                        new Date(g.scheduled_at) >= new Date(gl.scheduled_at)
+                      return (isThis || isFutureChild) ? { ...g, status: 'cancelled' } : g
+                    }))
+                    setCancelMenuId(null)
+                    toast.success('Remaining sessions in this series cancelled.')
+                  }
+
                   return (
                     <div key={gl.id} className="py-4 flex items-start justify-between gap-4 cursor-pointer hover:bg-purple-50 -mx-2 px-2 rounded-xl transition-colors" onClick={() => setEnrollmentGroup(gl)}>
                       <div className="flex items-start gap-4 min-w-0">
@@ -687,6 +722,12 @@ export function TutorMyProfile() {
                         <div className="min-w-0">
                           <div className="flex items-center gap-2 flex-wrap">
                             <p className="font-bold text-gray-900 truncate">{gl.title}</p>
+                            {isRecurring && (
+                              <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-purple-100 text-purple-600 flex items-center gap-1">
+                                <RefreshCw className="w-2.5 h-2.5" />
+                                {recurringLabel[gl.recurrence_type!] ?? gl.recurrence_type}
+                              </span>
+                            )}
                             {gl.status === 'cancelled' && (
                               <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-red-100 text-red-600">Cancelled</span>
                             )}
@@ -718,24 +759,47 @@ export function TutorMyProfile() {
                           )}
                         </div>
                       </div>
+
                       {gl.status === 'open' && !isPast && (
-                        <button
-                          type="button"
-                          onClick={async (e) => {
-                            e.stopPropagation()
-                            const { error } = await supabase
-                              .from('group_lessons')
-                              .update({ status: 'cancelled' })
-                              .eq('id', gl.id)
-                              .eq('tutor_id', user!.id)
-                            if (error) { toast.error('Could not cancel session.'); return }
-                            setGroupLessons(prev => prev.map(g => g.id === gl.id ? { ...g, status: 'cancelled' } : g))
-                            toast.success('Session cancelled.')
-                          }}
-                          className="shrink-0 text-xs font-bold text-red-500 hover:text-red-700 px-3 py-1.5 border border-red-200 rounded-lg hover:bg-red-50 transition-colors"
-                        >
-                          Cancel
-                        </button>
+                        <div className="relative shrink-0" onClick={e => e.stopPropagation()}>
+                          {isRecurring ? (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => setCancelMenuId(showCancelMenu ? null : gl.id)}
+                                className="text-xs font-bold text-red-500 hover:text-red-700 px-3 py-1.5 border border-red-200 rounded-lg hover:bg-red-50 transition-colors"
+                              >
+                                Cancel ▾
+                              </button>
+                              {showCancelMenu && (
+                                <div className="absolute right-0 top-full mt-1 w-48 bg-white border border-gray-200 rounded-xl shadow-lg z-10 overflow-hidden">
+                                  <button
+                                    type="button"
+                                    onClick={cancelThis}
+                                    className="w-full text-left px-4 py-2.5 text-xs font-bold text-red-600 hover:bg-red-50 transition-colors"
+                                  >
+                                    This session only
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={cancelAllFuture}
+                                    className="w-full text-left px-4 py-2.5 text-xs font-bold text-red-700 hover:bg-red-50 transition-colors border-t border-gray-100"
+                                  >
+                                    This &amp; all future sessions
+                                  </button>
+                                </div>
+                              )}
+                            </>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={cancelThis}
+                              className="text-xs font-bold text-red-500 hover:text-red-700 px-3 py-1.5 border border-red-200 rounded-lg hover:bg-red-50 transition-colors"
+                            >
+                              Cancel
+                            </button>
+                          )}
+                        </div>
                       )}
                     </div>
                   )
@@ -901,8 +965,12 @@ export function TutorMyProfile() {
       {showCreateGroup && (
         <CreateGroupLessonModal
           tutorSubjects={(tutorData?.subjects ?? []) as string[]}
-          onCreated={lesson => {
-            setGroupLessons(prev => [lesson, ...prev])
+          onCreated={lessons => {
+            setGroupLessons(prev =>
+              [...lessons, ...prev].sort((a, b) =>
+                new Date(a.scheduled_at).getTime() - new Date(b.scheduled_at).getTime()
+              )
+            )
             setShowCreateGroup(false)
           }}
           onClose={() => setShowCreateGroup(false)}

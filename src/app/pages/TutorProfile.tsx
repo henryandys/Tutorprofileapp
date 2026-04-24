@@ -78,16 +78,18 @@ export function TutorProfile() {
   const [takenMinutes, setTakenMinutes]     = useState<Set<number>>(new Set())
   const [calendarOffset, setCalendarOffset] = useState(0)
 
-  const nextDates = useMemo(() => {
-    const dates: Date[] = []
+  // Sunday of the current calendar week (recalculated when calendarOffset changes)
+  const weekDates = useMemo(() => {
     const today = new Date(); today.setHours(0, 0, 0, 0)
-    for (let i = 0; i < 28; i++) {
-      const d = new Date(today)
-      d.setDate(today.getDate() + i)
-      dates.push(d)
-    }
-    return dates
-  }, [])
+    // Snap back to the Sunday of this week, then advance by calendarOffset weeks
+    const sunday = new Date(today)
+    sunday.setDate(today.getDate() - today.getDay() + calendarOffset * 7)
+    return Array.from({ length: 7 }, (_, i) => {
+      const d = new Date(sunday)
+      d.setDate(sunday.getDate() + i)
+      return d
+    })
+  }, [calendarOffset])
 
   // Reviews state
   const [reviews, setReviews]           = useState<Review[]>([])
@@ -761,12 +763,14 @@ export function TutorProfile() {
                     {['S','M','T','W','T','F','S'].map((d, i) => (
                       <span key={i} className="text-center text-[10px] font-bold text-gray-400">{d}</span>
                     ))}
-                    {nextDates.slice(calendarOffset * 7, calendarOffset * 7 + 7).map(date => {
-                      const avail       = tutor.availability[getDayKey(date)]
-                      const isAvail     = !!avail?.available
+                    {weekDates.map(date => {
+                      const today        = new Date(); today.setHours(0, 0, 0, 0)
+                      const isPast       = date < today
+                      const avail        = tutor.availability[getDayKey(date)]
+                      const isAvail      = !!avail?.available
                       const isBlackedOut = tutor.blackoutDates.includes(localDateStr(date))
-                      const bookable    = isAvail && !isBlackedOut
-                      const isSelected  = selectedDate?.toDateString() === date.toDateString()
+                      const bookable     = !isPast && isAvail && !isBlackedOut
+                      const isSelected   = selectedDate?.toDateString() === date.toDateString()
                       return (
                         <button
                           key={date.toISOString()}

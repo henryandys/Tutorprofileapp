@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from "react"
 import { Link } from "react-router"
 import { Navbar } from "../components/Navbar"
-import { ChevronLeft, ChevronRight, Calendar, Clock, Loader2, User, CheckCircle, XCircle, Users, MessageCircle, XOctagon, MapPin, Star } from "lucide-react"
+import { ChevronLeft, ChevronRight, Calendar, Clock, Loader2, User, CheckCircle, XCircle, Users, MessageCircle, XOctagon, MapPin, Star, RefreshCw } from "lucide-react"
 import { useAuth } from "../../context/AuthContext"
 import { supabase } from "../../lib/supabase"
 import { ConversationModal } from "../components/ConversationModal"
@@ -34,6 +34,7 @@ interface GroupEntry {
   tutor_name:       string | null
   tutor_id:         string | null
   location:         string | null
+  recurrence_type:  string | null
 }
 
 const STATUS_STYLE: Record<string, string> = {
@@ -286,6 +287,7 @@ export function Lessons() {
         tutor_name:       null,
         tutor_id:         g.tutor_id ?? null,
         location:         g.location ?? null,
+        recurrence_type:  g.recurrence_type ?? null,
       }))
       const enrolledRows = ((groupStudentRes.data ?? []) as any[]).filter((e: any) => e.group_lessons)
       // Fetch tutor names from profiles using the tutor_ids
@@ -313,6 +315,7 @@ export function Lessons() {
           tutor_name:       tutorNames[g.tutor_id] ?? null,
           tutor_id:         g.tutor_id ?? null,
           location:         g.location ?? null,
+          recurrence_type:  g.recurrence_type ?? null,
         }
       })
       // Deduplicate: tutor may appear as both tutor and student
@@ -799,6 +802,12 @@ function GroupCard({ group: g, isTutor: _isTutor, openingChat, onViewEnrollments
             <Users className="w-4 h-4 text-purple-500 shrink-0" />
             <span className="font-bold text-gray-900">{g.title}</span>
             <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-purple-100 text-purple-700">Group</span>
+            {g.recurrence_type && g.recurrence_type !== 'none' && (
+              <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-purple-50 text-purple-500 flex items-center gap-1">
+                <RefreshCw className="w-2.5 h-2.5" />
+                {{ weekly: 'Weekly', biweekly: 'Every 2 wks', monthly: 'Monthly' }[g.recurrence_type] ?? g.recurrence_type}
+              </span>
+            )}
             {!isTutorPerspective && (
               <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-blue-100 text-blue-700">Enrolled</span>
             )}
