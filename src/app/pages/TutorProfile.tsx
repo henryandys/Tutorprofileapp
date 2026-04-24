@@ -5,8 +5,8 @@ import { fetchTutorById } from "../data/tutors";
 import type { Tutor } from "../data/tutors";
 import { Navbar } from "../components/Navbar";
 import { ConversationModal } from "../components/ConversationModal";
-import { Star, MapPin, Share2, Heart, MessageCircle, Clock, GraduationCap, Briefcase, Calendar, ChevronLeft, ChevronRight, Loader2, Send, CornerDownRight, Users } from "lucide-react";
-import type { GroupLesson } from "../components/CreateGroupLessonModal";
+import { Star, MapPin, Share2, Heart, MessageCircle, Clock, GraduationCap, Briefcase, Calendar, ChevronLeft, ChevronRight, Loader2, Send, CornerDownRight, Users, RefreshCw } from "lucide-react";
+import type { GroupLesson, RecurrenceType } from "../components/CreateGroupLessonModal";
 import { ImageWithFallback } from "../components/figma/ImageWithFallback";
 import { useState, useEffect, useMemo } from "react";
 import { useAuth } from "../../context/AuthContext";
@@ -50,6 +50,19 @@ function toScheduledAt(date: Date, slot: string): string {
 function localDateStr(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
+function addOccurrence(base: Date, type: RecurrenceType, n: number): Date {
+  const d = new Date(base)
+  if (type === 'weekly')   d.setDate(d.getDate() + 7 * n)
+  if (type === 'biweekly') d.setDate(d.getDate() + 14 * n)
+  if (type === 'monthly')  d.setMonth(d.getMonth() + n)
+  return d
+}
+const RECURRENCE_OPTIONS: { label: string; value: RecurrenceType }[] = [
+  { label: 'No repeat',     value: 'none'     },
+  { label: 'Weekly',        value: 'weekly'   },
+  { label: 'Every 2 weeks', value: 'biweekly' },
+  { label: 'Monthly',       value: 'monthly'  },
+]
 
 interface Review {
   id:           string
@@ -77,6 +90,8 @@ export function TutorProfile() {
   const [duration, setDuration]             = useState(60)
   const [takenMinutes, setTakenMinutes]     = useState<Set<number>>(new Set())
   const [calendarOffset, setCalendarOffset] = useState(0)
+  const [recurrence, setRecurrence]         = useState<RecurrenceType>('none')
+  const [occurrences, setOccurrences]       = useState(8)
 
   // Sunday of the current calendar week (recalculated when calendarOffset changes)
   const weekDates = useMemo(() => {
@@ -90,6 +105,15 @@ export function TutorProfile() {
       return d
     })
   }, [calendarOffset])
+
+  const previewBookingDates = useMemo(() => {
+    if (recurrence === 'none' || !selectedDate || !selectedSlot) return []
+    return Array.from({ length: occurrences }, (_, i) => {
+      const d = i === 0 ? selectedDate : addOccurrence(selectedDate, recurrence, i)
+      return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })
+        + ' · ' + selectedSlot
+    })
+  }, [recurrence, occurrences, selectedDate, selectedSlot])
 
   // Reviews state
   const [reviews, setReviews]           = useState<Review[]>([])
@@ -308,34 +332,56 @@ export function TutorProfile() {
 
     setSubmitting(true)
 
-    const { error } = await supabase.from('bookings').insert({
+    const baseDate = toScheduledAt(selectedDate, selectedSlot)
+    const common = {
       tutor_id:         tutor.id,
       student_id:       user.id,
       student_name:     studentName,
       subject:          subject || tutor.subject.split(' & ')[0],
       message:          message,
       status:           'pending',
-      scheduled_at:     toScheduledAt(selectedDate, selectedSlot),
       duration_minutes: duration,
-    })
-
-    if (error) {
-      toast.error('Failed to send request: ' + error.message)
-    } else {
-      toast.success('Lesson request sent! The tutor will get back to you soon.')
-      setMessage('')
-      // Email the tutor
-      sendNotificationEmail({
-        type: 'new_booking',
-        recipientId: tutor.id,
-        data: {
-          tutorName:   tutor.name,
-          studentName: studentName,
-          subject:     subject || tutor.subject.split(' & ')[0],
-          message:     message,
-        },
-      })
     }
+
+    if (recurrence === 'none') {
+      const { error } = await supabase.from('bookings').insert({
+        ...common,
+        scheduled_at: baseDate,
+      })
+      if (error) {
+        toast.error('Failed to send request: ' + error.message)
+        setSubmitting(false)
+        return
+      }
+      toast.success('Lesson request sent! The tutor will get back to you soon.')
+    } else {
+      const rows = Array.from({ length: occurrences }, (_, i) => ({
+        ...common,
+        scheduled_at: i === 0
+          ? baseDate
+          : addOccurrence(selectedDate, recurrence, i).toISOString(),
+      }))
+      const { error } = await supabase.from('bookings').insert(rows)
+      if (error) {
+        toast.error('Failed to send requests: ' + error.message)
+        setSubmitting(false)
+        return
+      }
+      toast.success(`${occurrences} lesson requests sent! The tutor will get back to you soon.`)
+    }
+
+    setMessage('')
+    // Email the tutor
+    sendNotificationEmail({
+      type: 'new_booking',
+      recipientId: tutor.id,
+      data: {
+        tutorName:   tutor.name,
+        studentName: studentName,
+        subject:     subject || tutor.subject.split(' & ')[0],
+        message:     message,
+      },
+    })
 
     setSubmitting(false)
   }
@@ -842,6 +888,55 @@ export function TutorProfile() {
                   </div>
                 )}
 
+                {/* ── Recurrence picker ── */}
+                <div className="flex flex-col gap-2">
+                  <label className="text-xs font-bold text-gray-400 uppercase tracking-widest px-1 flex items-center gap-1">
+                    <RefreshCw className="w-3 h-3" /> Repeat
+                  </label>
+                  <div className="flex gap-1.5 flex-wrap">
+                    {RECURRENCE_OPTIONS.map(opt => (
+                      <button
+                        key={opt.value}
+                        type="button"
+                        onClick={() => setRecurrence(opt.value)}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-colors ${
+                          recurrence === opt.value
+                            ? 'bg-purple-600 text-white border-purple-600'
+                            : 'border-gray-200 text-gray-600 hover:border-purple-400 bg-gray-50'
+                        }`}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+
+                  {recurrence !== 'none' && (
+                    <div className="flex items-center gap-3">
+                      <label className="text-xs font-bold text-gray-500 whitespace-nowrap">Number of sessions</label>
+                      <input
+                        type="number"
+                        min={2}
+                        max={52}
+                        value={occurrences}
+                        onChange={e => setOccurrences(Math.max(2, Math.min(52, Number(e.target.value))))}
+                        className="w-20 h-9 px-3 border border-gray-200 rounded-lg text-sm font-bold text-gray-800 focus:outline-none focus:ring-2 focus:ring-purple-500 bg-gray-50"
+                      />
+                    </div>
+                  )}
+
+                  {previewBookingDates.length > 0 && (
+                    <div className="bg-purple-50 border border-purple-100 rounded-xl p-3 flex flex-col gap-1 max-h-32 overflow-y-auto">
+                      <p className="text-[10px] font-black text-purple-400 uppercase tracking-widest mb-1">Schedule Preview</p>
+                      {previewBookingDates.map((d, i) => (
+                        <span key={i} className="text-xs font-medium text-purple-700 flex items-center gap-2">
+                          <span className="w-4 h-4 rounded-full bg-purple-200 text-purple-700 flex items-center justify-center text-[9px] font-black shrink-0">{i + 1}</span>
+                          {d}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
                 <div className="flex flex-col gap-1.5">
                   <label className="text-xs font-bold text-gray-400 uppercase tracking-widest px-1">SELECT SUBJECT</label>
                   <select
@@ -885,7 +980,7 @@ export function TutorProfile() {
                     className="w-full h-14 bg-blue-600 text-white rounded-xl font-bold text-lg hover:bg-blue-700 transition-all shadow-lg shadow-blue-200 disabled:opacity-60 flex items-center justify-center gap-2"
                   >
                     {submitting && <Loader2 className="w-5 h-5 animate-spin" />}
-                    {submitting ? 'Sending…' : 'Request Lesson'}
+                    {submitting ? 'Sending…' : recurrence !== 'none' ? `Request ${occurrences} Sessions` : 'Request Lesson'}
                   </button>
                   <button
                     type="button"

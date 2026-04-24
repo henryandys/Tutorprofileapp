@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 import { Search, MapPin, SlidersHorizontal, X } from "lucide-react";
-// MapPin used for location input below
 
 export interface FilterState {
   query:     string;
@@ -10,28 +9,56 @@ export interface FilterState {
   minRate:   number;
   maxRate:   number;
   minRating: number;
+  availDays: string[];          // e.g. ['monday', 'friday']
+  availTime: 'any' | 'morning' | 'afternoon' | 'evening';
 }
 
 interface FilterBarProps {
   onFilter: (filters: FilterState) => void;
 }
 
-const DEFAULT_FILTERS: FilterState = {
+export const DEFAULT_FILTERS: FilterState = {
   query:     '',
   location:  '',
   minRate:   0,
   maxRate:   300,
   minRating: 0,
+  availDays: [],
+  availTime: 'any',
 }
 
+const DAYS = [
+  { label: 'Sun', value: 'sunday'    },
+  { label: 'Mon', value: 'monday'    },
+  { label: 'Tue', value: 'tuesday'   },
+  { label: 'Wed', value: 'wednesday' },
+  { label: 'Thu', value: 'thursday'  },
+  { label: 'Fri', value: 'friday'    },
+  { label: 'Sat', value: 'saturday'  },
+]
+
+const TIMES: { label: string; value: FilterState['availTime'] }[] = [
+  { label: 'Any time',   value: 'any'       },
+  { label: 'Morning',    value: 'morning'   },
+  { label: 'Afternoon',  value: 'afternoon' },
+  { label: 'Evening',    value: 'evening'   },
+]
+
 export function FilterBar({ onFilter }: FilterBarProps) {
-  const [filters, setFilters]       = useState<FilterState>(DEFAULT_FILTERS)
-  const [showPanel, setShowPanel]   = useState(false)
+  const [filters, setFilters]     = useState<FilterState>(DEFAULT_FILTERS)
+  const [showPanel, setShowPanel] = useState(false)
 
   function update(patch: Partial<FilterState>) {
     const next = { ...filters, ...patch }
     setFilters(next)
     onFilter(next)
+  }
+
+  function toggleDay(day: string) {
+    const next = filters.availDays.includes(day)
+      ? filters.availDays.filter(d => d !== day)
+      : [...filters.availDays, day]
+    update({ availDays: next })
   }
 
   function reset() {
@@ -44,7 +71,16 @@ export function FilterBar({ onFilter }: FilterBarProps) {
     filters.location !== '' ||
     filters.minRate > 0 ||
     filters.maxRate < 300 ||
-    filters.minRating > 0
+    filters.minRating > 0 ||
+    filters.availDays.length > 0 ||
+    filters.availTime !== 'any'
+
+  const activeCount = [
+    filters.minRate > 0 || filters.maxRate < 300,
+    filters.minRating > 0,
+    filters.availDays.length > 0,
+    filters.availTime !== 'any',
+  ].filter(Boolean).length
 
   return (
     <div className="border-b border-gray-100 bg-white px-4 md:px-8 py-3 flex flex-col gap-3 z-30 relative">
@@ -95,8 +131,10 @@ export function FilterBar({ onFilter }: FilterBarProps) {
         >
           <SlidersHorizontal className="w-4 h-4" />
           Filters
-          {isFiltered && (
-            <span className="w-2 h-2 rounded-full bg-blue-600" />
+          {activeCount > 0 && (
+            <span className="w-5 h-5 rounded-full bg-blue-600 text-white text-[10px] font-black flex items-center justify-center">
+              {activeCount}
+            </span>
           )}
         </button>
 
@@ -110,6 +148,28 @@ export function FilterBar({ onFilter }: FilterBarProps) {
           </button>
         )}
       </div>
+
+      {/* Active filter chips */}
+      {(filters.availDays.length > 0 || filters.availTime !== 'any') && (
+        <div className="flex items-center gap-1.5 flex-wrap -mt-1">
+          {filters.availDays.map(d => (
+            <span key={d} className="flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-blue-100 text-blue-700 text-xs font-bold">
+              {DAYS.find(x => x.value === d)?.label}
+              <button onClick={() => toggleDay(d)} className="hover:text-blue-900">
+                <X className="w-3 h-3" />
+              </button>
+            </span>
+          ))}
+          {filters.availTime !== 'any' && (
+            <span className="flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-blue-100 text-blue-700 text-xs font-bold">
+              {TIMES.find(t => t.value === filters.availTime)?.label}
+              <button onClick={() => update({ availTime: 'any' })} className="hover:text-blue-900">
+                <X className="w-3 h-3" />
+              </button>
+            </span>
+          )}
+        </div>
+      )}
 
       {/* Expanded filter panel */}
       {showPanel && (
@@ -165,6 +225,53 @@ export function FilterBar({ onFilter }: FilterBarProps) {
               ))}
             </div>
           </div>
+
+          {/* Available days */}
+          <div className="flex flex-col gap-1.5">
+            <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">
+              Available On
+            </label>
+            <div className="flex items-center gap-1.5">
+              {DAYS.map(d => (
+                <button
+                  key={d.value}
+                  type="button"
+                  onClick={() => toggleDay(d.value)}
+                  className={`w-9 h-9 rounded-lg text-xs font-bold border transition-colors ${
+                    filters.availDays.includes(d.value)
+                      ? 'bg-blue-600 text-white border-blue-600'
+                      : 'border-gray-200 text-gray-600 hover:border-blue-400 bg-gray-50'
+                  }`}
+                >
+                  {d.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Time of day */}
+          <div className="flex flex-col gap-1.5">
+            <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">
+              Time of Day
+            </label>
+            <div className="flex items-center gap-2">
+              {TIMES.map(t => (
+                <button
+                  key={t.value}
+                  type="button"
+                  onClick={() => update({ availTime: t.value })}
+                  className={`px-3 py-1.5 rounded-lg text-sm font-bold border transition-colors ${
+                    filters.availTime === t.value
+                      ? 'border-blue-500 bg-blue-50 text-blue-600'
+                      : 'border-gray-200 text-gray-600 hover:bg-gray-50'
+                  }`}
+                >
+                  {t.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
         </div>
       )}
     </div>

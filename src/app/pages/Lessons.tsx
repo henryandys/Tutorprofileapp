@@ -67,6 +67,7 @@ export function Lessons() {
   const [completingId, setCompletingId]     = useState<string | null>(null)
   const [reviewLesson, setReviewLesson]     = useState<Lesson | null>(null)
   const [reviewedTutors, setReviewedTutors] = useState<Set<string>>(new Set())
+  const [dismissedIds, setDismissedIds]     = useState<Set<string>>(new Set())
 
   async function handleGroupMessage(g: GroupEntry) {
     if (!user || !g.tutor_id) return
@@ -339,15 +340,33 @@ export function Lessons() {
       })
   }, [user, isTutor])
 
+  // Load dismissed lesson IDs from localStorage
+  useEffect(() => {
+    if (!user) return
+    const stored: string[] = JSON.parse(localStorage.getItem(`dismissedLessons_${user.id}`) ?? '[]')
+    setDismissedIds(new Set(stored))
+  }, [user])
+
+  function handleDismiss(id: string) {
+    const next = new Set([...dismissedIds, id])
+    setDismissedIds(next)
+    if (user) localStorage.setItem(`dismissedLessons_${user.id}`, JSON.stringify([...next]))
+  }
+
+  const activeLessons = useMemo(
+    () => lessons.filter(l => !dismissedIds.has(l.id)),
+    [lessons, dismissedIds]
+  )
+
   const byDate = useMemo(() => {
     const map: Record<string, Lesson[]> = {}
-    for (const l of lessons) {
+    for (const l of activeLessons) {
       if (!l.scheduled_at) continue
       const key = new Date(l.scheduled_at).toDateString()
       ;(map[key] ??= []).push(l)
     }
     return map
-  }, [lessons])
+  }, [activeLessons])
 
   const groupByDate = useMemo(() => {
     const map: Record<string, GroupEntry[]> = {}
@@ -373,20 +392,20 @@ export function Lessons() {
     if (selectedDay) return (byDate[selectedDay.toDateString()] ?? []).sort((a, b) =>
       new Date(a.scheduled_at!).getTime() - new Date(b.scheduled_at!).getTime()
     )
-    return lessons
+    return activeLessons
       .filter(l => l.scheduled_at && new Date(l.scheduled_at) >= today)
       .sort((a, b) => new Date(a.scheduled_at!).getTime() - new Date(b.scheduled_at!).getTime())
-  }, [selectedDay, byDate, lessons, today])
+  }, [selectedDay, byDate, activeLessons, today])
 
   const unscheduled = useMemo(() =>
-    lessons.filter(l => !l.scheduled_at), [lessons])
+    activeLessons.filter(l => !l.scheduled_at), [activeLessons])
 
   const needsReview = useMemo(() =>
-    lessons.filter(l =>
+    activeLessons.filter(l =>
       l.status === 'completed' &&
       l.perspective === 'student' &&
       !reviewedTutors.has(l.other_user_id)
-    ), [lessons, reviewedTutors])
+    ), [activeLessons, reviewedTutors])
 
   const visibleGroups = useMemo(() => {
     if (selectedDay) return (groupByDate[selectedDay.toDateString()] ?? []).sort((a, b) =>
@@ -535,6 +554,7 @@ export function Lessons() {
                       onCancel={() => setCancelBooking(l)}
                       onMarkComplete={isTutor ? () => handleMarkComplete(l) : undefined}
                       completing={completingId === l.id}
+                      onDismiss={() => handleDismiss(l.id)}
                     />
                   ))}
                 </div>
@@ -556,6 +576,7 @@ export function Lessons() {
                         onCancel={() => setCancelBooking(l)}
                         onMarkComplete={isTutor ? () => handleMarkComplete(l) : undefined}
                         completing={completingId === l.id}
+                        onDismiss={() => handleDismiss(l.id)}
                       />
                     ))}
                   </div>
@@ -687,7 +708,7 @@ export function Lessons() {
   )
 }
 
-function LessonCard({ lesson: l, isTutor, onChat, onAccept, onDecline, onCancel, onMarkComplete, completing }: {
+function LessonCard({ lesson: l, isTutor, onChat, onAccept, onDecline, onCancel, onMarkComplete, completing, onDismiss }: {
   lesson: Lesson
   isTutor: boolean
   onChat: () => void
@@ -696,13 +717,24 @@ function LessonCard({ lesson: l, isTutor, onChat, onAccept, onDecline, onCancel,
   onCancel: () => void
   onMarkComplete?: () => void
   completing?: boolean
+  onDismiss: () => void
 }) {
   const isStudentPerspective = l.perspective === 'student'
   const isCancellable = l.status === 'pending' || l.status === 'accepted'
-  const isDimmed = l.status === 'cancelled' || l.status === 'completed'
+  const isDimmed = l.status === 'cancelled' || l.status === 'completed' || l.status === 'declined'
+  const isDismissible = l.status === 'declined' || l.status === 'cancelled' || l.status === 'completed'
   return (
-    <div className={`bg-white rounded-2xl border shadow-sm p-5 ${isDimmed ? 'border-gray-100 opacity-60' : isStudentPerspective ? 'border-blue-100' : 'border-gray-100'}`}>
-      <div className="flex items-start justify-between gap-3">
+    <div className={`bg-white rounded-2xl border shadow-sm p-5 relative ${isDimmed ? 'border-gray-100 opacity-60' : isStudentPerspective ? 'border-blue-100' : 'border-gray-100'}`}>
+      {isDismissible && (
+        <button
+          onClick={onDismiss}
+          title="Remove from view"
+          className="absolute top-3 right-3 w-6 h-6 flex items-center justify-center rounded-full text-gray-300 hover:text-gray-600 hover:bg-gray-100 transition-colors z-10"
+        >
+          <XCircle className="w-4 h-4" />
+        </button>
+      )}
+      <div className={`flex items-start justify-between gap-3 ${isDismissible ? 'pr-6' : ''}`}>
         <div className="flex flex-col gap-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
             {isStudentPerspective && (

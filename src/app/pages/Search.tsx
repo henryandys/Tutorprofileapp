@@ -26,7 +26,7 @@ export function Search() {
   const [mapMode, setMapMode]                   = useState<'all' | 'tutors' | 'groups'>('all')
   const [mobileView, setMobileView]             = useState<"list" | "map">("map")
   const [filters, setFilters]                 = useState<FilterState>({
-    query: '', location: '', minRate: 0, maxRate: 300, minRating: 0
+    query: '', location: '', minRate: 0, maxRate: 300, minRating: 0, availDays: [], availTime: 'any',
   })
 
   // Pick up ?q= and ?location= from home/navbar search
@@ -34,7 +34,7 @@ export function Search() {
   useEffect(() => {
     const q   = searchParams.get('q') ?? ''
     const loc = searchParams.get('location') ?? ''
-    setFilters(f => ({ ...f, query: q, location: loc }))
+    setFilters(f => ({ ...f, query: q, location: loc, availDays: [], availTime: 'any' }))
   }, [searchParams])
 
   // Load tutors immediately, geocode coords in the background
@@ -218,9 +218,37 @@ export function Search() {
         effectiveLocation.includes(q)
       const matchesRate   = t.hourlyRate >= filters.minRate && (filters.maxRate >= 300 || t.hourlyRate <= filters.maxRate)
       const matchesRating = t.rating >= filters.minRating
-      return matchesQuery && matchesRate && matchesRating
+
+      // Each selected day must be marked available in the tutor's schedule
+      const matchesDays = filters.availDays.length === 0 ||
+        filters.availDays.every(day => t.availability[day]?.available === true)
+
+      // Time-of-day: at least one selected day's slot must overlap the requested period
+      // Morning: window starts before noon | Afternoon: window overlaps 12–17 | Evening: window ends after 17:00
+      let matchesTime = true
+      if (filters.availTime !== 'any') {
+        const daysToCheck = filters.availDays.length > 0
+          ? filters.availDays
+          : Object.keys(t.availability).filter(d => t.availability[d]?.available)
+        matchesTime = daysToCheck.some(day => {
+          const slot = t.availability[day]
+          if (!slot?.available) return false
+          const [sh, sm] = slot.start.split(':').map(Number)
+          const [eh, em] = slot.end.split(':').map(Number)
+          const startMins = sh * 60 + sm
+          const endMins   = eh * 60 + em
+          if (filters.availTime === 'morning')   return startMins < 12 * 60
+          if (filters.availTime === 'afternoon') return startMins < 17 * 60 && endMins > 12 * 60
+          if (filters.availTime === 'evening')   return endMins > 17 * 60
+          return true
+        })
+      }
+
+      return matchesQuery && matchesRate && matchesRating && matchesDays && matchesTime
     })
   }, [allTutors, filters])
+
+  const DOW_KEYS = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday']
 
   const filteredGroupLessons = useMemo(() => {
     const now = new Date()
@@ -237,7 +265,20 @@ export function Search() {
         groupDateFilter === 'today' ? d.toDateString() === now.toDateString() :
         groupDateFilter === 'week'  ? d >= now && d <= new Date(now.getFullYear(), now.getMonth(), now.getDate() + 7) :
         /* month */                   d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear()
-      return matchesQuery && matchesPrice && matchesDate
+
+      // Day-of-week: session must fall on one of the selected days
+      const sessionDay = DOW_KEYS[d.getDay()]
+      const matchesDays = filters.availDays.length === 0 || filters.availDays.includes(sessionDay)
+
+      // Time-of-day: check the session's local start hour
+      const sessionHour = d.getHours()
+      const matchesTime =
+        filters.availTime === 'any'       ? true :
+        filters.availTime === 'morning'   ? sessionHour < 12 :
+        filters.availTime === 'afternoon' ? sessionHour >= 12 && sessionHour < 17 :
+        /* evening */                       sessionHour >= 17
+
+      return matchesQuery && matchesPrice && matchesDate && matchesDays && matchesTime
     })
   }, [groupLessons, filters, groupDateFilter])
 

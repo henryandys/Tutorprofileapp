@@ -1,8 +1,9 @@
 // src/app/components/Navbar.tsx
 
-import { Search, Menu, User, Bell, LogOut } from "lucide-react";
+import { Search, Menu, User, LogOut } from "lucide-react";
 import { Link, useNavigate } from "react-router";
 import { useAuth } from "../../context/AuthContext";
+import { NotificationsPanel } from "./NotificationsPanel";
 
 export function Navbar() {
   const { user, profile, role, signOut } = useAuth()
@@ -50,9 +51,7 @@ export function Navbar() {
       <div className="flex items-center gap-3 relative z-10">
 
         {/* Bell */}
-        <button className="p-2 text-gray-500 hover:bg-gray-100 rounded-full">
-          <Bell className="w-5 h-5" />
-        </button>
+        <NotificationsPanel />
 
         {user ? (
           /* Logged in: name + sign out + profile icon */
