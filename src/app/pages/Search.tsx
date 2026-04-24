@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useMemo } from "react";
-import { fetchTutors, geocodeTutors } from "../data/tutors";
+import { fetchTutors, geocodeTutors, geocodeLocation } from "../data/tutors";
 import type { Tutor } from "../data/tutors";
 import { Navbar } from "../components/Navbar";
 import { FilterBar } from "../components/FilterBar";
@@ -55,7 +55,7 @@ export function Search() {
     async function loadGroupLessons() {
       const { data: glData } = await supabase
         .from('group_lessons')
-        .select('id, title, subject, description, scheduled_at, price, max_students, tutor_id, group_lesson_enrollments(count)')
+        .select('id, title, subject, description, location, scheduled_at, price, max_students, tutor_id, group_lesson_enrollments(count)')
         .eq('status', 'open')
         .gte('scheduled_at', new Date().toISOString())
         .order('scheduled_at', { ascending: true })
@@ -83,6 +83,7 @@ export function Search() {
         enrollment_count: g.group_lesson_enrollments?.[0]?.count ?? 0,
         tutor_id:         g.tutor_id,
         tutor_name:       profileMap[g.tutor_id]?.full_name ?? 'Tutor',
+        location:         g.location ?? null,
         lat:              profileMap[g.tutor_id]?.lat ?? null,
         lng:              profileMap[g.tutor_id]?.lng ?? null,
       })))
@@ -122,7 +123,33 @@ export function Search() {
     setEnrollingId(null)
   }
 
-  // Whenever allTutors gets geocoded coordinates, push them into groupLessons too.
+  // Geocode custom group lesson locations progressively in the background.
+  // Only runs for lessons that have a location string but no coords yet.
+  useEffect(() => {
+    if (groupLessons.length === 0) return
+    const needsGeocode = groupLessons.filter(gl => gl.location && gl.lat === null)
+    if (needsGeocode.length === 0) return
+    let cancelled = false;
+    (async () => {
+      for (let i = 0; i < needsGeocode.length; i++) {
+        if (cancelled) break
+        const gl = needsGeocode[i]
+        const coords = await geocodeLocation(gl.location!)
+        if (cancelled) break
+        if (coords) {
+          setGroupLessons(prev => prev.map(g =>
+            g.id === gl.id ? { ...g, lat: coords.lat, lng: coords.lng } : g
+          ))
+        }
+        if (i < needsGeocode.length - 1) await new Promise(r => setTimeout(r, 300))
+      }
+    })()
+    return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [groupLessons.map(g => g.id).join(',')])
+
+  // Whenever allTutors gets geocoded coordinates, push them into groupLessons that
+  // have no custom location (those get their own geocoding above).
   // The profiles table stores null lat/lng until geocoded client-side, so we sync
   // from the already-resolved allTutors instead of relying on the DB columns.
   useEffect(() => {
@@ -131,6 +158,7 @@ export function Search() {
       if (prev.length === 0) return prev
       const next = prev.map(gl => {
         if (gl.lat !== null && gl.lng !== null) return gl
+        if (gl.location) return gl   // custom location — let the geocoding effect handle it
         const tutor = allTutors.find(t => t.id === gl.tutor_id)
         return tutor?.lat != null ? { ...gl, lat: tutor.lat, lng: tutor.lng } : gl
       })
@@ -288,6 +316,12 @@ export function Search() {
                   </p>
                   {gl.description && (
                     <p className="text-xs text-gray-500 mt-1.5 line-clamp-2">{gl.description}</p>
+                  )}
+                  {gl.location && (
+                    <p className="text-xs text-gray-500 mt-1 flex items-center gap-1">
+                      <MapPin className="w-3 h-3 shrink-0 text-purple-400" />
+                      {gl.location}
+                    </p>
                   )}
                   <div className="flex items-center justify-between gap-2 mt-2">
                     <div className="flex items-center gap-3 flex-wrap">
@@ -491,6 +525,11 @@ export function Search() {
                       <p className="text-xs text-gray-500 font-medium mt-0.5 flex items-center gap-1">
                         <Users className="w-3 h-3 shrink-0" /> {gl.tutor_name}
                       </p>
+                      {gl.location && (
+                        <p className="text-xs text-gray-500 font-medium mt-0.5 flex items-center gap-1">
+                          <MapPin className="w-3 h-3 shrink-0 text-purple-400" /> {gl.location}
+                        </p>
+                      )}
                     </div>
 
                     {/* Details strip */}

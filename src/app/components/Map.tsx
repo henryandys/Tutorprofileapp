@@ -16,6 +16,7 @@ export interface GroupLessonPin {
   enrollment_count: number
   tutor_id:         string
   tutor_name:       string
+  location:         string | null
   lat:              number | null
   lng:              number | null
 }

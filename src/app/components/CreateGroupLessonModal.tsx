@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { X, Loader2, Users, DollarSign } from "lucide-react"
+import { X, Loader2, Users, DollarSign, MapPin } from "lucide-react"
 import { toast } from "sonner"
 import { supabase } from "../../lib/supabase"
 import { useAuth } from "../../context/AuthContext"
@@ -13,6 +13,7 @@ export interface GroupLesson {
   duration_minutes: number
   max_students:     number
   price:            number
+  location:         string | null
   status:           'open' | 'cancelled' | 'completed'
   created_at:       string
   enrollment_count?: number
@@ -43,6 +44,7 @@ export function CreateGroupLessonModal({ tutorSubjects, onCreated, onClose }: Pr
   const [maxStudents, setMaxStudents] = useState(8)
   const [price,    setPrice]    = useState(0)
   const [desc,     setDesc]     = useState('')
+  const [location, setLocation] = useState('')
 
   async function handleSubmit(e: { preventDefault(): void }) {
     e.preventDefault()
@@ -60,6 +62,7 @@ export function CreateGroupLessonModal({ tutorSubjects, onCreated, onClose }: Pr
         title:            title.trim(),
         subject:          subject,
         description:      desc.trim() || null,
+        location:         location.trim() || null,
         scheduled_at,
         duration_minutes: duration,
         max_students:     maxStudents,
@@ -214,6 +217,19 @@ export function CreateGroupLessonModal({ tutorSubjects, onCreated, onClose }: Pr
               placeholder="What will students learn? Any prerequisites?"
               rows={3}
               className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium text-gray-800 bg-gray-50"
+            />
+          </div>
+
+          {/* Location */}
+          <div className="flex flex-col gap-1.5">
+            <label className="text-xs font-bold text-gray-400 uppercase tracking-widest flex items-center gap-1">
+              <MapPin className="w-3 h-3" /> Location <span className="normal-case font-medium">(optional)</span>
+            </label>
+            <input
+              value={location}
+              onChange={e => setLocation(e.target.value)}
+              placeholder="e.g. 123 Main St, Seattle, WA — leave blank to use your profile address"
+              className="w-full h-12 px-4 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium text-gray-800 bg-gray-50"
             />
           </div>
 

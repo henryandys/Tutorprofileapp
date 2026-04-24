@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from "react"
 import { Link } from "react-router"
 import { Navbar } from "../components/Navbar"
-import { ChevronLeft, ChevronRight, Calendar, Clock, Loader2, User, CheckCircle, XCircle, Users, MessageCircle, XOctagon } from "lucide-react"
+import { ChevronLeft, ChevronRight, Calendar, Clock, Loader2, User, CheckCircle, XCircle, Users, MessageCircle, XOctagon, MapPin } from "lucide-react"
 import { useAuth } from "../../context/AuthContext"
 import { supabase } from "../../lib/supabase"
 import { ConversationModal } from "../components/ConversationModal"
@@ -33,6 +33,7 @@ interface GroupEntry {
   perspective:      'tutor' | 'student'
   tutor_name:       string | null
   tutor_id:         string | null
+  location:         string | null
 }
 
 const STATUS_STYLE: Record<string, string> = {
@@ -254,6 +255,7 @@ export function Lessons() {
         perspective:      'tutor' as const,
         tutor_name:       null,
         tutor_id:         g.tutor_id ?? null,
+        location:         g.location ?? null,
       }))
       const enrolledRows = ((groupStudentRes.data ?? []) as any[]).filter((e: any) => e.group_lessons)
       // Fetch tutor names from profiles using the tutor_ids
@@ -280,6 +282,7 @@ export function Lessons() {
           perspective:      'student' as const,
           tutor_name:       tutorNames[g.tutor_id] ?? null,
           tutor_id:         g.tutor_id ?? null,
+          location:         g.location ?? null,
         }
       })
       // Deduplicate: tutor may appear as both tutor and student
@@ -711,6 +714,12 @@ function GroupCard({ group: g, isTutor: _isTutor, openingChat, onViewEnrollments
             {new Date(g.scheduled_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
             {' · '}{g.duration_minutes} min
           </span>
+          {g.location && (
+            <span className="text-xs text-gray-500 font-medium flex items-center gap-1">
+              <MapPin className="w-3 h-3 shrink-0 text-purple-400" />
+              {g.location}
+            </span>
+          )}
           {isTutorPerspective && (
             <span className="text-xs text-gray-500 font-medium flex items-center gap-1">
               <Users className="w-3 h-3 shrink-0" />

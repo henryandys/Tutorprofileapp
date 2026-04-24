@@ -31,7 +31,7 @@ export interface Tutor {
 
 const geocodeCache = new globalThis.Map<string, { lat: number; lng: number } | null>()
 
-async function geocodeLocation(location: string): Promise<{ lat: number; lng: number } | null> {
+export async function geocodeLocation(location: string): Promise<{ lat: number; lng: number } | null> {
   if (!location.trim()) return null
   if (geocodeCache.has(location)) return geocodeCache.get(location)!
 
