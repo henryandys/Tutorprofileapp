@@ -1,3 +1,4 @@
+import React from "react";
 import { Star, MapPin, Heart, Share2, MessageCircle } from "lucide-react";
 import { Tutor } from "../data/tutors";
 import { ImageWithFallback } from "./figma/ImageWithFallback";
@@ -6,10 +7,12 @@ import { Link } from "react-router";
 interface TutorCardProps {
   tutor: Tutor;
   isSelected?: boolean;
+  isSaved?: boolean;
+  onToggleSave?: (e: React.MouseEvent) => void;
   onClick?: () => void;
 }
 
-export function TutorCard({ tutor, isSelected, onClick }: TutorCardProps) {
+export function TutorCard({ tutor, isSelected, isSaved, onToggleSave, onClick }: TutorCardProps) {
   const content = (
     <div className={`block relative rounded-xl border border-gray-200 overflow-hidden bg-white shadow-sm hover:shadow-md transition-shadow group ${isSelected ? "ring-2 ring-blue-500" : ""}`}>
       <div className="relative aspect-[4/3] overflow-hidden">
@@ -29,15 +32,23 @@ export function TutorCard({ tutor, isSelected, onClick }: TutorCardProps) {
         <div className="absolute top-3 left-3 bg-white/90 backdrop-blur-sm px-2 py-1 rounded text-xs font-bold text-gray-800 uppercase tracking-wider">
           {tutor.subject.split(" & ")[0]}
         </div>
-        <button 
+        <button
           onClick={(e) => {
             e.preventDefault();
             e.stopPropagation();
-            // Handle like
+            onToggleSave?.(e);
           }}
-          className="absolute top-3 right-3 p-2 bg-white/20 backdrop-blur-sm hover:bg-white/40 rounded-full transition-colors group/heart"
+          className={`absolute top-3 right-3 p-2 backdrop-blur-sm rounded-full transition-colors ${
+            isSaved
+              ? 'bg-red-500/90 hover:bg-red-600/90'
+              : 'bg-white/20 hover:bg-white/40 group/heart'
+          }`}
         >
-          <Heart className="w-5 h-5 text-white fill-transparent group-hover/heart:fill-red-500 group-hover/heart:text-red-500 transition-colors" />
+          <Heart className={`w-5 h-5 transition-colors ${
+            isSaved
+              ? 'text-white fill-white'
+              : 'text-white fill-transparent group-hover/heart:fill-red-500 group-hover/heart:text-red-500'
+          }`} />
         </button>
       </div>
 

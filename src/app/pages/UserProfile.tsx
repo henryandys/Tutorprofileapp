@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useForm } from "react-hook-form";
 import { Navbar } from "../components/Navbar";
-import { User, Mail, Phone, MapPin, Camera, Save, Bell, Shield, CreditCard, ChevronRight, Clock, Loader2 } from "lucide-react";
+import { User, Mail, Phone, MapPin, Camera, Save, Bell, Shield, CreditCard, ChevronRight, Clock, Loader2, Heart, Star } from "lucide-react";
 import { toast } from "sonner";
 import { Link, useNavigate } from "react-router";
 import { useAuth } from "../../context/AuthContext";
@@ -16,6 +16,16 @@ interface StudentBooking {
   created_at:   string
   scheduled_at: string | null
   tutor:        { full_name: string } | null
+}
+
+interface SavedTutorRow {
+  tutor_id:     string
+  tutor_name:   string
+  avatar_url:   string | null
+  hourly_rate:  number | null
+  rating:       number | null
+  review_count: number | null
+  subject:      string | null
 }
 
 interface UserProfileForm {
@@ -60,6 +70,7 @@ export function UserProfile() {
   const [bookings, setBookings]               = useState<StudentBooking[]>([])
   const [msgCount, setMsgCount]               = useState(0)
   const [sessionNotifCount, setSessionNotifCount] = useState(0)
+  const [savedTutors, setSavedTutors]         = useState<SavedTutorRow[]>([])
   const notifSectionRef = useRef<HTMLDivElement>(null)
 
   // Fetch notification counts for students
@@ -96,6 +107,53 @@ export function UserProfile() {
       .eq('student_id', user.id)
       .order('created_at', { ascending: false })
       .then(({ data }) => setBookings((data ?? []) as StudentBooking[]))
+  }, [user])
+
+  // Load saved tutors with profile + stats
+  useEffect(() => {
+    if (!user) return
+    supabase
+      .from('saved_tutors')
+      .select('tutor_id')
+      .eq('student_id', user.id)
+      .order('created_at', { ascending: false })
+      .then(async ({ data: saved }) => {
+        if (!saved || saved.length === 0) return
+        const ids = saved.map((r: any) => r.tutor_id as string)
+        const [{ data: profiles }, { data: tProfiles }] = await Promise.all([
+          supabase.from('profiles').select('id, full_name, avatar_url').in('id', ids),
+          supabase.from('tutor_profiles').select('id, hourly_rate, subjects').in('id', ids),
+        ])
+        const { data: reviews } = await supabase
+          .from('reviews')
+          .select('tutor_id, rating')
+          .in('tutor_id', ids)
+        const ratingMap: Record<string, { sum: number; count: number }> = {}
+        for (const r of reviews ?? []) {
+          if (!ratingMap[r.tutor_id]) ratingMap[r.tutor_id] = { sum: 0, count: 0 }
+          ratingMap[r.tutor_id].sum   += r.rating
+          ratingMap[r.tutor_id].count += 1
+        }
+        const profileMap: Record<string, any> = {}
+        for (const p of profiles ?? []) profileMap[p.id] = p
+        const tpMap: Record<string, any> = {}
+        for (const tp of tProfiles ?? []) tpMap[tp.id] = tp
+
+        setSavedTutors(ids.map(id => {
+          const p  = profileMap[id] ?? {}
+          const tp = tpMap[id] ?? {}
+          const stats = ratingMap[id]
+          return {
+            tutor_id:    id,
+            tutor_name:  p.full_name ?? 'Tutor',
+            avatar_url:  p.avatar_url ?? null,
+            hourly_rate: tp.hourly_rate ?? null,
+            subject:     Array.isArray(tp.subjects) ? tp.subjects[0] : (tp.subjects ?? null),
+            rating:      stats ? Math.round((stats.sum / stats.count) * 10) / 10 : null,
+            review_count: stats?.count ?? null,
+          }
+        }))
+      })
   }, [user])
 
   function handleNotifClick() {
@@ -403,6 +461,65 @@ export function UserProfile() {
                 </div>
                 <ChevronRight className="w-5 h-5 text-gray-400 group-hover:text-blue-600 transition-colors shrink-0" />
               </Link>
+
+            {/* Saved Tutors */}
+            {savedTutors.length > 0 && (
+              <div className="mt-8 bg-white rounded-3xl border border-gray-200 shadow-sm overflow-hidden">
+                <div className="px-8 py-5 border-b border-gray-100 flex items-center gap-3">
+                  <div className="w-10 h-10 bg-red-50 rounded-2xl flex items-center justify-center shrink-0">
+                    <Heart className="w-5 h-5 text-red-500 fill-red-500" />
+                  </div>
+                  <div>
+                    <h2 className="text-xl font-black text-gray-900">Saved Tutors</h2>
+                    <p className="text-sm text-gray-500 font-medium">{savedTutors.length} tutor{savedTutors.length !== 1 ? 's' : ''} saved</p>
+                  </div>
+                </div>
+                <div className="divide-y divide-gray-100">
+                  {savedTutors.map(t => (
+                    <Link
+                      key={t.tutor_id}
+                      to={`/tutor/${t.tutor_id}`}
+                      className="flex items-center gap-4 px-8 py-4 hover:bg-gray-50 transition-colors group"
+                    >
+                      {t.avatar_url ? (
+                        <img
+                          src={t.avatar_url}
+                          alt={t.tutor_name}
+                          className="w-12 h-12 rounded-xl object-cover shrink-0 bg-gray-100"
+                          onError={e => { (e.target as HTMLImageElement).style.display = 'none' }}
+                        />
+                      ) : (
+                        <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-blue-400 to-purple-500 flex items-center justify-center shrink-0">
+                          <span className="text-white font-black text-xl select-none">
+                            {t.tutor_name.charAt(0).toUpperCase()}
+                          </span>
+                        </div>
+                      )}
+                      <div className="flex-1 min-w-0">
+                        <p className="font-black text-gray-900 truncate">{t.tutor_name}</p>
+                        {t.subject && (
+                          <p className="text-sm text-gray-500 font-medium truncate">{t.subject}</p>
+                        )}
+                        <div className="flex items-center gap-2 mt-0.5">
+                          {t.rating !== null && (
+                            <span className="flex items-center gap-0.5 text-xs font-bold text-blue-600">
+                              <Star className="w-3 h-3 fill-blue-600" />{t.rating}
+                              {t.review_count !== null && (
+                                <span className="text-gray-400 font-medium ml-0.5">({t.review_count})</span>
+                              )}
+                            </span>
+                          )}
+                          {t.hourly_rate !== null && (
+                            <span className="text-xs font-bold text-gray-700">${t.hourly_rate}/hr</span>
+                          )}
+                        </div>
+                      </div>
+                      <ChevronRight className="w-4 h-4 text-gray-400 group-hover:text-blue-600 transition-colors shrink-0" />
+                    </Link>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </main>

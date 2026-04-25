@@ -12,6 +12,7 @@ import { X, Loader2, List, Map as MapIcon, Star, MapPin, ChevronRight, Users, Cl
 import { useSearchParams, useNavigate } from "react-router";
 import { useAuth } from "../../context/AuthContext";
 import { supabase } from "../../lib/supabase";
+import { toast } from "sonner";
 
 export function Search() {
   const { user, profile } = useAuth()
@@ -25,6 +26,7 @@ export function Search() {
   const [enrollingId, setEnrollingId]           = useState<string | null>(null)
   const [mapMode, setMapMode]                   = useState<'all' | 'tutors' | 'groups'>('all')
   const [mobileView, setMobileView]             = useState<"list" | "map">("map")
+  const [savedTutors, setSavedTutors]           = useState<Set<string>>(new Set())
   const [filters, setFilters]                 = useState<FilterState>({
     query: '', location: '', minRate: 0, maxRate: 300, minRating: 0, availDays: [], availTime: 'any',
   })
@@ -102,6 +104,32 @@ export function Search() {
         setMyEnrollments(new Set((data ?? []).map((r: any) => r.group_lesson_id as string)))
       })
   }, [user])
+
+  // Load saved tutors for the current student
+  useEffect(() => {
+    if (!user) return
+    supabase
+      .from('saved_tutors')
+      .select('tutor_id')
+      .eq('student_id', user.id)
+      .then(({ data }) => {
+        setSavedTutors(new Set((data ?? []).map((r: any) => r.tutor_id as string)))
+      })
+  }, [user])
+
+  async function handleToggleSave(tutorId: string) {
+    if (!user) { toast.error('Please sign in to save tutors.'); return }
+    const already = savedTutors.has(tutorId)
+    if (already) {
+      await supabase.from('saved_tutors').delete().eq('student_id', user.id).eq('tutor_id', tutorId)
+      setSavedTutors(prev => { const next = new Set(prev); next.delete(tutorId); return next })
+      toast.success('Removed from saved tutors.')
+    } else {
+      await supabase.from('saved_tutors').insert({ student_id: user.id, tutor_id: tutorId })
+      setSavedTutors(prev => new Set([...prev, tutorId]))
+      toast.success('Tutor saved!')
+    }
+  }
 
   async function handleEnroll(gl: GroupLessonPin) {
     if (!user) { toast.error('Please sign in to enroll.'); return }
@@ -421,7 +449,12 @@ export function Search() {
                       : "border-gray-100 hover:border-gray-300"
                   }`}
                 >
-                  <TutorCard tutor={tutor} isSelected={selectedTutorId === tutor.id} />
+                  <TutorCard
+                    tutor={tutor}
+                    isSelected={selectedTutorId === tutor.id}
+                    isSaved={savedTutors.has(tutor.id)}
+                    onToggleSave={e => { e.stopPropagation(); handleToggleSave(tutor.id) }}
+                  />
                 </div>
               ))
             ))}

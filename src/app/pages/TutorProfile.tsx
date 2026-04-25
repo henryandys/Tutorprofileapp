@@ -80,6 +80,7 @@ export function TutorProfile() {
   const [tutor, setTutor]       = useState<Tutor | null>(null)
   const [loading, setLoading]   = useState(true)
   const [submitting, setSubmitting] = useState(false)
+  const [isSaved, setIsSaved]   = useState(false)
 
   // Booking form state
   const [subject, setSubject]       = useState('')
@@ -132,6 +133,31 @@ export function TutorProfile() {
   // Chat state
   const [chatBookingId, setChatBookingId] = useState<string | null>(null)
   const [contactingTutor, setContactingTutor] = useState(false)
+
+  // Load saved state for this tutor
+  useEffect(() => {
+    if (!user || !id) return
+    supabase
+      .from('saved_tutors')
+      .select('id')
+      .eq('student_id', user.id)
+      .eq('tutor_id', id)
+      .maybeSingle()
+      .then(({ data }) => setIsSaved(!!data))
+  }, [user, id])
+
+  async function handleToggleSave() {
+    if (!user) { toast.error('Please sign in to save tutors.'); return }
+    if (isSaved) {
+      await supabase.from('saved_tutors').delete().eq('student_id', user.id).eq('tutor_id', id!)
+      setIsSaved(false)
+      toast.success('Removed from saved tutors.')
+    } else {
+      await supabase.from('saved_tutors').insert({ student_id: user.id, tutor_id: id })
+      setIsSaved(true)
+      toast.success('Tutor saved!')
+    }
+  }
 
   async function handleContact() {
     if (!user) { toast.error('Please sign in to message this tutor.'); return }
@@ -448,8 +474,15 @@ export function TutorProfile() {
           <button className="p-3 bg-white/10 backdrop-blur-md text-white rounded-full hover:bg-white/20 border border-white/20">
             <Share2 className="w-5 h-5" />
           </button>
-          <button className="p-3 bg-white/10 backdrop-blur-md text-white rounded-full hover:bg-white/20 border border-white/20">
-            <Heart className="w-5 h-5" />
+          <button
+            onClick={handleToggleSave}
+            className={`p-3 backdrop-blur-md rounded-full border transition-colors ${
+              isSaved
+                ? 'bg-red-500 text-white border-red-400 hover:bg-red-600'
+                : 'bg-white/10 text-white border-white/20 hover:bg-white/20'
+            }`}
+          >
+            <Heart className={`w-5 h-5 ${isSaved ? 'fill-white' : ''}`} />
           </button>
         </div>
 
