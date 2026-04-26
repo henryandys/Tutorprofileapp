@@ -51,6 +51,12 @@ const EMAIL_TEMPLATES: Record<string, (d: any) => { subject: string; html: strin
     html: `<p>You have a new message from <strong>${h(d.senderName)}</strong> about <strong>${h(d.subject)}</strong>.</p>
            <p><a href="${h(d.appUrl)}/profile">View your messages →</a></p>`,
   }),
+  waitlist_spot_open: (d) => ({
+    subject: `A spot opened in "${h(d.sessionTitle)}"!`,
+    html: `<p>Good news! A spot has opened in <strong>${h(d.sessionTitle)}</strong> (${h(d.subject)}) with <strong>${h(d.tutorName)}</strong>.</p>
+           <p>You're next on the waitlist — head back to enroll before it fills up.</p>
+           <p><a href="${h(d.appUrl)}/lessons">Go to My Lessons →</a></p>`,
+  }),
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {

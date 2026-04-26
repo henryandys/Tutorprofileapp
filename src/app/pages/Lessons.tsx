@@ -132,6 +132,8 @@ export function Lessons() {
   const [searchParams, setSearchParams]     = useSearchParams()
   const [notes, setNotes]                   = useState<Record<string, string>>({})
   const [noteLesson, setNoteLesson]         = useState<Lesson | null>(null)
+  const [waitlistedGroups, setWaitlistedGroups] = useState<GroupEntry[]>([])
+  const [leavingWaitlistId, setLeavingWaitlistId] = useState<string | null>(null)
 
   async function handleGroupMessage(g: GroupEntry) {
     if (!user || !g.tutor_id) return
@@ -179,12 +181,36 @@ export function Lessons() {
     toast.success('Session cancelled.')
   }
 
+  async function handleLeaveWaitlist(groupId: string) {
+    if (!user) return
+    setLeavingWaitlistId(groupId)
+    await supabase.from('group_lesson_waitlist').delete().eq('group_lesson_id', groupId).eq('student_id', user.id)
+    setWaitlistedGroups(prev => prev.filter(g => g.id !== groupId))
+    setLeavingWaitlistId(null)
+    toast.success('Removed from waitlist.')
+  }
+
   async function handleLeaveGroup(g: GroupEntry, message: string) {
     if (!user) return
     setCancellingId(g.id)
     const { error } = await supabase.from('group_lesson_enrollments')
       .delete().eq('group_lesson_id', g.id).eq('student_id', user.id)
     if (error) { toast.error('Could not leave session.'); setCancellingId(null); return }
+    // Notify the first person on the waitlist that a spot opened
+    supabase
+      .from('group_lesson_waitlist')
+      .select('student_id, student_name')
+      .eq('group_lesson_id', g.id)
+      .order('created_at', { ascending: true })
+      .limit(1)
+      .then(({ data }) => {
+        if (!data || data.length === 0) return
+        sendNotificationEmail({
+          type:        'waitlist_spot_open',
+          recipientId: data[0].student_id,
+          data: { sessionTitle: g.title, subject: g.subject, tutorName: g.tutor_name ?? 'your tutor' },
+        })
+      })
     if (message.trim() && g.tutor_id) {
       let bookingId: string | null = null
       const { data: existing } = await supabase.from('bookings').select('id')
@@ -421,6 +447,42 @@ export function Lessons() {
     const stored: string[] = JSON.parse(localStorage.getItem(`dismissedLessons_${user.id}`) ?? '[]')
     setDismissedIds(new Set(stored))
   }, [user])
+
+  // Load waitlisted group sessions for students
+  useEffect(() => {
+    if (!user || isTutor) return
+    supabase
+      .from('group_lesson_waitlist')
+      .select('group_lesson_id, group_lessons(id, title, subject, scheduled_at, duration_minutes, max_students, price, tutor_id, group_lesson_enrollments(count))')
+      .eq('student_id', user.id)
+      .then(async ({ data }) => {
+        if (!data || data.length === 0) return
+        const rows = data as any[]
+        const tutorIds = [...new Set(rows.map(r => r.group_lessons?.tutor_id as string).filter(Boolean))]
+        const { data: profiles } = await supabase.from('profiles').select('id, full_name').in('id', tutorIds)
+        const nameMap: Record<string, string> = {}
+        for (const p of profiles ?? []) nameMap[p.id] = p.full_name
+        setWaitlistedGroups(rows.map(r => {
+          const g = r.group_lessons
+          if (!g) return null
+          return {
+            id:               g.id,
+            title:            g.title,
+            subject:          g.subject,
+            scheduled_at:     g.scheduled_at,
+            duration_minutes: g.duration_minutes,
+            max_students:     g.max_students,
+            price:            g.price,
+            enrollment_count: g.group_lesson_enrollments?.[0]?.count ?? 0,
+            perspective:      'student' as const,
+            tutor_name:       nameMap[g.tutor_id] ?? null,
+            tutor_id:         g.tutor_id ?? null,
+            location:         null,
+            recurrence_type:  null,
+          }
+        }).filter(Boolean) as GroupEntry[])
+      })
+  }, [user, isTutor])
 
   // Load private notes for all completed lessons
   useEffect(() => {
@@ -936,6 +998,53 @@ export function Lessons() {
             </div>
           </div>
         )}
+        {/* ── Waitlisted Sessions ── */}
+        {!loading && !isTutor && waitlistedGroups.length > 0 && (
+          <div className="mt-8">
+            <h2 className="text-lg font-black text-gray-900 mb-4 flex items-center gap-2">
+              <Users className="w-5 h-5 text-amber-500" />
+              Waitlisted Sessions
+            </h2>
+            <div className="flex flex-col gap-3">
+              {waitlistedGroups.map(g => (
+                <div key={g.id} className="bg-white rounded-2xl border border-amber-100 shadow-sm p-5 flex items-start justify-between gap-4">
+                  <div className="flex flex-col gap-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-amber-100 text-amber-700">⏳ Waitlisted</span>
+                      <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-purple-100 text-purple-700">Group</span>
+                    </div>
+                    <span className="font-bold text-gray-900">{g.title}</span>
+                    <span className="text-sm font-bold text-purple-600">{g.subject}</span>
+                    {g.tutor_name && (
+                      <span className="text-xs text-gray-500 font-medium flex items-center gap-1">
+                        <User className="w-3 h-3 shrink-0 text-gray-400" /> {g.tutor_name}
+                      </span>
+                    )}
+                    <span className="text-xs text-gray-500 font-medium flex items-center gap-1">
+                      <Clock className="w-3 h-3 shrink-0" />
+                      {new Date(g.scheduled_at).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}
+                      {' · '}
+                      {new Date(g.scheduled_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
+                    </span>
+                    <span className="text-xs text-gray-500 font-medium flex items-center gap-1">
+                      <Users className="w-3 h-3 shrink-0" />
+                      {g.enrollment_count} / {g.max_students} enrolled · Full
+                    </span>
+                  </div>
+                  <button
+                    onClick={() => handleLeaveWaitlist(g.id)}
+                    disabled={leavingWaitlistId === g.id}
+                    className="shrink-0 flex items-center gap-1.5 px-3 py-2 bg-gray-100 text-gray-500 rounded-xl font-bold text-sm hover:bg-red-50 hover:text-red-600 transition-colors disabled:opacity-60"
+                  >
+                    {leavingWaitlistId === g.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <XOctagon className="w-4 h-4" />}
+                    Leave
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* ── Past Sessions (with notes) ── */}
         {!loading && pastLessons.length > 0 && (
           <div className="mt-8">

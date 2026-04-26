@@ -129,6 +129,8 @@ export function TutorProfile() {
   const [groupSessions, setGroupSessions]   = useState<GroupLesson[]>([])
   const [enrollingId, setEnrollingId]       = useState<string | null>(null)
   const [myEnrollments, setMyEnrollments]   = useState<string[]>([]) // group_lesson ids
+  const [myWaitlist, setMyWaitlist]         = useState<string[]>([]) // group_lesson ids
+  const [waitlistingId, setWaitlistingId]   = useState<string | null>(null)
 
   // Chat state
   const [chatBookingId, setChatBookingId] = useState<string | null>(null)
@@ -238,6 +240,16 @@ export function TutorProfile() {
       .then(({ data }) => setMyEnrollments((data ?? []).map((e: any) => e.group_lesson_id)))
   }, [user, id])
 
+  // Fetch which group sessions the current user is waitlisted for
+  useEffect(() => {
+    if (!user || !id) return
+    supabase
+      .from('group_lesson_waitlist')
+      .select('group_lesson_id')
+      .eq('student_id', user.id)
+      .then(({ data }) => setMyWaitlist((data ?? []).map((e: any) => e.group_lesson_id as string)))
+  }, [user, id])
+
   async function handleEnroll(gl: GroupLesson) {
     if (!user) { toast.error('Please sign in to enroll.'); return }
     setEnrollingId(gl.id)
@@ -256,6 +268,30 @@ export function TutorProfile() {
       toast.success(`Enrolled in "${gl.title}"!`)
     }
     setEnrollingId(null)
+  }
+
+  async function handleToggleWaitlist(gl: GroupLesson) {
+    if (!user) { toast.error('Please sign in to join the waitlist.'); return }
+    setWaitlistingId(gl.id)
+    const onList = myWaitlist.includes(gl.id)
+    if (onList) {
+      await supabase.from('group_lesson_waitlist').delete().eq('group_lesson_id', gl.id).eq('student_id', user.id)
+      setMyWaitlist(prev => prev.filter(id => id !== gl.id))
+      toast.success('Removed from waitlist.')
+    } else {
+      const { error } = await supabase.from('group_lesson_waitlist').insert({
+        group_lesson_id: gl.id,
+        student_id:      user.id,
+        student_name:    profile?.full_name ?? user.email?.split('@')[0] ?? 'Student',
+      })
+      if (error) {
+        toast.error(error.code === '23505' ? 'Already on waitlist.' : 'Could not join waitlist.')
+      } else {
+        setMyWaitlist(prev => [...prev, gl.id])
+        toast.success("You're on the waitlist! We'll notify you if a spot opens.")
+      }
+    }
+    setWaitlistingId(null)
   }
 
   // Pre-fill student name from profile
@@ -670,18 +706,33 @@ export function TutorProfile() {
                         <div className="shrink-0">
                           {enrolled ? (
                             <span className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-bold text-purple-700 bg-purple-100">
-                              Enrolled
+                              ✓ Enrolled
                             </span>
+                          ) : isFull ? (
+                            <button
+                              disabled={waitlistingId === gl.id}
+                              onClick={() => handleToggleWaitlist(gl)}
+                              className={`flex items-center gap-2 px-5 py-2.5 rounded-xl font-bold text-sm transition-colors disabled:opacity-50 ${
+                                myWaitlist.includes(gl.id)
+                                  ? 'bg-amber-100 text-amber-700 hover:bg-amber-200'
+                                  : 'bg-gray-800 text-white hover:bg-gray-900'
+                              }`}
+                            >
+                              {waitlistingId === gl.id
+                                ? <Loader2 className="w-4 h-4 animate-spin" />
+                                : null}
+                              {myWaitlist.includes(gl.id) ? '⏳ On Waitlist' : 'Join Waitlist'}
+                            </button>
                           ) : (
                             <button
-                              disabled={isFull || enrollingId === gl.id}
+                              disabled={enrollingId === gl.id}
                               onClick={() => handleEnroll(gl)}
                               className="flex items-center gap-2 px-5 py-2.5 bg-purple-600 text-white rounded-xl font-bold text-sm hover:bg-purple-700 transition-colors shadow-lg shadow-purple-200 disabled:opacity-50"
                             >
                               {enrollingId === gl.id
                                 ? <Loader2 className="w-4 h-4 animate-spin" />
                                 : <Users className="w-4 h-4" />}
-                              {isFull ? 'Full' : 'Enroll'}
+                              Enroll
                             </button>
                           )}
                         </div>

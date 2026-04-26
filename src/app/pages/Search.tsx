@@ -23,6 +23,8 @@ export function Search() {
   const [groupLessons, setGroupLessons]         = useState<GroupLessonPin[]>([])
   const [selectedGroupId, setSelectedGroupId]   = useState<string | undefined>(undefined)
   const [myEnrollments, setMyEnrollments]       = useState<Set<string>>(new Set())
+  const [myWaitlist, setMyWaitlist]             = useState<Set<string>>(new Set())
+  const [waitlistingId, setWaitlistingId]       = useState<string | null>(null)
   const [enrollingId, setEnrollingId]           = useState<string | null>(null)
   const [mapMode, setMapMode]                   = useState<'all' | 'tutors' | 'groups'>('all')
   const [mobileView, setMobileView]             = useState<"list" | "map">("map")
@@ -105,6 +107,18 @@ export function Search() {
       })
   }, [user])
 
+  // Load the current student's waitlisted group lessons
+  useEffect(() => {
+    if (!user) return
+    supabase
+      .from('group_lesson_waitlist')
+      .select('group_lesson_id')
+      .eq('student_id', user.id)
+      .then(({ data }) => {
+        setMyWaitlist(new Set((data ?? []).map((r: any) => r.group_lesson_id as string)))
+      })
+  }, [user])
+
   // Load saved tutors for the current student
   useEffect(() => {
     if (!user) return
@@ -116,6 +130,30 @@ export function Search() {
         setSavedTutors(new Set((data ?? []).map((r: any) => r.tutor_id as string)))
       })
   }, [user])
+
+  async function handleToggleWaitlist(gl: GroupLessonPin) {
+    if (!user) { toast.error('Please sign in to join the waitlist.'); return }
+    setWaitlistingId(gl.id)
+    const onList = myWaitlist.has(gl.id)
+    if (onList) {
+      await supabase.from('group_lesson_waitlist').delete().eq('group_lesson_id', gl.id).eq('student_id', user.id)
+      setMyWaitlist(prev => { const next = new Set(prev); next.delete(gl.id); return next })
+      toast.success('Removed from waitlist.')
+    } else {
+      const { error } = await supabase.from('group_lesson_waitlist').insert({
+        group_lesson_id: gl.id,
+        student_id:      user.id,
+        student_name:    profile?.full_name ?? user.email?.split('@')[0] ?? 'Student',
+      })
+      if (error) {
+        toast.error(error.code === '23505' ? 'Already on waitlist.' : 'Could not join waitlist.')
+      } else {
+        setMyWaitlist(prev => new Set([...prev, gl.id]))
+        toast.success("You're on the waitlist! We'll notify you if a spot opens.")
+      }
+    }
+    setWaitlistingId(null)
+  }
 
   async function handleToggleSave(tutorId: string) {
     if (!user) { toast.error('Please sign in to save tutors.'); return }
@@ -408,25 +446,35 @@ export function Search() {
                       )}
                     </div>
                     {gl.tutor_id !== user?.id && (
-                      <button
-                        onClick={e => { e.stopPropagation(); handleEnroll(gl) }}
-                        disabled={myEnrollments.has(gl.id) || spotsLeft <= 0 || enrollingId === gl.id}
-                        className={`shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-colors ${
-                          myEnrollments.has(gl.id)
-                            ? 'bg-green-100 text-green-700 cursor-default'
-                            : spotsLeft <= 0
-                              ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                      spotsLeft <= 0 && !myEnrollments.has(gl.id) ? (
+                        <button
+                          onClick={e => { e.stopPropagation(); handleToggleWaitlist(gl) }}
+                          disabled={waitlistingId === gl.id}
+                          className={`shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-colors disabled:opacity-70 ${
+                            myWaitlist.has(gl.id)
+                              ? 'bg-amber-100 text-amber-700 hover:bg-amber-200'
+                              : 'bg-gray-800 text-white hover:bg-gray-900'
+                          }`}
+                        >
+                          {waitlistingId === gl.id
+                            ? <Loader2 className="w-3 h-3 animate-spin" />
+                            : myWaitlist.has(gl.id) ? '⏳ On Waitlist' : 'Join Waitlist'}
+                        </button>
+                      ) : (
+                        <button
+                          onClick={e => { e.stopPropagation(); handleEnroll(gl) }}
+                          disabled={myEnrollments.has(gl.id) || enrollingId === gl.id}
+                          className={`shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-colors disabled:opacity-70 ${
+                            myEnrollments.has(gl.id)
+                              ? 'bg-green-100 text-green-700 cursor-default'
                               : 'bg-purple-600 text-white hover:bg-purple-700'
-                        } disabled:opacity-70`}
-                      >
-                        {enrollingId === gl.id
-                          ? <Loader2 className="w-3 h-3 animate-spin" />
-                          : myEnrollments.has(gl.id)
-                            ? '✓ Enrolled'
-                            : spotsLeft <= 0
-                              ? 'Full'
-                              : 'Enroll'}
-                      </button>
+                          }`}
+                        >
+                          {enrollingId === gl.id
+                            ? <Loader2 className="w-3 h-3 animate-spin" />
+                            : myEnrollments.has(gl.id) ? '✓ Enrolled' : 'Enroll'}
+                        </button>
+                      )
                     )}
                   </div>
                 </div>
