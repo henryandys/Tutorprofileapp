@@ -21,6 +21,7 @@ interface Lesson {
   perspective:   'tutor' | 'student'
   reschedule_proposed_at: string | null
   reschedule_status:      'pending' | 'accepted' | 'declined' | null
+  reschedule_proposed_by: string | null
   price_cents:            number | null
   payment_status:         'pending' | 'paid' | 'refunded' | null
 }
@@ -327,6 +328,7 @@ export function Lessons() {
         perspective:            'tutor' as const,
         reschedule_proposed_at: b.reschedule_proposed_at ?? null,
         reschedule_status:      b.reschedule_status ?? null,
+        reschedule_proposed_by: b.reschedule_proposed_by ?? null,
         price_cents:            b.price_cents ?? null,
         payment_status:         b.payment_status ?? null,
       }))
@@ -342,6 +344,7 @@ export function Lessons() {
         perspective:            'student' as const,
         reschedule_proposed_at: b.reschedule_proposed_at ?? null,
         reschedule_status:      b.reschedule_status ?? null,
+        reschedule_proposed_by: b.reschedule_proposed_by ?? null,
         price_cents:            b.price_cents ?? null,
         payment_status:         b.payment_status ?? null,
       }))
@@ -445,11 +448,13 @@ export function Lessons() {
   async function handleRescheduleRequest(lesson: Lesson, proposedAt: string) {
     const { error } = await supabase
       .from('bookings')
-      .update({ reschedule_proposed_at: proposedAt, reschedule_status: 'pending' })
+      .update({ reschedule_proposed_at: proposedAt, reschedule_status: 'pending', reschedule_proposed_by: user!.id })
       .eq('id', lesson.id)
     if (error) { toast.error('Failed to send reschedule request.'); return }
     setLessons(prev => prev.map(l =>
-      l.id === lesson.id ? { ...l, reschedule_proposed_at: proposedAt, reschedule_status: 'pending' as const } : l
+      l.id === lesson.id
+        ? { ...l, reschedule_proposed_at: proposedAt, reschedule_status: 'pending' as const, reschedule_proposed_by: user!.id }
+        : l
     ))
     setRescheduleLesson(null)
     toast.success('Reschedule request sent!')
@@ -459,11 +464,13 @@ export function Lessons() {
     const updates = accept
       ? { scheduled_at: lesson.reschedule_proposed_at, reschedule_proposed_at: null, reschedule_status: 'accepted' as const }
       : { reschedule_proposed_at: null, reschedule_status: 'declined' as const }
+    // Verify user is the responder (not the proposer) via the appropriate FK column
+    const userField = lesson.perspective === 'tutor' ? 'tutor_id' : 'student_id'
     const { error } = await supabase
       .from('bookings')
       .update(updates)
       .eq('id', lesson.id)
-      .eq('tutor_id', user!.id)
+      .eq(userField, user!.id)
     if (error) { toast.error('Failed to update reschedule.'); return }
     setLessons(prev => prev.map(l => l.id === lesson.id ? { ...l, ...updates } : l))
     toast.success(accept ? 'Reschedule approved!' : 'Reschedule declined.')
@@ -820,9 +827,9 @@ export function Lessons() {
                       onMarkComplete={isTutor ? () => handleMarkComplete(l) : undefined}
                       completing={completingId === l.id}
                       onDismiss={() => handleDismiss(l.id)}
-                      onReschedule={l.perspective === 'student' && l.status === 'accepted' ? () => setRescheduleLesson(l) : undefined}
-                      onRescheduleAccept={l.perspective === 'tutor' && l.reschedule_status === 'pending' ? () => handleRescheduleResponse(l, true) : undefined}
-                      onRescheduleDecline={l.perspective === 'tutor' && l.reschedule_status === 'pending' ? () => handleRescheduleResponse(l, false) : undefined}
+                      onReschedule={l.status === 'accepted' && !l.reschedule_status ? () => setRescheduleLesson(l) : undefined}
+                      onRescheduleAccept={l.reschedule_status === 'pending' && l.reschedule_proposed_by === l.other_user_id ? () => handleRescheduleResponse(l, true) : undefined}
+                      onRescheduleDecline={l.reschedule_status === 'pending' && l.reschedule_proposed_by === l.other_user_id ? () => handleRescheduleResponse(l, false) : undefined}
                       selected={selectedIds.has(l.id)}
                       onToggleSelect={isTutor && l.perspective === 'tutor' && l.status === 'pending' ? () => toggleSelect(l.id) : undefined}
                       onPay={l.perspective === 'student' && l.status === 'accepted' && (l.price_cents ?? 0) > 0 && l.payment_status !== 'paid' ? () => handlePay(l) : undefined}
@@ -1022,6 +1029,7 @@ export function Lessons() {
       {rescheduleLesson && (
         <RescheduleModal
           lesson={rescheduleLesson}
+          tutorId={rescheduleLesson.perspective === 'student' ? rescheduleLesson.other_user_id : user!.id}
           onConfirm={async (proposedAt) => { await handleRescheduleRequest(rescheduleLesson, proposedAt) }}
           onClose={() => setRescheduleLesson(null)}
         />
@@ -1137,8 +1145,8 @@ function LessonCard({ lesson: l, isTutor, onChat, onAccept, onDecline, onCancel,
               {new Date(l.scheduled_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
             </span>
           )}
-          {/* Tutor: show what the student is proposing */}
-          {l.perspective === 'tutor' && hasPendingReschedule && l.reschedule_proposed_at && (
+          {/* Other party proposed — show their proposed time so this user can respond */}
+          {hasPendingReschedule && l.reschedule_proposed_at && l.reschedule_proposed_by === l.other_user_id && (
             <span className="text-xs text-orange-600 font-bold flex items-center gap-1 mt-0.5">
               <RefreshCw className="w-3 h-3 shrink-0" />
               Proposes:{' '}
@@ -1147,13 +1155,24 @@ function LessonCard({ lesson: l, isTutor, onChat, onAccept, onDecline, onCancel,
               {new Date(l.reschedule_proposed_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
             </span>
           )}
-          {/* Student: show status of their request */}
-          {l.perspective === 'student' && l.reschedule_status === 'accepted' && (
+          {/* I proposed — show my proposed time and waiting message */}
+          {hasPendingReschedule && l.reschedule_proposed_at && l.reschedule_proposed_by !== l.other_user_id && (
+            <span className="text-xs text-orange-500 font-medium flex items-center gap-1 mt-0.5">
+              <RefreshCw className="w-3 h-3 shrink-0" />
+              Your request:{' '}
+              {new Date(l.reschedule_proposed_at).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}
+              {' · '}
+              {new Date(l.reschedule_proposed_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
+              {' · Awaiting response'}
+            </span>
+          )}
+          {/* I proposed and it was accepted/declined */}
+          {l.reschedule_status === 'accepted' && l.reschedule_proposed_by !== l.other_user_id && (
             <span className="text-xs text-green-600 font-bold flex items-center gap-1 mt-0.5">
               <CheckCircle className="w-3 h-3 shrink-0" /> Reschedule approved — time updated above
             </span>
           )}
-          {l.perspective === 'student' && l.reschedule_status === 'declined' && (
+          {l.reschedule_status === 'declined' && l.reschedule_proposed_by !== l.other_user_id && (
             <span className="text-xs text-red-500 font-bold flex items-center gap-1 mt-0.5">
               <XCircle className="w-3 h-3 shrink-0" /> Reschedule declined — original time kept
             </span>
@@ -1416,12 +1435,13 @@ function CancelSessionModal({ title, description, confirmLabel = 'Cancel Session
   )
 }
 
-function RescheduleModal({ lesson, onConfirm, onClose }: {
+function RescheduleModal({ lesson, tutorId: tutorIdProp, onConfirm, onClose }: {
   lesson:    Lesson
+  tutorId:   string
   onConfirm: (proposedAt: string) => Promise<void>
   onClose:   () => void
 }) {
-  const tutorId = lesson.other_user_id
+  const tutorId = tutorIdProp
   const [avail, setAvail]             = useState<Record<string, { available: boolean; start: string; end: string }> | null>(null)
   const [blackoutDates, setBlackout]  = useState<string[]>([])
   const [selectedDate, setSelectedDate] = useState<Date | null>(null)
