@@ -6,7 +6,7 @@ import { Navbar } from "../components/Navbar";
 import {
   User, BookOpen, DollarSign, MapPin, GraduationCap, Briefcase,
   Plus, X, Save, Camera, Award, Star, FileText, Calendar,
-  ChevronRight, Loader2, Clock, Shield, CreditCard, Users, RefreshCw
+  ChevronRight, Loader2, Clock, Shield, CreditCard, Users, RefreshCw, Bell
 } from "lucide-react";
 import { toast } from "sonner";
 import { Link } from "react-router";
@@ -103,6 +103,7 @@ export function TutorMyProfile() {
   const [showCreateGroup, setShowCreateGroup] = useState(false)
   const [enrollmentGroup, setEnrollmentGroup] = useState<GroupLesson | null>(null)
   const [cancelMenuId, setCancelMenuId]       = useState<string | null>(null)
+  const notifSectionRef = useRef<HTMLDivElement>(null)
 
   const [availability, setAvailability]   = useState<WeekAvail>(DEFAULT_AVAIL)
   const [blackoutDates, setBlackoutDates] = useState<string[]>([])
@@ -293,6 +294,66 @@ export function TutorMyProfile() {
           )}
         </div>
 
+        <div className="flex flex-col lg:flex-row gap-8">
+
+          {/* ── Sidebar ── */}
+          <aside className="w-full lg:w-64 shrink-0">
+            <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden shadow-sm">
+              <div className="p-6 border-b border-gray-100 flex flex-col items-center text-center">
+                <div className="relative mb-4 group cursor-pointer" onClick={() => avatarInputRef.current?.click()}>
+                  {profile?.avatar_url ? (
+                    <img src={profile.avatar_url} alt="" className="w-24 h-24 rounded-full object-cover border-4 border-white shadow-md" />
+                  ) : (
+                    <div className="w-24 h-24 bg-gradient-to-br from-blue-400 to-purple-500 rounded-full flex items-center justify-center border-4 border-white shadow-md">
+                      <span className="text-white text-3xl font-bold select-none">{(profile?.full_name ?? 'T').charAt(0).toUpperCase()}</span>
+                    </div>
+                  )}
+                  <div className="absolute bottom-0 right-0 bg-blue-600 p-2 rounded-full border-2 border-white text-white group-hover:bg-blue-700 transition-colors">
+                    {uploadingAvatar ? <Loader2 className="w-3 h-3 animate-spin" /> : <Camera className="w-3 h-3" />}
+                  </div>
+                </div>
+                <h2 className="font-bold text-gray-900 text-lg">{profile?.full_name ?? user?.email ?? 'Loading…'}</h2>
+                <p className="text-sm text-gray-500 font-medium">Tutor Account</p>
+              </div>
+
+              <nav className="p-2">
+                <button type="button" className="w-full flex items-center gap-3 px-4 py-3 bg-blue-50 text-blue-700 rounded-xl font-bold text-sm">
+                  <User className="w-4 h-4" />
+                  Personal Info
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => notifSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+                  className="w-full flex items-center gap-3 px-4 py-3 text-gray-600 hover:bg-gray-50 rounded-xl font-bold text-sm transition-colors"
+                >
+                  <div className="relative shrink-0">
+                    <Bell className="w-4 h-4" />
+                    {pendingCount > 0 && <span className="absolute -top-1 -right-1 w-2 h-2 bg-red-500 rounded-full" />}
+                  </div>
+                  Notifications
+                  {pendingCount > 0 && (
+                    <span className="ml-auto bg-red-500 text-white text-[10px] font-bold rounded-full px-1.5 py-0.5 min-w-[1.1rem] text-center leading-none">
+                      {pendingCount}
+                    </span>
+                  )}
+                </button>
+
+                <Link to="/privacy-security" className="w-full flex items-center gap-3 px-4 py-3 text-gray-600 hover:bg-gray-50 rounded-xl font-bold text-sm transition-colors">
+                  <Shield className="w-4 h-4" />
+                  Privacy &amp; Security
+                </Link>
+
+                <button type="button" className="w-full flex items-center gap-3 px-4 py-3 text-gray-600 hover:bg-gray-50 rounded-xl font-bold text-sm transition-colors">
+                  <CreditCard className="w-4 h-4" />
+                  Payments
+                </button>
+              </nav>
+            </div>
+          </aside>
+
+          {/* ── Main form ── */}
+          <div className="flex-1 min-w-0">
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
 
           {/* Basic Info */}
@@ -613,6 +674,7 @@ export function TutorMyProfile() {
 
           {/* Lesson Requests — link to calendar */}
           <Link
+            ref={notifSectionRef as any}
             to="/lessons"
             className="bg-white rounded-3xl shadow-lg border border-gray-100 p-8 flex items-center justify-between hover:border-blue-200 hover:shadow-xl transition-all group"
           >
@@ -928,24 +990,6 @@ export function TutorMyProfile() {
             )}
           </div>
 
-          {/* Account links */}
-          <div className="bg-white rounded-3xl shadow-lg border border-gray-100 overflow-hidden">
-            <Link to="/privacy-security" className="flex items-center justify-between px-6 py-4 hover:bg-gray-50 transition-colors border-b border-gray-100 group">
-              <div className="flex items-center gap-3">
-                <Shield className="w-5 h-5 text-gray-400" />
-                <span className="font-bold text-gray-700">Privacy &amp; Security</span>
-              </div>
-              <ChevronRight className="w-4 h-4 text-gray-400 group-hover:text-blue-600 transition-colors" />
-            </Link>
-            <button className="w-full flex items-center justify-between px-6 py-4 hover:bg-gray-50 transition-colors group">
-              <div className="flex items-center gap-3">
-                <CreditCard className="w-5 h-5 text-gray-400" />
-                <span className="font-bold text-gray-700">Payments</span>
-              </div>
-              <ChevronRight className="w-4 h-4 text-gray-400 group-hover:text-blue-600 transition-colors" />
-            </button>
-          </div>
-
           {/* Save button */}
           {isEditing && (
             <div className="flex justify-end gap-4 pt-4">
@@ -960,6 +1004,8 @@ export function TutorMyProfile() {
             </div>
           )}
         </form>
+          </div>{/* end flex-1 main */}
+        </div>{/* end flex sidebar+main */}
       </main>
 
       {showCreateGroup && (

@@ -43,7 +43,7 @@ export function Home() {
             </h1>
             
             <p className="text-xl md:text-2xl text-gray-500 font-medium max-w-2xl mb-12">
-              Browse thousands of local experts, read reviews, and book sessions instantly. From Calculus to Coding.
+              Find local experts, read reviews, and book sessions instantly. From Tennis to Trig.
             </p>
 
             {/* Main Search Bar */}

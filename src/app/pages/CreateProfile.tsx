@@ -1,6 +1,6 @@
 // src/app/pages/CreateProfile.tsx
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { Navbar } from "../components/Navbar";
 import { Camera, MapPin, DollarSign, BookOpen, GraduationCap, Briefcase, ChevronRight, CheckCircle2, Info, Loader2 } from "lucide-react";
@@ -21,9 +21,14 @@ interface ProfileForm {
 
 export function CreateProfile() {
   const navigate = useNavigate()
-  const { user, refreshProfile } = useAuth()
+  const { user, role, refreshProfile } = useAuth()
   const [step, setSaving] = useState(1)
   const [saving, setIsSaving] = useState(false)
+
+  // Already a tutor — send them straight to their profile
+  useEffect(() => {
+    if (role === 'tutor') navigate('/my-profile', { replace: true })
+  }, [role, navigate])
 
   const { register, handleSubmit, formState: { errors } } = useForm<ProfileForm>()
 
@@ -43,13 +48,14 @@ export function CreateProfile() {
       const expMatch = data.experience.match(/\d+/)
       const experienceYrs = expMatch ? parseInt(expMatch[0]) : 0
 
-      // 1. Update the base profile (name, location, bio)
+      // 1. Update the base profile (name, location, bio) and promote to tutor
       const { error: profileError } = await supabase
         .from('profiles')
         .update({
           full_name:  data.name,
           location:   data.location,
           bio:        data.bio,
+          role:       'tutor',
           updated_at: new Date().toISOString(),
         })
         .eq('id', user.id)

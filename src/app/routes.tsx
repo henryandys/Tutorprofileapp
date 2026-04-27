@@ -69,15 +69,17 @@ export const router = createBrowserRouter([
     ),
   },
 
-  // ── Requires tutor role ──────────────────────────────────
+  // ── Requires any logged-in user ─────────────────────────
   {
     path: "/become-a-tutor",
     element: (
-      <ProtectedRoute requiredRole="tutor">
+      <ProtectedRoute>
         <CreateProfile />
       </ProtectedRoute>
     ),
   },
+
+  // ── Requires tutor role ──────────────────────────────────
   {
     path: "/my-profile",
     element: (

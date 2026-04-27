@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useForm } from "react-hook-form";
 import { Navbar } from "../components/Navbar";
-import { User, Mail, Phone, MapPin, Camera, Save, Bell, Shield, CreditCard, ChevronRight, Clock, Loader2, Heart, Star } from "lucide-react";
+import { User, Mail, Phone, MapPin, Camera, Save, Bell, Shield, CreditCard, ChevronRight, Clock, Loader2, Heart, Star, GraduationCap } from "lucide-react";
 import { toast } from "sonner";
 import { Link, useNavigate } from "react-router";
 import { useAuth } from "../../context/AuthContext";
@@ -158,10 +158,13 @@ export function UserProfile() {
 
   function handleNotifClick() {
     if (!user) return
+    if (totalNotifCount === 0) {
+      navigate('/lessons')
+      return
+    }
     localStorage.setItem(`notifLastCheck_${user.id}`, new Date().toISOString())
     setMsgCount(0)
     setSessionNotifCount(0)
-    // Mark booking IDs as seen, then scroll to section
     supabase
       .from('bookings')
       .select('id')
@@ -310,6 +313,16 @@ export function UserProfile() {
                   <CreditCard className="w-4 h-4" />
                   Payments
                 </button>
+
+                <div className="mt-2 pt-2 border-t border-gray-100">
+                  <Link
+                    to="/become-a-tutor"
+                    className="w-full flex items-center gap-3 px-4 py-3 text-purple-600 hover:bg-purple-50 rounded-xl font-bold text-sm transition-colors"
+                  >
+                    <GraduationCap className="w-4 h-4" />
+                    Become a Tutor
+                  </Link>
+                </div>
               </nav>
             </div>
           </aside>
@@ -520,6 +533,23 @@ export function UserProfile() {
                 </div>
               </div>
             )}
+            {/* Become a Tutor CTA */}
+            <div className="mt-8 bg-gradient-to-br from-blue-600 to-purple-600 rounded-3xl p-8 text-white">
+              <div className="flex items-center gap-3 mb-2">
+                <GraduationCap className="w-7 h-7" />
+                <h2 className="text-xl font-black">Become a Tutor</h2>
+              </div>
+              <p className="text-blue-100 font-medium mb-6 leading-relaxed">
+                Share your knowledge, set your own schedule, and earn money teaching what you love.
+              </p>
+              <Link
+                to="/become-a-tutor"
+                className="inline-flex items-center gap-2 px-6 py-3 bg-white text-blue-700 rounded-xl font-bold hover:bg-blue-50 transition-colors shadow-lg"
+              >
+                Get Started
+                <ChevronRight className="w-4 h-4" />
+              </Link>
+            </div>
           </div>
         </div>
       </main>
