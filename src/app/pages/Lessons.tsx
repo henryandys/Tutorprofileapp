@@ -132,6 +132,7 @@ export function Lessons() {
   const [selectedIds, setSelectedIds]       = useState<Set<string>>(new Set())
   const [batchProcessing, setBatchProcessing] = useState(false)
   const [payingId, setPayingId]             = useState<string | null>(null)
+  const [markingPaidId, setMarkingPaidId]   = useState<string | null>(null)
   const [searchParams, setSearchParams]     = useSearchParams()
   const [notes, setNotes]                   = useState<Record<string, string>>({})
   const [noteLesson, setNoteLesson]         = useState<Lesson | null>(null)
@@ -288,6 +289,21 @@ export function Lessons() {
       toast.success('Session marked complete!')
     }
     setCompletingId(null)
+  }
+
+  async function handleMarkPaid(lesson: Lesson) {
+    setMarkingPaidId(lesson.id)
+    const { error } = await supabase
+      .from('bookings')
+      .update({ payment_status: 'paid' })
+      .eq('id', lesson.id)
+      .eq('tutor_id', user!.id)
+    if (error) { toast.error('Failed to mark as paid.') }
+    else {
+      setLessons(prev => prev.map(l => l.id === lesson.id ? { ...l, payment_status: 'paid' } : l))
+      toast.success('Payment marked as received.')
+    }
+    setMarkingPaidId(null)
   }
 
   async function handleSubmitReview(lesson: Lesson, rating: number, body: string) {
@@ -949,6 +965,8 @@ export function Lessons() {
                       onToggleSelect={isTutor && l.perspective === 'tutor' && l.status === 'pending' ? () => toggleSelect(l.id) : undefined}
                       onPay={l.perspective === 'student' && l.status === 'accepted' && (l.price_cents ?? 0) > 0 && l.payment_status !== 'paid' ? () => handlePay(l) : undefined}
                       paying={payingId === l.id}
+                      onMarkPaid={l.perspective === 'tutor' && l.status === 'accepted' && (l.price_cents ?? 0) > 0 && l.payment_status !== 'paid' ? () => handleMarkPaid(l) : undefined}
+                      markingPaid={markingPaidId === l.id}
                       onNote={l.status === 'completed' ? () => setNoteLesson(l) : undefined}
                       notePreview={notes[l.id]}
                     />
@@ -968,11 +986,13 @@ export function Lessons() {
                         isTutor={isTutor}
                         onChat={() => setChatLesson(l)}
                         onAccept={() => updateStatus(l.id, 'accepted')}
-                        onDecline={() => updateStatus(l.id, 'declined')}
+                        onDecline={() => setDeclineLesson(l)}
                         onCancel={() => setCancelBooking(l)}
                         onMarkComplete={isTutor ? () => handleMarkComplete(l) : undefined}
                         completing={completingId === l.id}
                         onDismiss={() => handleDismiss(l.id)}
+                        onMarkPaid={l.perspective === 'tutor' && l.status === 'accepted' && (l.price_cents ?? 0) > 0 && l.payment_status !== 'paid' ? () => handleMarkPaid(l) : undefined}
+                        markingPaid={markingPaidId === l.id}
                         onNote={l.status === 'completed' ? () => setNoteLesson(l) : undefined}
                         notePreview={notes[l.id]}
                       />
@@ -1238,7 +1258,7 @@ export function Lessons() {
   )
 }
 
-function LessonCard({ lesson: l, isTutor, onChat, onAccept, onDecline, onCancel, onMarkComplete, completing, onDismiss, onReschedule, onRescheduleAccept, onRescheduleDecline, selected, onToggleSelect, onPay, paying, onNote, notePreview }: {
+function LessonCard({ lesson: l, isTutor, onChat, onAccept, onDecline, onCancel, onMarkComplete, completing, onDismiss, onReschedule, onRescheduleAccept, onRescheduleDecline, selected, onToggleSelect, onPay, paying, onMarkPaid, markingPaid, onNote, notePreview }: {
   lesson: Lesson
   isTutor: boolean
   onChat: () => void
@@ -1255,6 +1275,8 @@ function LessonCard({ lesson: l, isTutor, onChat, onAccept, onDecline, onCancel,
   onToggleSelect?: () => void
   onPay?: () => void
   paying?: boolean
+  onMarkPaid?: () => void
+  markingPaid?: boolean
   onNote?: () => void
   notePreview?: string
 }) {
@@ -1429,6 +1451,17 @@ function LessonCard({ lesson: l, isTutor, onChat, onAccept, onDecline, onCancel,
             >
               {completing ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />}
               Complete
+            </button>
+          )}
+          {/* Tutor: mark payment received (e.g. cash) */}
+          {onMarkPaid && (
+            <button
+              onClick={onMarkPaid}
+              disabled={markingPaid}
+              className="flex items-center gap-1.5 px-3 py-2 bg-green-50 text-green-700 rounded-xl font-bold text-sm hover:bg-green-100 transition-colors border border-green-200 disabled:opacity-60"
+            >
+              {markingPaid ? <Loader2 className="w-4 h-4 animate-spin" /> : <CreditCard className="w-4 h-4" />}
+              Mark as Paid
             </button>
           )}
           {/* Student: pay for accepted lesson */}
