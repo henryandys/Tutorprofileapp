@@ -82,7 +82,7 @@ export function Navbar() {
           /* Logged out: sign in + profile icon */
           <div className="flex items-center gap-3">
             <Link to="/login" className="text-sm font-bold text-gray-700 hover:text-blue-600">
-              Sign In
+              Sign In / Sign Up
             </Link>
             <Link
               to="/login"
