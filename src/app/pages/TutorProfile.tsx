@@ -8,7 +8,7 @@ import { ConversationModal } from "../components/ConversationModal";
 import { Star, MapPin, Share2, Heart, MessageCircle, Clock, GraduationCap, Briefcase, Calendar, ChevronLeft, ChevronRight, Loader2, Send, CornerDownRight, Users, RefreshCw } from "lucide-react";
 import type { GroupLesson, RecurrenceType } from "../components/CreateGroupLessonModal";
 import { ImageWithFallback } from "../components/figma/ImageWithFallback";
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { useAuth } from "../../context/AuthContext";
 import { supabase } from "../../lib/supabase";
 import { toast } from "sonner";
@@ -91,6 +91,9 @@ export function TutorProfile() {
   const [duration, setDuration]             = useState(60)
   const [takenMinutes, setTakenMinutes]     = useState<Set<number>>(new Set())
   const [calendarOffset, setCalendarOffset] = useState(0)
+  const [showMonthPicker, setShowMonthPicker] = useState(false)
+  const [pickerMonth, setPickerMonth]       = useState<Date>(() => { const d = new Date(); d.setDate(1); d.setHours(0,0,0,0); return d })
+  const monthPickerRef                      = useRef<HTMLDivElement>(null)
   const [recurrence, setRecurrence]         = useState<RecurrenceType>('none')
   const [occurrences, setOccurrences]       = useState(8)
 
@@ -298,6 +301,18 @@ export function TutorProfile() {
   useEffect(() => {
     if (profile?.full_name) setStudentName(profile.full_name)
   }, [profile])
+
+  // Close month picker on outside click
+  useEffect(() => {
+    if (!showMonthPicker) return
+    function onDown(e: MouseEvent) {
+      if (monthPickerRef.current && !monthPickerRef.current.contains(e.target as Node)) {
+        setShowMonthPicker(false)
+      }
+    }
+    document.addEventListener('mousedown', onDown)
+    return () => document.removeEventListener('mousedown', onDown)
+  }, [showMonthPicker])
 
   // Fetch booked slots for the selected date; each booking blocks its start + its duration in 30-min chunks.
   useEffect(() => {
@@ -886,14 +901,86 @@ export function TutorProfile() {
                   <div className="flex items-center justify-between px-1">
                     <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Select Date</label>
                     <div className="flex items-center gap-1">
-                      <button type="button" onClick={() => setCalendarOffset(o => Math.max(0, o - 1))} disabled={calendarOffset === 0} className="p-0.5 rounded text-gray-400 hover:text-gray-700 disabled:opacity-30">
-                        <ChevronLeft className="w-4 h-4" />
+                      <button type="button" onClick={() => { setShowMonthPicker(v => !v); setPickerMonth(() => { const d = new Date(); d.setDate(1); d.setHours(0,0,0,0); return d }) }} className="p-1.5 rounded-lg bg-gray-100 text-gray-600 hover:bg-gray-200 hover:text-gray-900 transition-colors">
+                        <ChevronLeft className="w-5 h-5" />
                       </button>
-                      <button type="button" onClick={() => setCalendarOffset(o => Math.min(3, o + 1))} disabled={calendarOffset === 3} className="p-0.5 rounded text-gray-400 hover:text-gray-700 disabled:opacity-30">
-                        <ChevronRight className="w-4 h-4" />
+                      <button type="button" onClick={() => { setShowMonthPicker(v => !v); setPickerMonth(() => { const d = new Date(); d.setDate(1); d.setHours(0,0,0,0); return d }) }} className="p-1.5 rounded-lg bg-gray-100 text-gray-600 hover:bg-gray-200 hover:text-gray-900 transition-colors">
+                        <ChevronRight className="w-5 h-5" />
                       </button>
                     </div>
                   </div>
+
+                  {/* ── Monthly calendar popup ── */}
+                  {showMonthPicker && (() => {
+                    const today = new Date(); today.setHours(0,0,0,0)
+                    const thisSunday = new Date(today); thisSunday.setDate(today.getDate() - today.getDay())
+                    const monthStart = new Date(pickerMonth.getFullYear(), pickerMonth.getMonth(), 1)
+                    const monthEnd   = new Date(pickerMonth.getFullYear(), pickerMonth.getMonth() + 1, 0)
+                    const maxMonth   = new Date(today.getFullYear(), today.getMonth() + 3, 1)
+                    const cells: (Date | null)[] = []
+                    for (let i = 0; i < monthStart.getDay(); i++) cells.push(null)
+                    for (let d = 1; d <= monthEnd.getDate(); d++) cells.push(new Date(pickerMonth.getFullYear(), pickerMonth.getMonth(), d))
+                    return (
+                      <div ref={monthPickerRef} className="bg-white border border-gray-200 rounded-xl shadow-xl p-4 z-50">
+                        {/* Month nav header */}
+                        <div className="flex items-center justify-between mb-3">
+                          <button type="button"
+                            disabled={pickerMonth <= new Date(today.getFullYear(), today.getMonth(), 1)}
+                            onClick={() => setPickerMonth(m => new Date(m.getFullYear(), m.getMonth() - 1, 1))}
+                            className="p-1 rounded-lg hover:bg-gray-100 disabled:opacity-30 transition-colors">
+                            <ChevronLeft className="w-4 h-4" />
+                          </button>
+                          <span className="text-sm font-semibold text-gray-800">
+                            {pickerMonth.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
+                          </span>
+                          <button type="button"
+                            disabled={pickerMonth >= maxMonth}
+                            onClick={() => setPickerMonth(m => new Date(m.getFullYear(), m.getMonth() + 1, 1))}
+                            className="p-1 rounded-lg hover:bg-gray-100 disabled:opacity-30 transition-colors">
+                            <ChevronRight className="w-4 h-4" />
+                          </button>
+                        </div>
+                        {/* Day headers */}
+                        <div className="grid grid-cols-7 mb-1">
+                          {['Su','Mo','Tu','We','Th','Fr','Sa'].map(d => (
+                            <span key={d} className="text-center text-[10px] font-bold text-gray-400 py-0.5">{d}</span>
+                          ))}
+                        </div>
+                        {/* Day cells */}
+                        <div className="grid grid-cols-7 gap-0.5">
+                          {cells.map((date, i) => {
+                            if (!date) return <span key={i} />
+                            const isPast       = date < today
+                            const avail        = tutor.availability[getDayKey(date)]
+                            const isAvail      = !!avail?.available
+                            const isBlackedOut = tutor.blackoutDates.includes(localDateStr(date))
+                            const bookable     = !isPast && isAvail && !isBlackedOut
+                            const isSelected   = selectedDate?.toDateString() === date.toDateString()
+                            return (
+                              <button key={date.toISOString()} type="button" disabled={!bookable}
+                                onClick={() => {
+                                  const dateSunday = new Date(date); dateSunday.setDate(date.getDate() - date.getDay())
+                                  const offset = Math.max(0, Math.round((dateSunday.getTime() - thisSunday.getTime()) / (7 * 24 * 3600 * 1000)))
+                                  setCalendarOffset(offset)
+                                  setSelectedDate(date)
+                                  setSelectedSlot(null)
+                                  setShowMonthPicker(false)
+                                }}
+                                className={`aspect-square flex items-center justify-center rounded-lg text-xs font-semibold transition-colors ${
+                                  isSelected   ? 'bg-blue-600 text-white' :
+                                  isBlackedOut ? 'text-red-300 bg-red-50 cursor-not-allowed' :
+                                  bookable     ? 'hover:bg-blue-100 text-gray-800' :
+                                                 'text-gray-300 cursor-not-allowed'
+                                }`}>
+                                {date.getDate()}
+                              </button>
+                            )
+                          })}
+                        </div>
+                      </div>
+                    )
+                  })()}
+
                   <div className="grid grid-cols-7 gap-1">
                     {['S','M','T','W','T','F','S'].map((d, i) => (
                       <span key={i} className="text-center text-[10px] font-bold text-gray-400">{d}</span>
