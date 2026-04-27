@@ -122,6 +122,9 @@ export function Lessons() {
   const [cancelBooking, setCancelBooking]   = useState<Lesson | null>(null)
   const [cancelGroup, setCancelGroup]       = useState<GroupEntry | null>(null)
   const [cancellingId, setCancellingId]     = useState<string | null>(null)
+  const [declineLesson, setDeclineLesson]   = useState<Lesson | null>(null)
+  const [decliningId, setDecliningId]       = useState<string | null>(null)
+  const [declineBatch, setDeclineBatch]     = useState(false)
   const [completingId, setCompletingId]     = useState<string | null>(null)
   const [reviewLesson, setReviewLesson]     = useState<Lesson | null>(null)
   const [reviewedTutors, setReviewedTutors] = useState<Set<string>>(new Set())
@@ -302,7 +305,7 @@ export function Lessons() {
     toast.success('Review submitted!')
   }
 
-  async function updateStatus(lessonId: string, status: 'accepted' | 'declined') {
+  async function updateStatus(lessonId: string, status: 'accepted') {
     const { error } = await supabase
       .from('bookings')
       .update({ status })
@@ -312,14 +315,35 @@ export function Lessons() {
     setLessons(prev => prev.map(l => {
       if (l.id !== lessonId) return l
       sendNotificationEmail({
-        type: status === 'accepted' ? 'booking_accepted' : 'booking_declined',
+        type: 'booking_accepted',
         recipientId: l.other_user_id,
         data: { tutorName: profile?.full_name ?? 'Your tutor', studentName: l.other_name, subject: l.subject },
       })
       return { ...l, status }
     }))
     setSelectedIds(prev => { const next = new Set(prev); next.delete(lessonId); return next })
-    toast.success(`Booking ${status}.`)
+    toast.success('Booking accepted.')
+  }
+
+  async function handleDeclineBooking(lesson: Lesson, reason: string) {
+    setDecliningId(lesson.id)
+    const { error } = await supabase
+      .from('bookings')
+      .update({ status: 'declined' })
+      .eq('id', lesson.id)
+      .eq('tutor_id', user!.id)
+    if (error) { toast.error('Failed to decline booking.'); setDecliningId(null); return }
+    await supabase.from('messages').insert({ booking_id: lesson.id, sender_id: user!.id, content: reason.trim() })
+    sendNotificationEmail({
+      type: 'booking_declined',
+      recipientId: lesson.other_user_id,
+      data: { tutorName: profile?.full_name ?? 'Your tutor', studentName: lesson.other_name, subject: lesson.subject },
+    })
+    setLessons(prev => prev.map(l => l.id === lesson.id ? { ...l, status: 'declined' as const } : l))
+    setSelectedIds(prev => { const next = new Set(prev); next.delete(lesson.id); return next })
+    setDeclineLesson(null)
+    setDecliningId(null)
+    toast.success('Booking declined.')
   }
 
   useEffect(() => {
@@ -547,6 +571,7 @@ export function Lessons() {
   }
 
   async function handleBatchAction(status: 'accepted' | 'declined') {
+    if (status === 'declined') { setDeclineBatch(true); return }
     const ids = [...selectedIds]
     if (ids.length === 0) return
     setBatchProcessing(true)
@@ -559,7 +584,7 @@ export function Lessons() {
     const updated = lessons.filter(l => ids.includes(l.id))
     for (const l of updated) {
       sendNotificationEmail({
-        type: status === 'accepted' ? 'booking_accepted' : 'booking_declined',
+        type: 'booking_accepted',
         recipientId: l.other_user_id,
         data: { tutorName: profile?.full_name ?? 'Your tutor', studentName: l.other_name, subject: l.subject },
       })
@@ -567,7 +592,35 @@ export function Lessons() {
     setLessons(prev => prev.map(l => ids.includes(l.id) ? { ...l, status } : l))
     setSelectedIds(new Set())
     setBatchProcessing(false)
-    toast.success(`${ids.length} booking${ids.length !== 1 ? 's' : ''} ${status}.`)
+    toast.success(`${ids.length} booking${ids.length !== 1 ? 's' : ''} accepted.`)
+  }
+
+  async function handleBatchDecline(reason: string) {
+    const ids = [...selectedIds]
+    if (ids.length === 0) return
+    setBatchProcessing(true)
+    const { error } = await supabase
+      .from('bookings')
+      .update({ status: 'declined' })
+      .in('id', ids)
+      .eq('tutor_id', user!.id)
+    if (error) { toast.error('Batch update failed.'); setBatchProcessing(false); return }
+    const updated = lessons.filter(l => ids.includes(l.id))
+    await Promise.all(updated.map(l =>
+      supabase.from('messages').insert({ booking_id: l.id, sender_id: user!.id, content: reason.trim() })
+    ))
+    for (const l of updated) {
+      sendNotificationEmail({
+        type: 'booking_declined',
+        recipientId: l.other_user_id,
+        data: { tutorName: profile?.full_name ?? 'Your tutor', studentName: l.other_name, subject: l.subject },
+      })
+    }
+    setLessons(prev => prev.map(l => ids.includes(l.id) ? { ...l, status: 'declined' as const } : l))
+    setSelectedIds(new Set())
+    setBatchProcessing(false)
+    setDeclineBatch(false)
+    toast.success(`${ids.length} booking${ids.length !== 1 ? 's' : ''} declined.`)
   }
 
   // Show toast when Stripe redirects back
@@ -884,7 +937,7 @@ export function Lessons() {
                       isTutor={isTutor}
                       onChat={() => setChatLesson(l)}
                       onAccept={() => updateStatus(l.id, 'accepted')}
-                      onDecline={() => updateStatus(l.id, 'declined')}
+                      onDecline={() => setDeclineLesson(l)}
                       onCancel={() => setCancelBooking(l)}
                       onMarkComplete={isTutor ? () => handleMarkComplete(l) : undefined}
                       completing={completingId === l.id}
@@ -1099,10 +1152,39 @@ export function Lessons() {
       {cancelBooking && (
         <CancelSessionModal
           title={`Cancel session with ${cancelBooking.other_name}?`}
-          description="This will mark the session as cancelled. You can optionally send a message to let them know why."
+          description={
+            cancelBooking.perspective === 'tutor'
+              ? 'This will cancel the session. Please explain why so the student knows.'
+              : 'This will mark the session as cancelled. You can optionally send a message to let them know why.'
+          }
+          required={cancelBooking.perspective === 'tutor'}
           saving={cancellingId === cancelBooking.id}
           onConfirm={msg => handleCancelBooking(cancelBooking, msg)}
           onClose={() => setCancelBooking(null)}
+        />
+      )}
+
+      {declineLesson && (
+        <CancelSessionModal
+          title={`Decline request from ${declineLesson.other_name}?`}
+          description="Please let the student know why you're unable to take this booking."
+          confirmLabel="Decline Request"
+          required
+          saving={decliningId === declineLesson.id}
+          onConfirm={reason => handleDeclineBooking(declineLesson, reason)}
+          onClose={() => setDeclineLesson(null)}
+        />
+      )}
+
+      {declineBatch && (
+        <CancelSessionModal
+          title={`Decline ${selectedIds.size} request${selectedIds.size !== 1 ? 's' : ''}?`}
+          description="Please provide a reason that will be sent to all selected students."
+          confirmLabel="Decline All"
+          required
+          saving={batchProcessing}
+          onConfirm={reason => handleBatchDecline(reason)}
+          onClose={() => setDeclineBatch(false)}
         />
       )}
 
@@ -1490,15 +1572,17 @@ function GroupCard({ group: g, isTutor: _isTutor, openingChat, onViewEnrollments
   )
 }
 
-function CancelSessionModal({ title, description, confirmLabel = 'Cancel Session', saving, onConfirm, onClose }: {
+function CancelSessionModal({ title, description, confirmLabel = 'Cancel Session', required = false, saving, onConfirm, onClose }: {
   title:         string
   description:   string
   confirmLabel?: string
+  required?:     boolean
   saving:        boolean
   onConfirm:     (message: string) => void
   onClose:       () => void
 }) {
   const [msg, setMsg] = useState('')
+  const canSubmit = !required || msg.trim().length > 0
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
       <div className="w-full max-w-sm bg-white rounded-3xl shadow-2xl p-6 flex flex-col gap-4">
@@ -1511,15 +1595,22 @@ function CancelSessionModal({ title, description, confirmLabel = 'Cancel Session
         <p className="text-sm text-gray-500 font-medium -mt-1">{description}</p>
         <div className="flex flex-col gap-1.5">
           <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">
-            Message <span className="normal-case font-medium">(optional)</span>
+            Reason{' '}
+            {required
+              ? <span className="normal-case font-medium text-red-500">(required)</span>
+              : <span className="normal-case font-medium">(optional)</span>}
           </label>
           <textarea
             value={msg}
             onChange={e => setMsg(e.target.value)}
-            placeholder="Let them know why you're cancelling…"
+            placeholder={required ? 'Please explain why…' : 'Let them know why you\'re cancelling…'}
             rows={3}
             disabled={saving}
-            className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm font-medium text-gray-800 bg-gray-50 focus:outline-none focus:ring-2 focus:ring-red-400 resize-none disabled:opacity-60"
+            className={`w-full px-4 py-3 border rounded-xl text-sm font-medium text-gray-800 bg-gray-50 focus:outline-none focus:ring-2 resize-none disabled:opacity-60 ${
+              required && msg.trim().length === 0
+                ? 'border-red-300 focus:ring-red-400'
+                : 'border-gray-200 focus:ring-red-400'
+            }`}
           />
         </div>
         <div className="flex gap-3">
@@ -1532,7 +1623,7 @@ function CancelSessionModal({ title, description, confirmLabel = 'Cancel Session
           </button>
           <button
             onClick={() => onConfirm(msg)}
-            disabled={saving}
+            disabled={saving || !canSubmit}
             className="flex-1 h-11 bg-red-600 text-white rounded-xl font-bold hover:bg-red-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
           >
             {saving && <Loader2 className="w-4 h-4 animate-spin" />}
