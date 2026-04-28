@@ -1316,15 +1316,23 @@ function LessonCard({ lesson: l, isTutor, onChat, onAccept, onDecline, onCancel,
         </button>
       )}
       <div className={`flex items-start justify-between gap-3 ${isDismissible ? 'pr-6' : ''} ${onToggleSelect ? 'pl-8' : ''}`}>
-        <div className="flex flex-col gap-1 min-w-0">
+        <div className="flex flex-col gap-2 min-w-0">
+          {/* Name row */}
           <div className="flex items-center gap-2 flex-wrap">
             {isStudentPerspective && (
               <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-blue-100 text-blue-700">Your session</span>
             )}
             <div className="flex items-center gap-1.5">
               <User className="w-4 h-4 text-gray-400 shrink-0" />
-              <span className="font-bold text-gray-900">{l.other_name}</span>
+              <span className="font-bold text-gray-900 text-base leading-tight">{l.other_name}</span>
             </div>
+          </div>
+
+          {/* Subject */}
+          <span className="text-sm font-bold text-blue-600">{l.subject}</span>
+
+          {/* Status badges row */}
+          <div className="flex items-center gap-1.5 flex-wrap">
             <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${STATUS_STYLE[l.status]}`}>
               {l.status}
             </span>
@@ -1349,9 +1357,10 @@ function LessonCard({ lesson: l, isTutor, onChat, onAccept, onDecline, onCancel,
               </span>
             )}
           </div>
-          <span className="text-sm font-bold text-blue-600">{l.subject}</span>
+
+          {/* Date */}
           {l.scheduled_at && (
-            <span className="text-xs text-gray-500 font-medium flex items-center gap-1">
+            <span className="text-xs text-gray-500 font-medium flex items-center gap-1.5">
               <Clock className="w-3 h-3 shrink-0" />
               {new Date(l.scheduled_at).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}
               {' · '}

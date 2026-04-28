@@ -348,6 +348,11 @@ export function TutorMyProfile() {
                   <CreditCard className="w-4 h-4" />
                   Payments
                 </button>
+
+                <Link to="/lessons" className="w-full flex items-center gap-3 px-4 py-3 text-gray-600 hover:bg-gray-50 rounded-xl font-bold text-sm transition-colors">
+                  <Calendar className="w-4 h-4" />
+                  My Lessons
+                </Link>
               </nav>
             </div>
           </aside>
