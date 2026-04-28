@@ -320,7 +320,7 @@ export function UserProfile() {
                     className="w-full flex items-center gap-3 px-4 py-3 text-purple-600 hover:bg-purple-50 rounded-xl font-bold text-sm transition-colors"
                   >
                     <GraduationCap className="w-4 h-4" />
-                    Become a Tutor
+                    Become an Instructor
                   </Link>
                 </div>
               </nav>
@@ -410,7 +410,7 @@ export function UserProfile() {
                       />
                     </div>
                     <p className="text-[11px] text-gray-400 font-medium px-1 mt-1">
-                      This helps us show you tutors available for in-person sessions in your area.
+                      This helps us show you instructors available for in-person sessions in your area.
                     </p>
                   </div>
                 </section>
@@ -483,7 +483,7 @@ export function UserProfile() {
                     <Heart className="w-5 h-5 text-red-500 fill-red-500" />
                   </div>
                   <div>
-                    <h2 className="text-xl font-black text-gray-900">Saved Tutors</h2>
+                    <h2 className="text-xl font-black text-gray-900">Saved Instructors</h2>
                     <p className="text-sm text-gray-500 font-medium">{savedTutors.length} tutor{savedTutors.length !== 1 ? 's' : ''} saved</p>
                   </div>
                 </div>
@@ -537,7 +537,7 @@ export function UserProfile() {
             <div className="mt-8 bg-gradient-to-br from-blue-600 to-purple-600 rounded-3xl p-8 text-white">
               <div className="flex items-center gap-3 mb-2">
                 <GraduationCap className="w-7 h-7" />
-                <h2 className="text-xl font-black">Become a Tutor</h2>
+                <h2 className="text-xl font-black">Become an Instructor</h2>
               </div>
               <p className="text-blue-100 font-medium mb-6 leading-relaxed">
                 Share your knowledge, set your own schedule, and earn money teaching what you love.

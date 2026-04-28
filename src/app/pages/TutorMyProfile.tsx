@@ -281,7 +281,7 @@ export function TutorMyProfile() {
         <div className="mb-8 flex items-center justify-between">
           <div>
             <h1 className="text-4xl font-black text-gray-900 tracking-tight mb-2">My Profile</h1>
-            <p className="text-gray-500 font-medium">Manage your tutor profile and incoming bookings</p>
+            <p className="text-gray-500 font-medium">Manage your instructor profile and incoming bookings</p>
           </div>
           {!isEditing ? (
             <button onClick={() => setIsEditing(true)} className="px-6 py-3 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 transition-all shadow-lg">
@@ -313,7 +313,7 @@ export function TutorMyProfile() {
                   </div>
                 </div>
                 <h2 className="font-bold text-gray-900 text-lg">{profile?.full_name ?? user?.email ?? 'Loading…'}</h2>
-                <p className="text-sm text-gray-500 font-medium">Tutor Account</p>
+                <p className="text-sm text-gray-500 font-medium">Instructor Account</p>
               </div>
 
               <nav className="p-2">

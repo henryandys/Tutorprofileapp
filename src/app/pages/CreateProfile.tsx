@@ -79,7 +79,7 @@ export function CreateProfile() {
       // 3. Refresh the auth context so navbar/profile update
       await refreshProfile()
 
-      toast.success('Profile created! Welcome to TutorFind.')
+      toast.success('Profile created! Welcome to InstructorFind.')
       setTimeout(() => navigate('/my-profile'), 1500)
 
     } catch (err: any) {
@@ -134,7 +134,7 @@ export function CreateProfile() {
                     <div className="flex-1">
                       <h3 className="font-bold text-gray-900 mb-1">Profile Photo</h3>
                       <p className="text-sm text-gray-500">
-                        Upload a professional, friendly photo. Tutors with photos get 10x more bookings.
+                        Upload a professional, friendly photo. Instructors with photos get 10x more bookings.
                       </p>
                     </div>
                   </div>

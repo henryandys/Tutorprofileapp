@@ -38,13 +38,13 @@ const EMAIL_TEMPLATES: Record<string, (d: any) => { subject: string; html: strin
     subject: `Your lesson request was accepted!`,
     html: `<p>Hi ${h(d.studentName)},</p>
            <p>Your lesson request for <strong>${h(d.subject)}</strong> with <strong>${h(d.tutorName)}</strong> has been <strong style="color:#16a34a">accepted</strong>.</p>
-           <p>You can now message your tutor. <a href="${h(d.appUrl)}/profile">View your requests →</a></p>`,
+           <p>You can now message your instructor. <a href="${h(d.appUrl)}/profile">View your requests →</a></p>`,
   }),
   booking_declined: (d) => ({
     subject: `Update on your lesson request`,
     html: `<p>Hi ${h(d.studentName)},</p>
            <p>Your lesson request for <strong>${h(d.subject)}</strong> with <strong>${h(d.tutorName)}</strong> was declined.</p>
-           <p><a href="${h(d.appUrl)}/search">Find another tutor →</a></p>`,
+           <p><a href="${h(d.appUrl)}/search">Find another instructor →</a></p>`,
   }),
   new_message: (d) => ({
     subject: `New message from ${h(d.senderName)}`,
@@ -88,7 +88,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       'Content-Type':  'application/json',
     },
     body: JSON.stringify({
-      from:    'TutorFind <onboarding@resend.dev>',
+      from:    'InstructorFind <onboarding@resend.dev>',
       to:      toEmail,
       subject,
       html,

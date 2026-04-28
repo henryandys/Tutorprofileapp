@@ -156,16 +156,16 @@ export function Search() {
   }
 
   async function handleToggleSave(tutorId: string) {
-    if (!user) { toast.error('Please sign in to save tutors.'); return }
+    if (!user) { toast.error('Please sign in to save instructors.'); return }
     const already = savedTutors.has(tutorId)
     if (already) {
       await supabase.from('saved_tutors').delete().eq('student_id', user.id).eq('tutor_id', tutorId)
       setSavedTutors(prev => { const next = new Set(prev); next.delete(tutorId); return next })
-      toast.success('Removed from saved tutors.')
+      toast.success('Removed from saved instructors.')
     } else {
       await supabase.from('saved_tutors').insert({ student_id: user.id, tutor_id: tutorId })
       setSavedTutors(prev => new Set([...prev, tutorId]))
-      toast.success('Tutor saved!')
+      toast.success('Instructor saved!')
     }
   }
 
@@ -375,8 +375,8 @@ export function Search() {
               {mapMode === 'groups'
                 ? `${filteredGroupLessons.length} group session${filteredGroupLessons.length !== 1 ? 's' : ''}`
                 : mapMode === 'tutors'
-                  ? `${tutors.length} tutor${tutors.length !== 1 ? 's' : ''}`
-                  : `${tutors.length} tutor${tutors.length !== 1 ? 's' : ''} · ${filteredGroupLessons.length} group session${filteredGroupLessons.length !== 1 ? 's' : ''}`}
+                  ? `${tutors.length} instructor${tutors.length !== 1 ? 's' : ''}`
+                  : `${tutors.length} instructor${tutors.length !== 1 ? 's' : ''} · ${filteredGroupLessons.length} group session${filteredGroupLessons.length !== 1 ? 's' : ''}`}
             </span>
             {/* Date filter chips — only shown when group sessions are visible */}
             {mapMode !== 'tutors' && (
@@ -484,7 +484,7 @@ export function Search() {
             {/* Tutor cards — shown in 'all' and 'tutors' mode */}
             {mapMode !== 'groups' && (tutors.length === 0 && !loading ? (
               <div className="text-center py-20 text-gray-400 font-medium text-sm">
-                No tutors match your filters.
+                No instructors match your filters.
               </div>
             ) : (
               tutors.map(tutor => (
@@ -536,7 +536,7 @@ export function Search() {
           <div className="absolute top-3 right-3 z-[900] flex bg-white rounded-full shadow-md border border-gray-200 p-0.5">
             {([
               { key: 'all',    label: 'All' },
-              { key: 'tutors', label: 'Tutors' },
+              { key: 'tutors', label: 'Instructors' },
               { key: 'groups', label: `Groups${groupLessons.length > 0 ? ` (${groupLessons.length})` : ''}` },
             ] as const).map(opt => (
               <button

@@ -11,8 +11,8 @@ const STEPS = [
   {
     number: "01",
     icon: GraduationCap,
-    title: "Create your tutor profile",
-    body: "Sign up and fill in your subjects, education, experience, hourly rate, and preferred tutoring location. Your profile becomes your public listing that students browse.",
+    title: "Create your instructor profile",
+    body: "Sign up and fill in your subjects, education, experience, hourly rate, and preferred teaching location. Your profile becomes your public listing that students browse.",
     color: "blue",
   },
   {
@@ -35,7 +35,7 @@ const REPO_FEATURES = [
   { icon: Upload,   text: "Upload PDFs, Word docs, PowerPoints, and spreadsheets" },
   { icon: BookOpen, text: "Tag resources by subject and grade level" },
   { icon: FileText, text: "Link resources to a specific school or district" },
-  { icon: Users,    text: "Students and tutors can download and use your materials" },
+  { icon: Users,    text: "Students and instructors can download and use your materials" },
 ]
 
 const PERKS = [
@@ -53,7 +53,7 @@ export function ForTutors() {
 
   function handleGetStarted() {
     if (role === 'tutor') {
-      toast.info("You're already a tutor! Redirecting to your profile.")
+      toast.info("You're already an instructor! Redirecting to your profile.")
       navigate('/my-profile')
     } else {
       navigate('/become-a-tutor')
@@ -76,7 +76,7 @@ export function ForTutors() {
             <span className="text-blue-200">Build your business.</span>
           </h1>
           <p className="text-xl text-blue-100 font-medium max-w-2xl mx-auto mb-10">
-            Join TutorFind to connect with local students, set your own rates, manage your schedule, and share teaching materials with the community.
+            Join InstructorFind to connect with local students, set your own rates, manage your schedule, and share teaching materials with the community.
           </p>
           <button
             onClick={handleGetStarted}
@@ -145,7 +145,7 @@ export function ForTutors() {
               Share your best teaching materials
             </h2>
             <p className="text-gray-500 font-medium text-lg leading-relaxed mb-8">
-              The Resource Repository is a shared library where tutors upload worksheets, cheat sheets, practice exams, and slide decks. Students and other tutors can browse and download your materials — growing your reputation in the community.
+              The Resource Repository is a shared library where instructors upload worksheets, cheat sheets, practice exams, and slide decks. Students and other instructors can browse and download your materials — growing your reputation in the community.
             </p>
             <div className="flex flex-col gap-3">
               {REPO_FEATURES.map(f => {
@@ -219,7 +219,7 @@ export function ForTutors() {
       {/* Bottom CTA */}
       <section className="py-24 px-6 bg-gradient-to-br from-gray-900 to-gray-800 text-white text-center">
         <div className="max-w-2xl mx-auto">
-          <h2 className="text-4xl font-black mb-4">Ready to start tutoring?</h2>
+          <h2 className="text-4xl font-black mb-4">Ready to start instructing?</h2>
           <p className="text-gray-400 font-medium text-lg mb-10">
             Create your free profile in a few minutes and start receiving lesson requests.
           </p>
@@ -227,7 +227,7 @@ export function ForTutors() {
             onClick={handleGetStarted}
             className="inline-flex items-center gap-3 px-10 py-4 bg-blue-600 text-white rounded-2xl font-black text-lg hover:bg-blue-700 transition-all shadow-xl shadow-blue-900/30"
           >
-            {role === 'tutor' ? 'Go to My Profile' : 'Create Your Tutor Profile'}
+            {role === 'tutor' ? 'Go to My Profile' : 'Create Your Instructor Profile'}
             <ArrowRight className="w-5 h-5" />
           </button>
           {!user && (

@@ -14,7 +14,7 @@ export function Home() {
   function handleBecomeTutor(e: React.MouseEvent) {
     e.preventDefault()
     if (role === 'tutor') {
-      toast.info("You're already a tutor! Redirecting to your profile.")
+      toast.info("You're already an Instructor! Redirecting to your profile.")
       navigate('/my-profile')
     } else {
       navigate('/become-a-tutor')
@@ -38,7 +38,7 @@ export function Home() {
         <div className="container mx-auto px-6 relative z-10">
           <div className="max-w-4xl mx-auto text-center flex flex-col items-center">
             <h1 className="text-5xl md:text-7xl font-black text-gray-900 tracking-tight leading-none mb-8">
-              Find the perfect tutor <br />
+              Find the perfect Instructor <br />
               <span className="text-blue-600">in your neighborhood.</span>
             </h1>
             
@@ -94,7 +94,7 @@ export function Home() {
               <h3 className="text-2xl font-black text-gray-900 leading-tight">For Students</h3>
               <p className="text-gray-500 font-medium">Find expert help for any subject. Boost your grades and confidence with personalized 1-on-1 attention.</p>
               <Link to="/search" className="text-blue-600 font-black flex items-center gap-2 hover:gap-3 transition-all">
-                Find a tutor <ArrowRight className="w-4 h-4" />
+                Find an Instructor <ArrowRight className="w-4 h-4" />
               </Link>
             </div>
 
@@ -102,10 +102,10 @@ export function Home() {
               <div className="w-16 h-16 bg-green-100 rounded-2xl flex items-center justify-center text-green-600">
                 <Star className="w-8 h-8" />
               </div>
-              <h3 className="text-2xl font-black text-gray-900 leading-tight">For Tutors</h3>
+              <h3 className="text-2xl font-black text-gray-900 leading-tight">For Instructors</h3>
               <p className="text-gray-500 font-medium">Join our community of world-class educators. Set your own rates, manage your schedule, and grow your business.</p>
-              <a href="/become-a-tutor" onClick={handleBecomeTutor} className="text-green-600 font-black flex items-center gap-2 hover:gap-3 transition-all">
-                Start tutoring <ArrowRight className="w-4 h-4" />
+              <a href="/Become-a-Instructor" onClick={handleBecomeTutor} className="text-green-600 font-black flex items-center gap-2 hover:gap-3 transition-all">
+                Start instructing <ArrowRight className="w-4 h-4" />
               </a>
             </div>
 
@@ -130,16 +130,16 @@ export function Home() {
             <div className="max-w-xs flex flex-col gap-4">
               <div className="flex items-center gap-2">
                 <div className="w-10 h-10 bg-blue-600 rounded-lg flex items-center justify-center text-white font-black text-2xl">T</div>
-                <span className="text-2xl font-black tracking-tighter text-blue-900">TutorFind</span>
+                <span className="text-2xl font-black tracking-tighter text-blue-900">InstructorFinder</span>
               </div>
               <p className="text-gray-500 font-medium">Making expert education accessible to every neighborhood across the country.</p>
             </div>
             
             <div className="flex flex-col gap-4">
                 <h4 className="font-black text-gray-900 uppercase tracking-widest text-xs">Platform</h4>
-                <Link to="/search" className="text-gray-500 font-bold hover:text-blue-600">Find Tutors</Link>
+                <Link to="/search" className="text-gray-500 font-bold hover:text-blue-600">Find Instructors</Link>
                 <Link to="/repository" className="text-gray-500 font-bold hover:text-blue-600">Repository</Link>
-                <a href="/become-a-tutor" onClick={handleBecomeTutor} className="text-gray-500 font-bold hover:text-blue-600">Become a Tutor</a>
+                <a href="/Become-an-Instructor" onClick={handleBecomeTutor} className="text-gray-500 font-bold hover:text-blue-600">Become an Instructor</a>
             </div>
           </div>
           

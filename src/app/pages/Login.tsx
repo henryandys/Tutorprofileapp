@@ -80,8 +80,8 @@ export default function Login() {
           </CardTitle>
           <CardDescription>
             {mode === 'signin'
-              ? 'Sign in to your tutor account'
-              : 'Join as a student or tutor'}
+              ? 'Sign in to your instructor account'
+              : 'Join as a student or instructor'}
           </CardDescription>
         </CardHeader>
 
@@ -141,7 +141,7 @@ export default function Login() {
                           : 'border-input bg-background hover:bg-accent'
                         }`}
                     >
-                      {r.charAt(0).toUpperCase() + r.slice(1)}
+                      {r === 'tutor' ? 'Instructor' : 'Student'}
                     </button>
                   ))}
                 </div>

@@ -24,12 +24,12 @@ export function Navbar() {
             T
           </div>
           <span className="text-xl font-bold tracking-tight text-blue-900 hidden sm:block">
-            TutorFind
+            InstructorFind
           </span>
         </Link>
         <div className="hidden lg:flex items-center gap-6">
-          <Link to="/search" className="text-sm font-semibold text-gray-600 hover:text-blue-600">Find Tutors</Link>
-          <Link to="/for-tutors" className="text-sm font-semibold text-gray-600 hover:text-blue-600">For Tutors</Link>
+          <Link to="/search" className="text-sm font-semibold text-gray-600 hover:text-blue-600">Find Instructors</Link>
+          <Link to="/for-tutors" className="text-sm font-semibold text-gray-600 hover:text-blue-600">For Instructors</Link>
         </div>
       </div>
 
