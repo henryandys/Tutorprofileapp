@@ -35,6 +35,10 @@ export function ConversationModal({ bookingId, otherName, otherUserId, subject, 
   const [blockLoading, setBlockLoading] = useState(false)
   const [menuOpen, setMenuOpen]       = useState(false)
   const menuRef                       = useRef<HTMLDivElement>(null)
+  // Refs so the realtime callback always reads current block state without
+  // needing to be in the subscription's dep array (which would tear down the channel).
+  const blockedRef       = useRef(false)
+  const blockedByThemRef = useRef(false)
 
   // Load existing messages
   useEffect(() => {
@@ -58,12 +62,17 @@ export function ConversationModal({ bookingId, otherName, otherUserId, subject, 
       .or(`and(blocker_id.eq.${user.id},blocked_id.eq.${otherUserId}),and(blocker_id.eq.${otherUserId},blocked_id.eq.${user.id})`)
       .then(({ data }) => {
         const rows = data ?? []
-        setBlocked(rows.some(r => r.blocker_id === user.id))
-        setBlockedByThem(rows.some(r => r.blocker_id === otherUserId))
+        const b  = rows.some(r => r.blocker_id === user.id)
+        const bt = rows.some(r => r.blocker_id === otherUserId)
+        blockedRef.current       = b
+        blockedByThemRef.current = bt
+        setBlocked(b)
+        setBlockedByThem(bt)
       })
   }, [user, otherUserId])
 
-  // Realtime subscription — filter out messages from blocked user
+  // Realtime subscription — channel is stable for the lifetime of bookingId.
+  // Block state is read via refs so changes never cause a teardown/gap.
   useEffect(() => {
     const channel = supabase
       .channel(`messages-${bookingId}`)
@@ -72,13 +81,13 @@ export function ConversationModal({ bookingId, otherName, otherUserId, subject, 
         { event: 'INSERT', schema: 'public', table: 'messages', filter: `booking_id=eq.${bookingId}` },
         payload => {
           const msg = payload.new as Message
-          if (msg.sender_id === otherUserId && (blocked || blockedByThem)) return
+          if (msg.sender_id === otherUserId && (blockedRef.current || blockedByThemRef.current)) return
           setMessages(prev => [...prev, msg])
         }
       )
       .subscribe()
     return () => { supabase.removeChannel(channel) }
-  }, [bookingId, otherUserId, blocked, blockedByThem])
+  }, [bookingId, otherUserId])
 
   // Auto-scroll to newest message
   useEffect(() => {
@@ -107,6 +116,7 @@ export function ConversationModal({ bookingId, otherName, otherUserId, subject, 
     if (error) {
       toast.error('Could not block user: ' + error.message)
     } else {
+      blockedRef.current = true
       setBlocked(true)
       toast.success(`${otherName} has been blocked.`)
     }
@@ -125,6 +135,7 @@ export function ConversationModal({ bookingId, otherName, otherUserId, subject, 
     if (error) {
       toast.error('Could not unblock user: ' + error.message)
     } else {
+      blockedRef.current = false
       setBlocked(false)
       toast.success(`${otherName} has been unblocked.`)
     }

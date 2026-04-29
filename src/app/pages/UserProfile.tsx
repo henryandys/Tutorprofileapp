@@ -156,6 +156,8 @@ export function UserProfile() {
       })
   }, [user])
 
+  const totalNotifCount = msgCount + sessionNotifCount
+
   function handleNotifClick() {
     if (!user) return
     if (totalNotifCount === 0) {
@@ -219,8 +221,6 @@ export function UserProfile() {
     }
     setSaving(false)
   }
-
-  const totalNotifCount = msgCount + sessionNotifCount
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col font-sans">

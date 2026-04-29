@@ -81,6 +81,7 @@ export function TutorProfile() {
   const [loading, setLoading]   = useState(true)
   const [submitting, setSubmitting] = useState(false)
   const [isSaved, setIsSaved]   = useState(false)
+  const bookingInFlight = useRef(false)
 
   // Booking form state
   const [subject, setSubject]       = useState('')
@@ -169,14 +170,15 @@ export function TutorProfile() {
     if (!tutor) return
     setContactingTutor(true)
     // Find any existing booking between this student and tutor
-    const { data: existing } = await supabase
+    const { data: existing, error: lookupError } = await supabase
       .from('bookings')
       .select('id')
       .eq('tutor_id', tutor.id)
       .eq('student_id', user.id)
       .order('created_at', { ascending: false })
       .limit(1)
-      .single()
+      .maybeSingle()
+    if (lookupError) { toast.error('Could not open chat.'); setContactingTutor(false); return }
     if (existing) {
       setChatBookingId(existing.id)
       setContactingTutor(false)
@@ -390,6 +392,7 @@ export function TutorProfile() {
 
   async function handleBooking(e: { preventDefault(): void }) {
     e.preventDefault()
+    if (bookingInFlight.current) return
     if (!tutor) return
 
     if (!user) {
@@ -407,6 +410,7 @@ export function TutorProfile() {
       return
     }
 
+    bookingInFlight.current = true
     setSubmitting(true)
 
     const baseDate = toScheduledAt(selectedDate, selectedSlot)
@@ -432,6 +436,7 @@ export function TutorProfile() {
       })
       if (error) {
         toast.error('Failed to send request: ' + error.message)
+        bookingInFlight.current = false
         setSubmitting(false)
         return
       }
@@ -441,11 +446,12 @@ export function TutorProfile() {
         ...common,
         scheduled_at: i === 0
           ? baseDate
-          : addOccurrence(selectedDate, recurrence, i).toISOString(),
+          : toScheduledAt(addOccurrence(selectedDate, recurrence, i), selectedSlot),
       }))
       const { error } = await supabase.from('bookings').insert(rows)
       if (error) {
         toast.error('Failed to send requests: ' + error.message)
+        bookingInFlight.current = false
         setSubmitting(false)
         return
       }
@@ -465,6 +471,7 @@ export function TutorProfile() {
       },
     })
 
+    bookingInFlight.current = false
     setSubmitting(false)
   }
 

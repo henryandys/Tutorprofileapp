@@ -28,13 +28,15 @@ export default function Login() {
   const [role, setRole]       = useState<UserRole>('student')
   const [error, setError]     = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
-  const didRedirect = useRef(false)
+  const didRedirect   = useRef(false)
+  const signupRoleRef = useRef<UserRole | null>(null)
 
-  // For signup: redirect once user session is confirmed
+  // For signup: redirect once user session is confirmed.
+  // Read role from a ref (set synchronously before signUp) to avoid stale closure.
   useEffect(() => {
-    if (user && mode === 'signup' && !didRedirect.current) {
+    if (user && signupRoleRef.current && !didRedirect.current) {
       didRedirect.current = true
-      const dest = role === 'tutor' ? '/my-profile' : '/profile'
+      const dest = signupRoleRef.current === 'tutor' ? '/my-profile' : '/profile'
       navigate(dest, { replace: true })
       toast.success('Welcome! Please fill out your profile to get started.')
     }
@@ -61,6 +63,7 @@ export default function Login() {
         setLoading(false)
         return
       }
+      signupRoleRef.current = role
       const { error } = await signUp(email, password, name, role)
       if (error) {
         setError(error.message)

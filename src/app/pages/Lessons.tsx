@@ -138,6 +138,7 @@ export function Lessons() {
   const [noteLesson, setNoteLesson]         = useState<Lesson | null>(null)
   const [waitlistedGroups, setWaitlistedGroups] = useState<GroupEntry[]>([])
   const [leavingWaitlistId, setLeavingWaitlistId] = useState<string | null>(null)
+  const [showPastSessions, setShowPastSessions] = useState(false)
 
   async function handleGroupMessage(g: GroupEntry) {
     if (!user || !g.tutor_id) return
@@ -177,7 +178,7 @@ export function Lessons() {
     const { error } = await supabase.from('bookings').update({ status: 'cancelled' }).eq('id', lesson.id)
     if (error) { toast.error('Could not cancel session.'); setCancellingId(null); return }
     if (message.trim()) {
-      await supabase.from('messages').insert({ booking_id: lesson.id, sender_id: user!.id, content: message.trim() })
+      await supabase.from('messages').insert({ booking_id: lesson.id, sender_id: user!.id, body: message.trim() })
     }
     setLessons(prev => prev.map(l => l.id === lesson.id ? { ...l, status: 'cancelled' as const } : l))
     setCancelBooking(null)
@@ -234,7 +235,7 @@ export function Lessons() {
         bookingId = created?.id ?? null
       }
       if (bookingId) {
-        await supabase.from('messages').insert({ booking_id: bookingId, sender_id: user.id, content: message.trim() })
+        await supabase.from('messages').insert({ booking_id: bookingId, sender_id: user.id, body: message.trim() })
       }
     }
     setGroupEntries(prev => prev.filter(ge => ge.id !== g.id))
@@ -270,7 +271,7 @@ export function Lessons() {
           bookingId = created?.id ?? null
         }
         if (bookingId) {
-          await supabase.from('messages').insert({ booking_id: bookingId, sender_id: user.id, content: message.trim() })
+          await supabase.from('messages').insert({ booking_id: bookingId, sender_id: user.id, body: message.trim() })
         }
       }
     }
@@ -349,7 +350,9 @@ export function Lessons() {
       .eq('id', lesson.id)
       .eq('tutor_id', user!.id)
     if (error) { toast.error('Failed to decline booking.'); setDecliningId(null); return }
-    await supabase.from('messages').insert({ booking_id: lesson.id, sender_id: user!.id, content: reason.trim() })
+    if (reason.trim()) {
+      await supabase.from('messages').insert({ booking_id: lesson.id, sender_id: user!.id, body: reason.trim() })
+    }
     sendNotificationEmail({
       type: 'booking_declined',
       recipientId: lesson.other_user_id,
@@ -381,70 +384,46 @@ export function Lessons() {
       .select('group_lesson_id, group_lessons(*)')
       .eq('student_id', user.id)
 
-    Promise.all([queries, groupTutorQ, groupStudentQ]).then(async ([[tutorRes, studentRes], groupTutorRes, groupStudentRes]) => {
-      const asTutor: Lesson[] = ((tutorRes?.data ?? []) as any[]).map(b => ({
-        id:                     b.id,
-        subject:                b.subject,
-        status:                 b.status,
-        scheduled_at:           b.scheduled_at ?? null,
-        created_at:             b.created_at,
-        message:                b.message ?? '',
-        other_name:             b.student_name,
-        other_user_id:          b.student_id,
-        perspective:            'tutor' as const,
-        reschedule_proposed_at: b.reschedule_proposed_at ?? null,
-        reschedule_status:      b.reschedule_status ?? null,
-        reschedule_proposed_by: b.reschedule_proposed_by ?? null,
-        price_cents:            b.price_cents ?? null,
-        payment_status:         b.payment_status ?? null,
-      }))
-      const asStudent: Lesson[] = ((studentRes?.data ?? []) as any[]).map(b => ({
-        id:                     b.id,
-        subject:                b.subject,
-        status:                 b.status,
-        scheduled_at:           b.scheduled_at ?? null,
-        created_at:             b.created_at,
-        message:                b.message ?? '',
-        other_name:             b.tutor?.full_name ?? 'Tutor',
-        other_user_id:          b.tutor_id,
-        perspective:            'student' as const,
-        reschedule_proposed_at: b.reschedule_proposed_at ?? null,
-        reschedule_status:      b.reschedule_status ?? null,
-        reschedule_proposed_by: b.reschedule_proposed_by ?? null,
-        price_cents:            b.price_cents ?? null,
-        payment_status:         b.payment_status ?? null,
-      }))
-      setLessons([...asTutor, ...asStudent])
+    async function load() {
+      try {
+        const [[tutorRes, studentRes], groupTutorRes, groupStudentRes] =
+          await Promise.all([queries, groupTutorQ, groupStudentQ])
 
-      const groupAsTutor: GroupEntry[] = ((groupTutorRes.data ?? []) as any[]).map(g => ({
-        id:               g.id,
-        title:            g.title,
-        subject:          g.subject,
-        scheduled_at:     g.scheduled_at,
-        duration_minutes: g.duration_minutes,
-        max_students:     g.max_students,
-        price:            g.price,
-        enrollment_count: g.group_lesson_enrollments?.[0]?.count ?? 0,
-        perspective:      'tutor' as const,
-        tutor_name:       null,
-        tutor_id:         g.tutor_id ?? null,
-        location:         g.location ?? null,
-        recurrence_type:  g.recurrence_type ?? null,
-      }))
-      const enrolledRows = ((groupStudentRes.data ?? []) as any[]).filter((e: any) => e.group_lessons)
-      // Fetch tutor names from profiles using the tutor_ids
-      const tutorIds = [...new Set(enrolledRows.map((e: any) => e.group_lessons.tutor_id as string))]
-      const tutorNames: Record<string, string> = {}
-      if (tutorIds.length > 0) {
-        const { data: profiles } = await supabase
-          .from('profiles')
-          .select('id, full_name')
-          .in('id', tutorIds)
-        for (const p of profiles ?? []) tutorNames[p.id] = p.full_name
-      }
-      const groupAsStudent: GroupEntry[] = enrolledRows.map((e: any) => {
-        const g = e.group_lessons
-        return {
+        const asTutor: Lesson[] = ((tutorRes?.data ?? []) as any[]).map(b => ({
+          id:                     b.id,
+          subject:                b.subject,
+          status:                 b.status,
+          scheduled_at:           b.scheduled_at ?? null,
+          created_at:             b.created_at,
+          message:                b.message ?? '',
+          other_name:             b.student_name,
+          other_user_id:          b.student_id,
+          perspective:            'tutor' as const,
+          reschedule_proposed_at: b.reschedule_proposed_at ?? null,
+          reschedule_status:      b.reschedule_status ?? null,
+          reschedule_proposed_by: b.reschedule_proposed_by ?? null,
+          price_cents:            b.price_cents ?? null,
+          payment_status:         b.payment_status ?? null,
+        }))
+        const asStudent: Lesson[] = ((studentRes?.data ?? []) as any[]).map(b => ({
+          id:                     b.id,
+          subject:                b.subject,
+          status:                 b.status,
+          scheduled_at:           b.scheduled_at ?? null,
+          created_at:             b.created_at,
+          message:                b.message ?? '',
+          other_name:             b.tutor?.full_name ?? 'Tutor',
+          other_user_id:          b.tutor_id,
+          perspective:            'student' as const,
+          reschedule_proposed_at: b.reschedule_proposed_at ?? null,
+          reschedule_status:      b.reschedule_status ?? null,
+          reschedule_proposed_by: b.reschedule_proposed_by ?? null,
+          price_cents:            b.price_cents ?? null,
+          payment_status:         b.payment_status ?? null,
+        }))
+        setLessons([...asTutor, ...asStudent])
+
+        const groupAsTutor: GroupEntry[] = ((groupTutorRes.data ?? []) as any[]).map(g => ({
           id:               g.id,
           title:            g.title,
           subject:          g.subject,
@@ -452,24 +431,56 @@ export function Lessons() {
           duration_minutes: g.duration_minutes,
           max_students:     g.max_students,
           price:            g.price,
-          enrollment_count: 0,
-          perspective:      'student' as const,
-          tutor_name:       tutorNames[g.tutor_id] ?? null,
+          enrollment_count: g.group_lesson_enrollments?.[0]?.count ?? 0,
+          perspective:      'tutor' as const,
+          tutor_name:       null,
           tutor_id:         g.tutor_id ?? null,
           location:         g.location ?? null,
           recurrence_type:  g.recurrence_type ?? null,
+        }))
+        const enrolledRows = ((groupStudentRes.data ?? []) as any[]).filter((e: any) => e.group_lessons)
+        const tutorIds = [...new Set(enrolledRows.map((e: any) => e.group_lessons.tutor_id as string))]
+        const tutorNames: Record<string, string> = {}
+        if (tutorIds.length > 0) {
+          const { data: profiles } = await supabase
+            .from('profiles')
+            .select('id, full_name')
+            .in('id', tutorIds)
+          for (const p of profiles ?? []) tutorNames[p.id] = p.full_name
         }
-      })
-      // Deduplicate: tutor may appear as both tutor and student
-      const seen = new Set<string>()
-      const merged = [...groupAsTutor, ...groupAsStudent].filter(g => {
-        if (seen.has(g.id)) return false
-        seen.add(g.id)
-        return true
-      })
-      setGroupEntries(merged)
-      setLoading(false)
-    })
+        const groupAsStudent: GroupEntry[] = enrolledRows.map((e: any) => {
+          const g = e.group_lessons
+          return {
+            id:               g.id,
+            title:            g.title,
+            subject:          g.subject,
+            scheduled_at:     g.scheduled_at,
+            duration_minutes: g.duration_minutes,
+            max_students:     g.max_students,
+            price:            g.price,
+            enrollment_count: 0,
+            perspective:      'student' as const,
+            tutor_name:       tutorNames[g.tutor_id] ?? null,
+            tutor_id:         g.tutor_id ?? null,
+            location:         g.location ?? null,
+            recurrence_type:  g.recurrence_type ?? null,
+          }
+        })
+        const seen = new Set<string>()
+        const merged = [...groupAsTutor, ...groupAsStudent].filter(g => {
+          if (seen.has(g.id)) return false
+          seen.add(g.id)
+          return true
+        })
+        setGroupEntries(merged)
+      } catch {
+        toast.error('Failed to load lessons. Please refresh.')
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    load()
   }, [user, isTutor])
 
   // Load which tutors this student has already reviewed so we can hide the prompt.
@@ -622,9 +633,11 @@ export function Lessons() {
       .eq('tutor_id', user!.id)
     if (error) { toast.error('Batch update failed.'); setBatchProcessing(false); return }
     const updated = lessons.filter(l => ids.includes(l.id))
-    await Promise.all(updated.map(l =>
-      supabase.from('messages').insert({ booking_id: l.id, sender_id: user!.id, content: reason.trim() })
-    ))
+    if (reason.trim()) {
+      await Promise.all(updated.map(l =>
+        supabase.from('messages').insert({ booking_id: l.id, sender_id: user!.id, body: reason.trim() })
+      ))
+    }
     for (const l of updated) {
       sendNotificationEmail({
         type: 'booking_declined',
@@ -753,15 +766,22 @@ export function Lessons() {
     [activeLessons]
   )
 
-  // Completed lessons not still prompting a review (reviewed, or tutor-side)
+  // All lessons in the past — excludes items already shown in the "Leave a Review" banner
   const pastLessons = useMemo(() =>
     activeLessons
-      .filter(l => l.status === 'completed' && (isTutor || reviewedTutors.has(l.other_user_id)))
+      .filter(l => {
+        const isPastDate = l.scheduled_at && new Date(l.scheduled_at) < today
+        const isCompletedNoDate = !l.scheduled_at && l.status === 'completed'
+        if (!isPastDate && !isCompletedNoDate) return false
+        // Skip items that still need a review (shown separately)
+        if (!isTutor && l.status === 'completed' && !reviewedTutors.has(l.other_user_id)) return false
+        return true
+      })
       .sort((a, b) =>
         new Date(b.scheduled_at ?? b.created_at).getTime() -
         new Date(a.scheduled_at ?? a.created_at).getTime()
       ),
-    [activeLessons, isTutor, reviewedTutors]
+    [activeLessons, today, isTutor, reviewedTutors]
   )
 
   const visibleGroups = useMemo(() => {
@@ -891,18 +911,28 @@ export function Lessons() {
                     ? selectedDay.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
                     : 'Upcoming Lessons'}
                 </h2>
-                {isTutor && pendingFromStudents.length > 1 && !selectedDay && (
+                {selectedDay ? (
                   <button
-                    onClick={() => {
-                      if (selectedIds.size === pendingFromStudents.length) setSelectedIds(new Set())
-                      else setSelectedIds(new Set(pendingFromStudents.map(l => l.id)))
-                    }}
-                    className="text-xs font-bold text-blue-600 hover:text-blue-700 transition-colors"
+                    onClick={() => setSelectedDay(null)}
+                    className="flex items-center gap-1.5 text-xs font-bold text-blue-600 hover:text-blue-700 transition-colors"
                   >
-                    {selectedIds.size === pendingFromStudents.length
-                      ? 'Deselect all'
-                      : `Select all ${pendingFromStudents.length} pending`}
+                    <Calendar className="w-3.5 h-3.5" />
+                    View all days
                   </button>
+                ) : (
+                  isTutor && pendingFromStudents.length > 1 && (
+                    <button
+                      onClick={() => {
+                        if (selectedIds.size === pendingFromStudents.length) setSelectedIds(new Set())
+                        else setSelectedIds(new Set(pendingFromStudents.map(l => l.id)))
+                      }}
+                      className="text-xs font-bold text-blue-600 hover:text-blue-700 transition-colors"
+                    >
+                      {selectedIds.size === pendingFromStudents.length
+                        ? 'Deselect all'
+                        : `Select all ${pendingFromStudents.length} pending`}
+                    </button>
+                  )
                 )}
               </div>
 
@@ -1118,29 +1148,41 @@ export function Lessons() {
           </div>
         )}
 
-        {/* ── Past Sessions (with notes) ── */}
+        {/* ── Past Sessions ── */}
         {!loading && pastLessons.length > 0 && (
           <div className="mt-8">
-            <h2 className="text-lg font-black text-gray-900 mb-4 flex items-center gap-2">
-              <StickyNote className="w-5 h-5 text-gray-400" />
-              Past Sessions
-            </h2>
-            <div className="flex flex-col gap-3">
-              {pastLessons.map(l => (
-                <LessonCard
-                  key={`past-${l.id}`}
-                  lesson={l}
-                  isTutor={isTutor}
-                  onChat={() => setChatLesson(l)}
-                  onAccept={() => {}}
-                  onDecline={() => {}}
-                  onCancel={() => {}}
-                  onDismiss={() => handleDismiss(l.id)}
-                  onNote={() => setNoteLesson(l)}
-                  notePreview={notes[l.id]}
-                />
-              ))}
-            </div>
+            <button
+              onClick={() => setShowPastSessions(v => !v)}
+              className="w-full flex items-center justify-between bg-white rounded-2xl border border-gray-100 shadow-sm px-5 py-4 hover:bg-gray-50 transition-colors"
+            >
+              <span className="flex items-center gap-2 text-lg font-black text-gray-900">
+                <Clock className="w-5 h-5 text-gray-400" />
+                Past Sessions
+                <span className="ml-1 px-2 py-0.5 rounded-full text-xs font-bold bg-gray-100 text-gray-500">
+                  {pastLessons.length}
+                </span>
+              </span>
+              <ChevronRight className={`w-5 h-5 text-gray-400 transition-transform ${showPastSessions ? 'rotate-90' : ''}`} />
+            </button>
+
+            {showPastSessions && (
+              <div className="flex flex-col gap-3 mt-3">
+                {pastLessons.map(l => (
+                  <LessonCard
+                    key={`past-${l.id}`}
+                    lesson={l}
+                    isTutor={isTutor}
+                    onChat={() => setChatLesson(l)}
+                    onAccept={() => {}}
+                    onDecline={() => {}}
+                    onCancel={() => {}}
+                    onDismiss={() => handleDismiss(l.id)}
+                    onNote={() => setNoteLesson(l)}
+                    notePreview={notes[l.id]}
+                  />
+                ))}
+              </div>
+            )}
           </div>
         )}
       </main>

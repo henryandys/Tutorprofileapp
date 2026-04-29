@@ -146,7 +146,7 @@ export function GroupEnrollmentModal({ group: g, onClose, onRemove }: Props) {
       if (bookingId) {
         const { error } = await supabase
           .from('messages')
-          .insert({ booking_id: bookingId, sender_id: user.id, content: broadcastText.trim() })
+          .insert({ booking_id: bookingId, sender_id: user.id, body: broadcastText.trim() })
         error ? failed++ : sent++
       } else {
         failed++

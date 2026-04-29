@@ -104,9 +104,9 @@ export function Home() {
               </div>
               <h3 className="text-2xl font-black text-gray-900 leading-tight">For Instructors</h3>
               <p className="text-gray-500 font-medium">Join our community of world-class educators. Set your own rates, manage your schedule, and grow your business.</p>
-              <a href="/Become-a-Instructor" onClick={handleBecomeTutor} className="text-green-600 font-black flex items-center gap-2 hover:gap-3 transition-all">
+              <button onClick={handleBecomeTutor} className="text-green-600 font-black flex items-center gap-2 hover:gap-3 transition-all">
                 Start instructing <ArrowRight className="w-4 h-4" />
-              </a>
+              </button>
             </div>
 
             <div className="flex flex-col gap-6 p-8 bg-white rounded-3xl shadow-sm border border-gray-100">
@@ -139,7 +139,7 @@ export function Home() {
                 <h4 className="font-black text-gray-900 uppercase tracking-widest text-xs">Platform</h4>
                 <Link to="/search" className="text-gray-500 font-bold hover:text-blue-600">Find Instructors</Link>
                 <Link to="/repository" className="text-gray-500 font-bold hover:text-blue-600">Repository</Link>
-                <a href="/Become-an-Instructor" onClick={handleBecomeTutor} className="text-gray-500 font-bold hover:text-blue-600">Become an Instructor</a>
+                <button onClick={handleBecomeTutor} className="text-gray-500 font-bold hover:text-blue-600">Become an Instructor</button>
             </div>
           </div>
           

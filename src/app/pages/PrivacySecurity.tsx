@@ -7,7 +7,7 @@ import { useAuth } from "../../context/AuthContext";
 import { supabase } from "../../lib/supabase";
 
 export function PrivacySecurity() {
-  const { user } = useAuth()
+  const { user, signOut } = useAuth()
   const navigate  = useNavigate()
 
   // Password change state
@@ -52,11 +52,12 @@ export function PrivacySecurity() {
       .eq('id', user.id)
     if (error) {
       toast.error('Failed to disable account: ' + error.message)
-    } else {
-      toast.success('Your account has been disabled and is no longer visible to others.')
-      navigate('/profile')
+      setDisabling(false)
+      return
     }
-    setDisabling(false)
+    toast.success('Your account has been disabled.')
+    await signOut()
+    navigate('/')
   }
 
   return (

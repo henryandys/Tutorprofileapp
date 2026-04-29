@@ -30,9 +30,17 @@ export function CreateProfile() {
     if (role === 'tutor') navigate('/my-profile', { replace: true })
   }, [role, navigate])
 
-  const { register, handleSubmit, formState: { errors } } = useForm<ProfileForm>()
+  const { register, handleSubmit, trigger, formState: { errors } } = useForm<ProfileForm>()
 
-  const nextStep = () => setSaving(s => Math.min(s + 1, 3))
+  const STEP_FIELDS: Record<number, (keyof ProfileForm)[]> = {
+    1: ['name', 'subject', 'hourlyRate', 'location'],
+    2: ['education', 'experience'],
+  }
+
+  const nextStep = async () => {
+    const valid = await trigger(STEP_FIELDS[step])
+    if (valid) setSaving(s => Math.min(s + 1, 3))
+  }
   const prevStep = () => setSaving(s => Math.max(s - 1, 1))
 
   const onSubmit = async (data: ProfileForm) => {

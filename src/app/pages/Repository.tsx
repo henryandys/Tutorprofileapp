@@ -98,38 +98,52 @@ export function Repository() {
       })
   }, [user, isTutor])
 
-  // Tutor IDs the current student has an accepted booking with (for filtering)
-  const [acceptedTutorIds, setAcceptedTutorIds] = useState<string[]>([])
   useEffect(() => {
-    if (!user || isTutor) return
-    supabase
-      .from('bookings')
-      .select('tutor_id')
-      .eq('student_id', user.id)
-      .eq('status', 'accepted')
-      .then(({ data }) => setAcceptedTutorIds((data ?? []).map(b => b.tutor_id)))
-  }, [user, isTutor])
+    async function load() {
+      setLoading(true)
 
-  useEffect(() => {
-    supabase
-      .from('resources')
-      .select('*')
-      .order('created_at', { ascending: false })
-      .then(({ data, error }) => {
-        if (error) toast.error('Failed to load resources.')
-        setResources(data ?? [])
-        setLoading(false)
-      })
-  }, [])
+      // Students: fetch accepted tutor IDs first so we can filter server-side
+      let acceptedTutorIds: string[] = []
+      if (user && !isTutor) {
+        const { data } = await supabase
+          .from('bookings')
+          .select('tutor_id')
+          .eq('student_id', user.id)
+          .eq('status', 'accepted')
+        acceptedTutorIds = (data ?? []).map((b: { tutor_id: string }) => b.tutor_id)
+      }
+
+      // Build a server-side visibility filter so restricted files never reach the browser
+      let query = supabase.from('resources').select('*').order('created_at', { ascending: false })
+
+      if (!user) {
+        // Anonymous: public only
+        query = query.eq('visibility', 'public')
+      } else if (isTutor) {
+        // Tutor: public resources + their own (any visibility)
+        query = query.or(`visibility.eq.public,tutor_id.eq.${user.id}`)
+      } else {
+        // Student: public + accepted_only from tutors they have bookings with + specific where listed
+        const parts = [
+          'visibility.eq.public',
+          `and(visibility.eq.specific,allowed_student_ids.cs.{${user.id}})`,
+        ]
+        if (acceptedTutorIds.length > 0) {
+          parts.push(`and(visibility.eq.accepted_only,tutor_id.in.(${acceptedTutorIds.join(',')}))`)
+        }
+        query = query.or(parts.join(','))
+      }
+
+      const { data, error } = await query
+      if (error) toast.error('Failed to load resources.')
+      setResources(data ?? [])
+      setLoading(false)
+    }
+
+    load()
+  }, [user?.id, isTutor])
 
   const filtered = resources.filter(r => {
-    // Visibility gate
-    const isOwn = user && r.tutor_id === user.id
-    if (!isOwn) {
-      if (r.visibility === 'accepted_only' && !acceptedTutorIds.includes(r.tutor_id)) return false
-      if (r.visibility === 'specific' && (!user || !r.allowed_student_ids.includes(user.id))) return false
-    }
-    // Search / grade filters
     const q = searchQuery.toLowerCase()
     const matchesQuery = !q || r.title.toLowerCase().includes(q) ||
       r.subject.toLowerCase().includes(q) ||

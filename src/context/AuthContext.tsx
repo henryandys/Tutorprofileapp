@@ -25,13 +25,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true)
 
   async function fetchProfile(userId: string): Promise<Profile | null> {
-    console.log('fetchProfile called with:', userId)
-
     const timeout = new Promise<null>((resolve) =>
-      setTimeout(() => {
-        console.warn('fetchProfile timed out')
-        resolve(null)
-      }, 5000)
+      setTimeout(() => resolve(null), 5000)
     )
 
     const query = supabase
@@ -40,13 +35,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       .eq('id', userId)
       .single()
       .then(({ data, error }) => {
-        console.log('fetchProfile result:', { data, error })
         if (error) return null
         return data as Profile
       })
 
     return Promise.race([query, timeout])
-  
   }
 
   async function refreshProfile() {
@@ -57,7 +50,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     supabase.auth.getSession().then(async ({ data: { session } }) => {
-      console.log('getSession result:', session?.user?.id)
       setSession(session)
       if (session?.user) {
         const p = await fetchProfile(session.user.id)
@@ -68,7 +60,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (_event, session) => {
-        console.log('onAuthStateChange:', _event, session?.user?.id)
         setSession(session)
         if (session?.user) {
           const p = await fetchProfile(session.user.id)
@@ -110,8 +101,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   async function signOut() {
     try {
       await supabase.auth.signOut()
-    } catch (err) {
-      console.warn('SignOut lock error (safe to ignore):', err)
+    } catch {
+      // signOut lock errors are safe to ignore
     } finally {
       setProfile(null)
       setSession(null)
