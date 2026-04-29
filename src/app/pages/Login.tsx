@@ -1,9 +1,10 @@
 // // src/app/pages/Login.tsx
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useNavigate, useLocation, Link } from 'react-router'
 import { useAuth } from '../../context/AuthContext'
 import type { UserRole } from '../../lib/supabase'
+import { toast } from 'sonner'
 
 import { Button } from '../components/ui/button'
 import { Input } from '../components/ui/input'
@@ -27,11 +28,15 @@ export default function Login() {
   const [role, setRole]       = useState<UserRole>('student')
   const [error, setError]     = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
+  const didRedirect = useRef(false)
 
   // For signup: redirect once user session is confirmed
   useEffect(() => {
-    if (user && mode === 'signup') {
-      navigate(from, { replace: true })
+    if (user && mode === 'signup' && !didRedirect.current) {
+      didRedirect.current = true
+      const dest = role === 'tutor' ? '/my-profile' : '/profile'
+      navigate(dest, { replace: true })
+      toast.success('Welcome! Please fill out your profile to get started.')
     }
   }, [user])
 
