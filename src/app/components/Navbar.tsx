@@ -66,8 +66,9 @@ export function Navbar() {
               <LogOut className="w-4 h-4" />
               <span className="hidden sm:block">Sign Out</span>
             </button>
-            <Link
-              to={role === 'tutor' ? '/my-profile' : '/profile'}
+            <button
+              type="button"
+              onClick={() => navigate(role === 'tutor' ? '/my-profile' : '/profile')}
               className="flex items-center gap-2 border border-gray-300 rounded-full py-1.5 px-3 hover:shadow-md transition-shadow"
             >
               <Menu className="w-4 h-4 text-gray-500" />
@@ -76,7 +77,7 @@ export function Navbar() {
               ) : (
                 <User className="w-5 h-5 text-gray-600 fill-gray-100" />
               )}
-            </Link>
+            </button>
           </div>
         ) : (
           /* Logged out: sign in + profile icon */
