@@ -3,11 +3,13 @@
   import App from "./app/App.tsx";
   import "./styles/index.css";
   import { Analytics } from "@vercel/analytics/react";
+  import { SpeedInsights } from "@vercel/speed-insights/react";
 
   createRoot(document.getElementById("root")!).render(
     <>
       <App />
       <Analytics />
+      <SpeedInsights />
     </>
   );
   
