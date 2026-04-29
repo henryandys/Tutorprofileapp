@@ -22,8 +22,8 @@ interface ProfileForm {
 export function CreateProfile() {
   const navigate = useNavigate()
   const { user, role, refreshProfile } = useAuth()
-  const [step, setSaving] = useState(1)
-  const [saving, setIsSaving] = useState(false)
+  const [step, setStep] = useState(1)
+  const [saving, setSaving] = useState(false)
 
   // Already a tutor — send them straight to their profile
   useEffect(() => {
@@ -39,9 +39,9 @@ export function CreateProfile() {
 
   const nextStep = async () => {
     const valid = await trigger(STEP_FIELDS[step])
-    if (valid) setSaving(s => Math.min(s + 1, 3))
+    if (valid) setStep(s => Math.min(s + 1, 3))
   }
-  const prevStep = () => setSaving(s => Math.max(s - 1, 1))
+  const prevStep = () => setStep(s => Math.max(s - 1, 1))
 
   const onSubmit = async (data: ProfileForm) => {
     if (!user) {
@@ -49,7 +49,7 @@ export function CreateProfile() {
       return
     }
 
-    setIsSaving(true)
+    setSaving(true)
 
     try {
       // Parse experience years from the string (e.g. "10+ years" → 10)
@@ -94,7 +94,7 @@ export function CreateProfile() {
       console.error('CreateProfile error:', err)
       toast.error('Something went wrong: ' + (err.message ?? 'Unknown error'))
     } finally {
-      setIsSaving(false)
+      setSaving(false)
     }
   }
 

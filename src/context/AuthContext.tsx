@@ -49,22 +49,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   useEffect(() => {
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
-      setSession(session)
-      if (session?.user) {
-        const p = await fetchProfile(session.user.id)
-        setProfile(p)
-      }
-      setLoading(false)
-    })
+    // Track the last fetched user ID so TOKEN_REFRESHED and duplicate INITIAL_SESSION
+    // events don't trigger a second fetchProfile for the same user.
+    const lastUserId = { current: '' }
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (_event, session) => {
         setSession(session)
         if (session?.user) {
-          const p = await fetchProfile(session.user.id)
-          setProfile(p)
+          if (session.user.id !== lastUserId.current) {
+            lastUserId.current = session.user.id
+            const p = await fetchProfile(session.user.id)
+            setProfile(p)
+          }
         } else {
+          lastUserId.current = ''
           setProfile(null)
         }
         setLoading(false)
