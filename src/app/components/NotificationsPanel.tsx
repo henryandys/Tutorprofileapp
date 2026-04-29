@@ -53,6 +53,7 @@ export function NotificationsPanel() {
     if (!user) return
     setLoading(true)
 
+    let fetched: Notif[] = []
     if (role === 'tutor') {
       const { data } = await supabase
         .from('bookings')
@@ -62,13 +63,13 @@ export function NotificationsPanel() {
         .order('created_at', { ascending: false })
         .limit(25)
 
-      setNotifs((data ?? []).map((b: any) => ({
+      fetched = (data ?? []).map((b: any) => ({
         id:         b.id,
         type:       'new_booking' as const,
         title:      'New lesson request',
         body:       `${b.student_name} wants help with ${b.subject}`,
         created_at: b.created_at,
-      })))
+      }))
     } else {
       const { data } = await supabase
         .from('bookings')
@@ -78,7 +79,7 @@ export function NotificationsPanel() {
         .order('created_at', { ascending: false })
         .limit(25)
 
-      setNotifs((data ?? []).map((b: any) => ({
+      fetched = (data ?? []).map((b: any) => ({
         id:         b.id,
         type:       b.status as 'accepted' | 'declined',
         title:      b.status === 'accepted' ? 'Lesson accepted!' : 'Lesson declined',
@@ -86,9 +87,17 @@ export function NotificationsPanel() {
                       ? `${(b.tutor as any)?.full_name ?? 'Your tutor'} confirmed your ${b.subject} session`
                       : `${(b.tutor as any)?.full_name ?? 'Your tutor'} declined your ${b.subject} request`,
         created_at: b.created_at,
-      })))
+      }))
     }
 
+    setNotifs(fetched)
+    // Prune IDs that are no longer in the fetch window so localStorage doesn't grow unboundedly
+    const activeIds = new Set(fetched.map(n => n.id))
+    setSeenIds(prev => {
+      const pruned = new Set([...prev].filter(id => activeIds.has(id)))
+      if (pruned.size !== prev.size) localStorage.setItem(storageKey, JSON.stringify([...pruned]))
+      return pruned
+    })
     setLoading(false)
   }
 

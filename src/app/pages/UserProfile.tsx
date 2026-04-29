@@ -194,7 +194,7 @@ export function UserProfile() {
         firstName: parts[0] ?? '',
         lastName:  parts.slice(1).join(' '),
         email:     user.email ?? '',
-        phone:     '',
+        phone:     profile.phone ?? '',
         location:  profile.location ?? '',
         bio:       profile.bio ?? '',
       })
@@ -210,6 +210,7 @@ export function UserProfile() {
         full_name:  `${data.firstName} ${data.lastName}`.trim(),
         location:   data.location,
         bio:        data.bio,
+        phone:      data.phone || null,
         updated_at: new Date().toISOString(),
       })
       .eq('id', user.id)

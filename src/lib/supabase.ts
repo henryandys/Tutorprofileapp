@@ -17,6 +17,7 @@ export interface Profile {
   avatar_url?: string;
   location?: string;
   bio?: string;
+  phone?: string;
   created_at: string;
   updated_at: string;
 }

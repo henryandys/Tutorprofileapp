@@ -189,6 +189,9 @@ export function Search() {
     setEnrollingId(null)
   }
 
+  // Stable key for the geocoding effect — recomputed only when lesson IDs change, not on lat/lng updates
+  const groupLessonIdKey = useMemo(() => groupLessons.map(g => g.id).join(','), [groupLessons])
+
   // Geocode custom group lesson locations progressively in the background.
   // Only runs for lessons that have a location string but no coords yet.
   useEffect(() => {
@@ -212,7 +215,7 @@ export function Search() {
     })()
     return () => { cancelled = true }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [groupLessons.map(g => g.id).join(',')])
+  }, [groupLessonIdKey])
 
   // Whenever allTutors gets geocoded coordinates, push them into groupLessons that
   // have no custom location (those get their own geocoding above).
@@ -235,7 +238,10 @@ export function Search() {
 
   // Geocode location field → fly map there (debounced).
   // When cleared, fall back to the user's geocoded home coords (if available).
-  const cachedHome = (() => { try { const s = sessionStorage.getItem('userHomeCoords'); return s ? JSON.parse(s) as [number, number] : undefined } catch { return undefined } })()
+  const cachedHome = useMemo<[number, number] | undefined>(() => {
+    try { const s = sessionStorage.getItem('userHomeCoords'); return s ? JSON.parse(s) as [number, number] : undefined }
+    catch { return undefined }
+  }, [])
   const [flyTo, setFlyTo]   = useState<[number, number] | undefined>(cachedHome)
   const homeCoords          = useRef<[number, number] | undefined>(cachedHome)
   const locationDebounce    = useRef<ReturnType<typeof setTimeout> | null>(null)

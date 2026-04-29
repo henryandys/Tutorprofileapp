@@ -1,6 +1,6 @@
 // src/app/pages/TutorMyProfile.tsx
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useForm, useFieldArray } from "react-hook-form";
 import { Navbar } from "../components/Navbar";
 import {
@@ -261,13 +261,13 @@ export function TutorMyProfile() {
   }
 
   // Unique accepted students derived from bookings
-  const acceptedStudents = (() => {
+  const acceptedStudents = useMemo(() => {
     const seen = new Set<string>()
     return bookings
       .filter(b => b.status === 'accepted')
       .filter(b => { if (seen.has(b.student_id)) return false; seen.add(b.student_id); return true })
       .map(b => ({ id: b.student_id, name: b.student_name }))
-  })()
+  }, [bookings])
 
   const pendingCount = bookings.filter(b => b.status === 'pending').length
 
