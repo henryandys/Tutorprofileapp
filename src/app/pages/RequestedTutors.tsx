@@ -379,7 +379,7 @@ export function RequestedTutors() {
     <div className="min-h-screen bg-gray-50 flex flex-col">
       <Navbar />
 
-      <main className="flex-1 max-w-2xl mx-auto w-full px-6 py-12">
+      <main className="flex-1 max-w-2xl mx-auto w-full px-4 sm:px-6 py-8 sm:py-12">
 
         {/* Header */}
         <div className="mb-10 text-center">
@@ -389,7 +389,7 @@ export function RequestedTutors() {
               : <Trophy className="w-8 h-8 text-blue-600" />
             }
           </div>
-          <h1 className="text-3xl font-black text-gray-900 tracking-tight mb-2">
+          <h1 className="text-2xl sm:text-3xl font-black text-gray-900 tracking-tight mb-2">
             {mineMode ? 'Your Requested Courses' : 'Most Wanted Instructors'}
           </h1>
           <p className="text-gray-500 font-medium max-w-md mx-auto">
@@ -410,7 +410,7 @@ export function RequestedTutors() {
 
         {/* At-limit picker — shown when user tries to vote but is at the cap */}
         {pendingVote && (
-          <div className="mb-6 bg-amber-50 border border-amber-200 rounded-2xl p-5">
+          <div className="mb-6 bg-amber-50 border border-amber-200 rounded-2xl p-4 sm:p-5">
             <div className="flex items-start justify-between mb-3">
               <div>
                 <p className="font-black text-amber-900">You've used all {REQUEST_LIMIT} request slots</p>
@@ -433,7 +433,7 @@ export function RequestedTutors() {
             ) : (
               <div className="space-y-2">
                 {myRequestsList.map(r => (
-                  <div key={r.id} className="flex items-center justify-between bg-white rounded-xl border border-amber-100 px-4 py-3">
+                  <div key={r.id} className="flex items-center justify-between bg-white rounded-xl border border-amber-100 px-3 sm:px-4 py-3">
                     <div className="min-w-0 mr-3">
                       <p className="font-bold text-gray-800 text-sm truncate">{r.subject}</p>
                       {r.vote_count === 0 && (
@@ -449,7 +449,8 @@ export function RequestedTutors() {
                         ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
                         : <Trash2 className="w-3.5 h-3.5" />
                       }
-                      Remove &amp; Vote
+                      <span className="hidden sm:inline">Remove &amp; Vote</span>
+                      <span className="sm:hidden">Remove</span>
                     </button>
                   </div>
                 ))}
@@ -478,11 +479,11 @@ export function RequestedTutors() {
             {requests.map((req, i) => (
               <div
                 key={req.id}
-                className={`flex items-center gap-4 p-5 rounded-2xl border transition-all ${mineMode ? 'bg-white border-gray-100' : rankBg(i)}`}
+                className={`flex items-center gap-3 sm:gap-4 p-4 sm:p-5 rounded-2xl border transition-all ${mineMode ? 'bg-white border-gray-100' : rankBg(i)}`}
               >
                 {/* Rank badge — leaderboard mode only */}
                 {!mineMode && (
-                  <div className="w-8 shrink-0 text-center">
+                  <div className="w-6 sm:w-8 shrink-0 text-center">
                     {i < 3
                       ? rankIcon(i)
                       : <span className="text-sm font-black text-gray-400">#{i + 1}</span>
@@ -547,7 +548,7 @@ export function RequestedTutors() {
         )}
 
         {/* Suggest / add section */}
-        <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6">
+        <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-4 sm:p-6">
           {!showForm ? (
             <div className="flex flex-col items-center gap-2">
               <button

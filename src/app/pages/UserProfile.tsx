@@ -38,7 +38,7 @@ interface UserProfileForm {
 }
 
 export function UserProfile() {
-  const { user, profile, role, refreshProfile } = useAuth()
+  const { user, profile, role, loading, refreshProfile } = useAuth()
   const navigate = useNavigate()
   const [saving, setSaving] = useState(false)
   const [uploadingAvatar, setUploadingAvatar] = useState(false)
@@ -223,6 +223,11 @@ export function UserProfile() {
     setSaving(false)
   }
 
+  if (loading) return (
+    <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+      <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+    </div>
+  )
   if (role === 'tutor') return <Navigate to="/my-profile" replace />
 
   return (
