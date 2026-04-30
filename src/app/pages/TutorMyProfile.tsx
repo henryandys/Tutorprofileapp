@@ -6,7 +6,7 @@ import { Navbar } from "../components/Navbar";
 import {
   User, BookOpen, DollarSign, MapPin, GraduationCap, Briefcase,
   Plus, X, Save, Camera, Award, Star, FileText, Calendar,
-  ChevronRight, Loader2, Clock, Shield, CreditCard, Users, RefreshCw, Bell
+  ChevronRight, Loader2, Clock, Shield, CreditCard, Users, RefreshCw, Bell, Lightbulb
 } from "lucide-react";
 import { toast } from "sonner";
 import { Link } from "react-router";
@@ -353,6 +353,13 @@ export function TutorMyProfile() {
                   <Calendar className="w-4 h-4" />
                   My Lessons
                 </Link>
+
+                <div className="mt-2 pt-2 border-t border-gray-100">
+                  <Link to="/needed-courses?mine=true" className="w-full flex items-center gap-3 px-4 py-3 text-amber-600 hover:bg-amber-50 rounded-xl font-bold text-sm transition-colors">
+                    <Lightbulb className="w-4 h-4" />
+                    Needed Courses
+                  </Link>
+                </div>
               </nav>
             </div>
           </aside>

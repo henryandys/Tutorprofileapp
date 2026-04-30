@@ -1,9 +1,9 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useForm } from "react-hook-form";
 import { Navbar } from "../components/Navbar";
-import { User, Mail, Phone, MapPin, Camera, Save, Bell, Shield, CreditCard, ChevronRight, Clock, Loader2, Heart, Star, GraduationCap } from "lucide-react";
+import { User, Mail, Phone, MapPin, Camera, Save, Bell, Shield, CreditCard, ChevronRight, Clock, Loader2, Heart, Star, GraduationCap, Lightbulb } from "lucide-react";
 import { toast } from "sonner";
-import { Link, useNavigate } from "react-router";
+import { Link, useNavigate, Navigate } from "react-router";
 import { useAuth } from "../../context/AuthContext";
 import { supabase } from "../../lib/supabase";
 
@@ -64,7 +64,7 @@ export function UserProfile() {
   }, [user, refreshProfile])
 
   useEffect(() => {
-    if (role === 'tutor') navigate('/my-profile')
+    if (role === 'tutor') navigate('/my-profile', { replace: true })
   }, [role, navigate])
 
   const [bookings, setBookings]               = useState<StudentBooking[]>([])
@@ -223,6 +223,8 @@ export function UserProfile() {
     setSaving(false)
   }
 
+  if (role === 'tutor') return <Navigate to="/my-profile" replace />
+
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col font-sans">
       <Navbar />
@@ -315,7 +317,14 @@ export function UserProfile() {
                   Payments
                 </button>
 
-                <div className="mt-2 pt-2 border-t border-gray-100">
+                <div className="mt-2 pt-2 border-t border-gray-100 space-y-0.5">
+                  <Link
+                    to="/needed-courses?mine=true"
+                    className="w-full flex items-center gap-3 px-4 py-3 text-amber-600 hover:bg-amber-50 rounded-xl font-bold text-sm transition-colors"
+                  >
+                    <Lightbulb className="w-4 h-4" />
+                    Needed Courses
+                  </Link>
                   <Link
                     to="/become-a-tutor"
                     className="w-full flex items-center gap-3 px-4 py-3 text-purple-600 hover:bg-purple-50 rounded-xl font-bold text-sm transition-colors"

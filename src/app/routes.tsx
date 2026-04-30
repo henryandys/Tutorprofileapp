@@ -11,6 +11,7 @@ import { TutorReviews } from "./pages/TutorReviews";
 import { PrivacySecurity } from "./pages/PrivacySecurity";
 import { ForTutors } from "./pages/ForTutors";
 import { Lessons } from "./pages/Lessons";
+import { RequestedTutors } from "./pages/RequestedTutors";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 
 export const router = createBrowserRouter([
@@ -25,6 +26,10 @@ export const router = createBrowserRouter([
   {
     path: "/for-tutors",
     Component: ForTutors,
+  },
+  {
+    path: "/needed-courses",
+    Component: RequestedTutors,
   },
   {
     path: "/tutor/:id",
