@@ -11,7 +11,7 @@ interface AuthContextValue {
   profile:        Profile | null
   role:           UserRole | null
   loading:        boolean
-  signUp:         (email: string, password: string, name: string, role: UserRole) => Promise<{ error: Error | null }>
+  signUp:         (email: string, password: string, name: string, role: UserRole, dob: string) => Promise<{ error: Error | null }>
   signIn:         (email: string, password: string) => Promise<{ error: Error | null }>
   signOut:        () => Promise<void>
   refreshProfile: () => Promise<void>
@@ -77,15 +77,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     email: string,
     password: string,
     name: string,
-    role: UserRole
+    role: UserRole,
+    dob: string
   ): Promise<{ error: Error | null }> {
-    const { error } = await supabase.auth.signUp({
+    const { data, error } = await supabase.auth.signUp({
       email,
       password,
       options: {
-        data: { full_name: name, role },
+        data: { full_name: name, role, date_of_birth: dob },
       },
     })
+    if (!error && data.user) {
+      // Upsert the profile row with DOB — handles both trigger-created and manual cases
+      await supabase.from('profiles').upsert({
+        id:             data.user.id,
+        email,
+        full_name:      name,
+        role,
+        date_of_birth:  dob,
+      }, { onConflict: 'id' })
+    }
     return { error: error as Error | null }
   }
 

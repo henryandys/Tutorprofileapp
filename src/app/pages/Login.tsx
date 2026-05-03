@@ -14,6 +14,25 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 
 type Mode = 'signin' | 'signup'
 
+function ageFromDob(dob: string): number {
+  const today = new Date()
+  const birth = new Date(dob)
+  let age = today.getFullYear() - birth.getFullYear()
+  const m = today.getMonth() - birth.getMonth()
+  if (m < 0 || (m === 0 && today.getDate() < birth.getDate())) age--
+  return age
+}
+
+// Latest date of birth allowed for a tutor (must be at least 16)
+function maxTutorDob(): string {
+  const d = new Date()
+  d.setFullYear(d.getFullYear() - 16)
+  return d.toISOString().split('T')[0]
+}
+
+// Latest possible DOB (can't be born in the future)
+const todayStr = new Date().toISOString().split('T')[0]
+
 export default function Login() {
   const { signIn, signUp, user } = useAuth()
   const navigate = useNavigate()
@@ -25,6 +44,7 @@ export default function Login() {
   const [email, setEmail]     = useState('')
   const [password, setPass]   = useState('')
   const [name, setName]       = useState('')
+  const [dob, setDob]         = useState('')
   const [role, setRole]       = useState<UserRole>('student')
   const [error, setError]     = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
@@ -32,7 +52,6 @@ export default function Login() {
   const signupRoleRef = useRef<UserRole | null>(null)
 
   // For signup: redirect once user session is confirmed.
-  // Read role from a ref (set synchronously before signUp) to avoid stale closure.
   useEffect(() => {
     if (user && signupRoleRef.current && !didRedirect.current) {
       didRedirect.current = true
@@ -54,7 +73,6 @@ export default function Login() {
         setLoading(false)
         return
       }
-      // Navigate immediately after successful sign in
       navigate(from, { replace: true })
       return
     } else {
@@ -63,8 +81,18 @@ export default function Login() {
         setLoading(false)
         return
       }
+      if (!dob) {
+        setError('Please enter your date of birth.')
+        setLoading(false)
+        return
+      }
+      if (role === 'tutor' && ageFromDob(dob) < 16) {
+        setError('You must be at least 16 years old to register as an instructor.')
+        setLoading(false)
+        return
+      }
       signupRoleRef.current = role
-      const { error } = await signUp(email, password, name, role)
+      const { error } = await signUp(email, password, name, role, dob)
       if (error) {
         setError(error.message)
         setLoading(false)
@@ -109,6 +137,20 @@ export default function Login() {
               </div>
             )}
 
+            {mode === 'signup' && (
+              <div className="space-y-1">
+                <Label htmlFor="dob">Date of birth</Label>
+                <Input
+                  id="dob"
+                  type="date"
+                  value={dob}
+                  max={role === 'tutor' ? maxTutorDob() : todayStr}
+                  onChange={e => { setDob(e.target.value); setError(null) }}
+                  required
+                />
+              </div>
+            )}
+
             <div className="space-y-1">
               <Label htmlFor="email">Email</Label>
               <Input
@@ -142,7 +184,7 @@ export default function Login() {
                     <button
                       key={r}
                       type="button"
-                      onClick={() => setRole(r)}
+                      onClick={() => { setRole(r); setError(null) }}
                       className={`flex-1 py-2 rounded-md border text-sm font-medium transition-colors
                         ${role === r
                           ? 'border-primary bg-primary text-primary-foreground'
@@ -153,6 +195,9 @@ export default function Login() {
                     </button>
                   ))}
                 </div>
+                <p className="text-xs text-muted-foreground pt-1">
+                  You must be at least 16 years old to create an instructor account.
+                </p>
               </div>
             )}
 

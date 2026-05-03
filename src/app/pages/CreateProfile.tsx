@@ -19,11 +19,31 @@ interface ProfileForm {
   bio:        string;
 }
 
+function ageFromDob(dob: string): number {
+  const today = new Date()
+  const birth = new Date(dob)
+  let age = today.getFullYear() - birth.getFullYear()
+  const m = today.getMonth() - birth.getMonth()
+  if (m < 0 || (m === 0 && today.getDate() < birth.getDate())) age--
+  return age
+}
+
+function maxDobFor16(): string {
+  const d = new Date()
+  d.setFullYear(d.getFullYear() - 16)
+  return d.toISOString().split('T')[0]
+}
+
 export function CreateProfile() {
   const navigate = useNavigate()
-  const { user, role, refreshProfile } = useAuth()
+  const { user, role, profile, refreshProfile } = useAuth()
   const [step, setStep] = useState(1)
   const [saving, setSaving] = useState(false)
+  const [dobInput, setDobInput] = useState('')
+  const [dobError, setDobError] = useState('')
+
+  // True when the user's DOB is not yet on record (account created before this requirement)
+  const needsDob = !profile?.date_of_birth
 
   // Already a tutor — send them straight to their profile
   useEffect(() => {
@@ -49,6 +69,17 @@ export function CreateProfile() {
       return
     }
 
+    // Age gate — must be 16+ to become an instructor
+    const dob = profile?.date_of_birth ?? dobInput
+    if (!dob) {
+      setDobError('Please enter your date of birth.')
+      return
+    }
+    if (ageFromDob(dob) < 16) {
+      setDobError('You must be at least 16 years old to become an instructor.')
+      return
+    }
+
     setSaving(true)
 
     try {
@@ -60,11 +91,13 @@ export function CreateProfile() {
       const { error: profileError } = await supabase
         .from('profiles')
         .update({
-          full_name:  data.name,
-          location:   data.location,
-          bio:        data.bio,
-          role:       'tutor',
-          updated_at: new Date().toISOString(),
+          full_name:      data.name,
+          location:       data.location,
+          bio:            data.bio,
+          role:           'tutor',
+          // Persist DOB for users who didn't have one on record
+          ...(needsDob && dob ? { date_of_birth: dob } : {}),
+          updated_at:     new Date().toISOString(),
         })
         .eq('id', user.id)
 
@@ -197,6 +230,22 @@ export function CreateProfile() {
                       </div>
                       {errors.location && <span className="text-xs text-red-500 font-bold">{errors.location.message}</span>}
                     </div>
+
+                    {/* DOB field — only shown for accounts created before this requirement */}
+                    {needsDob && (
+                      <div className="flex flex-col gap-1.5 md:col-span-2">
+                        <label className="text-xs font-bold text-gray-400 uppercase tracking-widest px-1">DATE OF BIRTH</label>
+                        <input
+                          type="date"
+                          value={dobInput}
+                          max={maxDobFor16()}
+                          onChange={e => { setDobInput(e.target.value); setDobError('') }}
+                          className="w-full h-12 px-4 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 font-bold text-gray-800 bg-gray-50"
+                        />
+                        <p className="text-xs text-gray-400 font-medium">Instructors must be at least 16 years old.</p>
+                        {dobError && <span className="text-xs text-red-500 font-bold">{dobError}</span>}
+                      </div>
+                    )}
                   </div>
                 </div>
               )}

@@ -18,6 +18,7 @@ export interface Profile {
   location?: string;
   bio?: string;
   phone?: string;
+  date_of_birth?: string;
   created_at: string;
   updated_at: string;
 }
