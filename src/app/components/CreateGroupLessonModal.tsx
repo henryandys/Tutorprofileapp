@@ -95,6 +95,75 @@ export function CreateGroupLessonModal({ tutorSubjects, lesson, onCreated, onUpd
     )
   }, [recurrence, date, time, occurrences])
 
+  // Check if any of the proposed slots conflict with existing group sessions or bookings.
+  // Bookings have no stored duration so we assume 60 min for overlap math.
+  async function checkConflicts(
+    slots: Array<{ start: Date; durationMin: number }>,
+    excludeGroupId?: string
+  ): Promise<string | null> {
+    const allEnds   = slots.map(s => new Date(s.start.getTime() + s.durationMin * 60_000))
+    const rangeStart = new Date(Math.min(...slots.map(s => s.start.getTime())) - 3 * 60 * 60_000).toISOString()
+    const rangeEnd   = new Date(Math.max(...allEnds.map(d => d.getTime()))).toISOString()
+
+    const [{ data: existingGroups }, { data: asInstructor }, { data: asStudent }] = await Promise.all([
+      supabase.from('group_lessons')
+        .select('id, title, scheduled_at, duration_minutes')
+        .eq('tutor_id', user!.id)
+        .neq('status', 'cancelled')
+        .gte('scheduled_at', rangeStart)
+        .lte('scheduled_at', rangeEnd),
+      supabase.from('bookings')
+        .select('student_name, scheduled_at')
+        .eq('tutor_id', user!.id)
+        .eq('status', 'accepted')
+        .not('scheduled_at', 'is', null)
+        .gte('scheduled_at', rangeStart)
+        .lte('scheduled_at', rangeEnd),
+      supabase.from('bookings')
+        .select('subject, scheduled_at')
+        .eq('student_id', user!.id)
+        .eq('status', 'accepted')
+        .not('scheduled_at', 'is', null)
+        .gte('scheduled_at', rangeStart)
+        .lte('scheduled_at', rangeEnd),
+    ])
+
+    for (const { start: newStart, durationMin } of slots) {
+      const newEnd = new Date(newStart.getTime() + durationMin * 60_000)
+      const label  = newStart.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }) +
+                     ' at ' + newStart.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+
+      for (const g of existingGroups ?? []) {
+        if (excludeGroupId && g.id === excludeGroupId) continue
+        const gStart = new Date(g.scheduled_at)
+        const gEnd   = new Date(gStart.getTime() + g.duration_minutes * 60_000)
+        if (newStart < gEnd && newEnd > gStart) {
+          return `${label} conflicts with your group session "${g.title}"`
+        }
+      }
+
+      for (const b of asInstructor ?? []) {
+        if (!b.scheduled_at) continue
+        const bStart = new Date(b.scheduled_at)
+        const bEnd   = new Date(bStart.getTime() + 60 * 60_000)
+        if (newStart < bEnd && newEnd > bStart) {
+          return `${label} conflicts with a booked lesson with ${b.student_name}`
+        }
+      }
+
+      for (const b of asStudent ?? []) {
+        if (!b.scheduled_at) continue
+        const bStart = new Date(b.scheduled_at)
+        const bEnd   = new Date(bStart.getTime() + 60 * 60_000)
+        if (newStart < bEnd && newEnd > bStart) {
+          return `${label} conflicts with your lesson for ${b.subject}`
+        }
+      }
+    }
+
+    return null
+  }
+
   async function handleCreate() {
     if (!user) return
     if (!title.trim()) { toast.error('Please add a session title.'); return }
@@ -102,6 +171,21 @@ export function CreateGroupLessonModal({ tutorSubjects, lesson, onCreated, onUpd
 
     setSaving(true)
     const base = new Date(`${date}T${time}:00`)
+
+    // Build all occurrence slots so we can check the full series for conflicts
+    const slots = [
+      { start: base, durationMin: duration },
+      ...Array.from(
+        { length: recurrence !== 'none' ? occurrences - 1 : 0 },
+        (_, i) => ({ start: addOccurrence(base, recurrence, i + 1), durationMin: duration })
+      ),
+    ]
+    const conflict = await checkConflicts(slots)
+    if (conflict) {
+      toast.error(conflict)
+      setSaving(false)
+      return
+    }
 
     const { data: parent, error: parentError } = await supabase
       .from('group_lessons')
@@ -171,6 +255,14 @@ export function CreateGroupLessonModal({ tutorSubjects, lesson, onCreated, onUpd
     if (!date)         { toast.error('Please select a date.'); return }
 
     setSaving(true)
+
+    const newStart = new Date(`${date}T${time}:00`)
+    const conflict = await checkConflicts([{ start: newStart, durationMin: duration }], lesson.id)
+    if (conflict) {
+      toast.error(conflict)
+      setSaving(false)
+      return
+    }
 
     // Fields that apply to every session in the series when editing "all future"
     const sharedFields = {

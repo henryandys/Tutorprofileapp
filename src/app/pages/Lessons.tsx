@@ -1069,7 +1069,12 @@ export function Lessons() {
               {needsReview.map(l => (
                 <div key={l.id} className="bg-white rounded-2xl border border-yellow-100 shadow-sm p-5 flex items-center justify-between gap-4">
                   <div className="flex flex-col gap-0.5 min-w-0">
-                    <span className="font-bold text-gray-900">{l.other_name}</span>
+                    <Link
+                      to={`/tutor/${l.other_user_id}`}
+                      className="font-bold text-gray-900 hover:text-blue-600 hover:underline transition-colors w-fit"
+                    >
+                      {l.other_name}
+                    </Link>
                     <span className="text-sm font-bold text-blue-600">{l.subject}</span>
                     {l.scheduled_at && (
                       <span className="text-xs text-gray-400 font-medium">
@@ -1120,7 +1125,12 @@ export function Lessons() {
                     <span className="text-sm font-bold text-purple-600">{g.subject}</span>
                     {g.tutor_name && (
                       <span className="text-xs text-gray-500 font-medium flex items-center gap-1">
-                        <User className="w-3 h-3 shrink-0 text-gray-400" /> {g.tutor_name}
+                        <User className="w-3 h-3 shrink-0 text-gray-400" />
+                        {g.tutor_id ? (
+                          <Link to={`/tutor/${g.tutor_id}`} className="hover:text-blue-600 hover:underline transition-colors">
+                            {g.tutor_name}
+                          </Link>
+                        ) : g.tutor_name}
                       </span>
                     )}
                     <span className="text-xs text-gray-500 font-medium flex items-center gap-1">
@@ -1366,7 +1376,17 @@ function LessonCard({ lesson: l, isTutor, onChat, onAccept, onDecline, onCancel,
             )}
             <div className="flex items-center gap-1.5">
               <User className="w-4 h-4 text-gray-400 shrink-0" />
-              <span className="font-bold text-gray-900 text-base leading-tight">{l.other_name}</span>
+              {isStudentPerspective ? (
+                <Link
+                  to={`/tutor/${l.other_user_id}`}
+                  className="font-bold text-gray-900 text-base leading-tight hover:text-blue-600 hover:underline transition-colors"
+                  onClick={e => e.stopPropagation()}
+                >
+                  {l.other_name}
+                </Link>
+              ) : (
+                <span className="font-bold text-gray-900 text-base leading-tight">{l.other_name}</span>
+              )}
             </div>
           </div>
 
@@ -1593,7 +1613,15 @@ function GroupCard({ group: g, isTutor: _isTutor, openingChat, onViewEnrollments
           {!isTutorPerspective && g.tutor_name && (
             <span className="text-sm font-medium text-gray-600 flex items-center gap-1">
               <User className="w-3.5 h-3.5 shrink-0 text-gray-400" />
-              {g.tutor_name}
+              {g.tutor_id ? (
+                <Link
+                  to={`/tutor/${g.tutor_id}`}
+                  className="hover:text-blue-600 hover:underline transition-colors"
+                  onClick={e => e.stopPropagation()}
+                >
+                  {g.tutor_name}
+                </Link>
+              ) : g.tutor_name}
             </span>
           )}
           <span className="text-xs text-gray-500 font-medium flex items-center gap-1">
