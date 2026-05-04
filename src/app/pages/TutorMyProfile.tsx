@@ -100,7 +100,9 @@ export function TutorMyProfile() {
   const [loadingResources, setLoadingResources] = useState(true)
   const [groupLessons, setGroupLessons] = useState<GroupLesson[]>([])
   const [loadingGroupLessons, setLoadingGroupLessons] = useState(true)
-  const [showCreateGroup, setShowCreateGroup] = useState(false)
+  const [showCreateGroup, setShowCreateGroup]   = useState(false)
+  const [editingGroup,    setEditingGroup]      = useState<GroupLesson | null>(null)
+  const [showPastSessions, setShowPastSessions] = useState(false)
   const [enrollmentGroup, setEnrollmentGroup] = useState<GroupLesson | null>(null)
   const [cancelMenuId, setCancelMenuId]       = useState<string | null>(null)
   const notifSectionRef = useRef<HTMLDivElement>(null)
@@ -733,109 +735,111 @@ export function TutorMyProfile() {
               </button>
             </div>
 
-            {loadingGroupLessons ? (
-              <div className="flex justify-center py-8">
-                <Loader2 className="w-6 h-6 animate-spin text-purple-600" />
-              </div>
-            ) : groupLessons.length === 0 ? (
-              <div className="text-center py-8 border-2 border-dashed border-gray-200 rounded-2xl">
-                <Users className="w-8 h-8 text-gray-300 mx-auto mb-2" />
-                <p className="text-gray-400 font-medium text-sm">No group sessions yet.</p>
-                <button type="button" onClick={() => setShowCreateGroup(true)} className="text-purple-600 font-bold text-sm hover:underline mt-1">
-                  Create your first one
-                </button>
-              </div>
-            ) : (
-              <div className="divide-y divide-gray-100">
-                {groupLessons.map(gl => {
-                  const spotsLeft  = gl.max_students - (gl.enrollment_count ?? 0)
-                  const isFull     = spotsLeft <= 0
-                  const isPast     = new Date(gl.scheduled_at) < new Date()
-                  const isRecurring = gl.recurrence_type && gl.recurrence_type !== 'none'
-                  const recurringLabel: Record<string, string> = {
-                    weekly: 'Weekly', biweekly: 'Every 2 wks', monthly: 'Monthly',
-                  }
-                  const showCancelMenu = cancelMenuId === gl.id
+            {(() => {
+              const now = new Date()
+              const upcomingLessons = groupLessons.filter(gl => new Date(gl.scheduled_at) >= now)
+              const pastLessons     = groupLessons.filter(gl => new Date(gl.scheduled_at) < now)
 
-                  async function cancelThis() {
-                    const { error } = await supabase
-                      .from('group_lessons').update({ status: 'cancelled' })
-                      .eq('id', gl.id).eq('tutor_id', user!.id)
-                    if (error) { toast.error('Could not cancel session.'); return }
-                    setGroupLessons(prev => prev.map(g => g.id === gl.id ? { ...g, status: 'cancelled' } : g))
-                    setCancelMenuId(null)
-                    toast.success('Session cancelled.')
-                  }
+              function renderLesson(gl: GroupLesson) {
+                const spotsLeft   = gl.max_students - (gl.enrollment_count ?? 0)
+                const isFull      = spotsLeft <= 0
+                const isPast      = new Date(gl.scheduled_at) < now
+                const isRecurring = gl.recurrence_type && gl.recurrence_type !== 'none'
+                const recurringLabel: Record<string, string> = {
+                  weekly: 'Weekly', biweekly: 'Every 2 wks', monthly: 'Monthly',
+                }
+                const showCancelMenu = cancelMenuId === gl.id
 
-                  async function cancelAllFuture() {
-                    const parentId = gl.parent_lesson_id ?? gl.id
-                    const { error } = await supabase
-                      .from('group_lessons').update({ status: 'cancelled' })
-                      .or(`id.eq.${gl.id},parent_lesson_id.eq.${parentId}`)
-                      .gte('scheduled_at', gl.scheduled_at)
-                      .eq('tutor_id', user!.id)
-                    if (error) { toast.error('Could not cancel series.'); return }
-                    setGroupLessons(prev => prev.map(g => {
-                      const isThis = g.id === gl.id
-                      const isFutureChild = (g.parent_lesson_id === parentId || g.id === parentId) &&
-                        new Date(g.scheduled_at) >= new Date(gl.scheduled_at)
-                      return (isThis || isFutureChild) ? { ...g, status: 'cancelled' } : g
-                    }))
-                    setCancelMenuId(null)
-                    toast.success('Remaining sessions in this series cancelled.')
-                  }
+                async function cancelThis() {
+                  const { error } = await supabase
+                    .from('group_lessons').update({ status: 'cancelled' })
+                    .eq('id', gl.id).eq('tutor_id', user!.id)
+                  if (error) { toast.error('Could not cancel session.'); return }
+                  setGroupLessons(prev => prev.map(g => g.id === gl.id ? { ...g, status: 'cancelled' } : g))
+                  setCancelMenuId(null)
+                  toast.success('Session cancelled.')
+                }
 
-                  return (
-                    <div key={gl.id} className="py-4 flex items-start justify-between gap-4 cursor-pointer hover:bg-purple-50 -mx-2 px-2 rounded-xl transition-colors" onClick={() => setEnrollmentGroup(gl)}>
-                      <div className="flex items-start gap-4 min-w-0">
-                        <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
-                          isPast ? 'bg-gray-100' : 'bg-purple-100'
-                        }`}>
-                          <Users className={`w-5 h-5 ${isPast ? 'text-gray-400' : 'text-purple-600'}`} />
-                        </div>
-                        <div className="min-w-0">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <p className="font-bold text-gray-900 truncate">{gl.title}</p>
-                            {isRecurring && (
-                              <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-purple-100 text-purple-600 flex items-center gap-1">
-                                <RefreshCw className="w-2.5 h-2.5" />
-                                {recurringLabel[gl.recurrence_type!] ?? gl.recurrence_type}
-                              </span>
-                            )}
-                            {gl.status === 'cancelled' && (
-                              <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-red-100 text-red-600">Cancelled</span>
-                            )}
-                            {isFull && gl.status === 'open' && (
-                              <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-orange-100 text-orange-600">Full</span>
-                            )}
-                          </div>
-                          <p className="text-xs text-gray-400 font-medium mt-0.5">
-                            {gl.subject} ·{' '}
-                            {new Date(gl.scheduled_at).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}{' '}
-                            {new Date(gl.scheduled_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}{' '}
-                            · {gl.duration_minutes} min
-                          </p>
-                          <div className="flex items-center gap-3 mt-1">
-                            <span className="text-xs font-bold text-gray-500 flex items-center gap-1">
-                              <Users className="w-3 h-3" />
-                              {gl.enrollment_count ?? 0} / {gl.max_students} enrolled
-                              <span className="text-purple-500 font-bold ml-1">· View roster</span>
+                async function cancelAllFuture() {
+                  const parentId = gl.parent_lesson_id ?? gl.id
+                  const { error } = await supabase
+                    .from('group_lessons').update({ status: 'cancelled' })
+                    .or(`id.eq.${gl.id},parent_lesson_id.eq.${parentId}`)
+                    .gte('scheduled_at', gl.scheduled_at)
+                    .eq('tutor_id', user!.id)
+                  if (error) { toast.error('Could not cancel series.'); return }
+                  setGroupLessons(prev => prev.map(g => {
+                    const isThis = g.id === gl.id
+                    const isFutureChild = (g.parent_lesson_id === parentId || g.id === parentId) &&
+                      new Date(g.scheduled_at) >= new Date(gl.scheduled_at)
+                    return (isThis || isFutureChild) ? { ...g, status: 'cancelled' } : g
+                  }))
+                  setCancelMenuId(null)
+                  toast.success('Remaining sessions in this series cancelled.')
+                }
+
+                return (
+                  <div key={gl.id} className="py-4 flex items-start justify-between gap-4 cursor-pointer hover:bg-purple-50 -mx-2 px-2 rounded-xl transition-colors" onClick={() => setEnrollmentGroup(gl)}>
+                    <div className="flex items-start gap-4 min-w-0">
+                      <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
+                        isPast ? 'bg-gray-100' : 'bg-purple-100'
+                      }`}>
+                        <Users className={`w-5 h-5 ${isPast ? 'text-gray-400' : 'text-purple-600'}`} />
+                      </div>
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <p className={`font-bold truncate ${isPast ? 'text-gray-500' : 'text-gray-900'}`}>{gl.title}</p>
+                          {isRecurring && (
+                            <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-purple-100 text-purple-600 flex items-center gap-1">
+                              <RefreshCw className="w-2.5 h-2.5" />
+                              {recurringLabel[gl.recurrence_type!] ?? gl.recurrence_type}
                             </span>
-                            {gl.price > 0 && (
-                              <span className="text-xs font-bold text-green-600">${gl.price}/student</span>
-                            )}
-                            {gl.price === 0 && (
-                              <span className="text-xs font-bold text-green-600">Free</span>
-                            )}
-                          </div>
-                          {gl.description && (
-                            <p className="text-sm text-gray-500 font-medium mt-1 line-clamp-1">{gl.description}</p>
+                          )}
+                          {gl.status === 'cancelled' && (
+                            <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-red-100 text-red-600">Cancelled</span>
+                          )}
+                          {isPast && gl.status !== 'cancelled' && (
+                            <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-gray-100 text-gray-500">Completed</span>
+                          )}
+                          {isFull && gl.status === 'open' && !isPast && (
+                            <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-orange-100 text-orange-600">Full</span>
                           )}
                         </div>
+                        <p className="text-xs text-gray-400 font-medium mt-0.5">
+                          {gl.subject} ·{' '}
+                          {new Date(gl.scheduled_at).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}{' '}
+                          {new Date(gl.scheduled_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}{' '}
+                          · {gl.duration_minutes} min
+                        </p>
+                        <div className="flex items-center gap-3 mt-1">
+                          <span className="text-xs font-bold text-gray-500 flex items-center gap-1">
+                            <Users className="w-3 h-3" />
+                            {gl.enrollment_count ?? 0} / {gl.max_students} enrolled
+                            <span className="text-purple-500 font-bold ml-1">· View roster</span>
+                          </span>
+                          {gl.price > 0 && (
+                            <span className="text-xs font-bold text-green-600">${gl.price}/student</span>
+                          )}
+                          {gl.price === 0 && (
+                            <span className="text-xs font-bold text-green-600">Free</span>
+                          )}
+                        </div>
+                        {gl.description && (
+                          <p className="text-sm text-gray-500 font-medium mt-1 line-clamp-1">{gl.description}</p>
+                        )}
                       </div>
+                    </div>
 
-                      {gl.status === 'open' && !isPast && (
-                        <div className="relative shrink-0" onClick={e => e.stopPropagation()}>
+                    {gl.status === 'open' && !isPast && (
+                      <div className="flex items-center gap-2 shrink-0" onClick={e => e.stopPropagation()}>
+                        <button
+                          type="button"
+                          onClick={() => { setCancelMenuId(null); setEditingGroup(gl) }}
+                          className="text-xs font-bold text-blue-600 hover:text-blue-800 px-3 py-1.5 border border-blue-200 rounded-lg hover:bg-blue-50 transition-colors"
+                        >
+                          Edit
+                        </button>
+                        <div className="relative">
                           {isRecurring ? (
                             <>
                               <button
@@ -874,12 +878,67 @@ export function TutorMyProfile() {
                             </button>
                           )}
                         </div>
+                      </div>
+                    )}
+                  </div>
+                )
+              }
+
+              if (loadingGroupLessons) {
+                return (
+                  <div className="flex justify-center py-8">
+                    <Loader2 className="w-6 h-6 animate-spin text-purple-600" />
+                  </div>
+                )
+              }
+
+              if (groupLessons.length === 0) {
+                return (
+                  <div className="text-center py-8 border-2 border-dashed border-gray-200 rounded-2xl">
+                    <Users className="w-8 h-8 text-gray-300 mx-auto mb-2" />
+                    <p className="text-gray-400 font-medium text-sm">No group sessions yet.</p>
+                    <button type="button" onClick={() => setShowCreateGroup(true)} className="text-purple-600 font-bold text-sm hover:underline mt-1">
+                      Create your first one
+                    </button>
+                  </div>
+                )
+              }
+
+              return (
+                <div>
+                  {upcomingLessons.length === 0 ? (
+                    <div className="text-center py-6 border-2 border-dashed border-gray-200 rounded-2xl mb-4">
+                      <p className="text-gray-400 font-medium text-sm">No upcoming sessions.</p>
+                      <button type="button" onClick={() => setShowCreateGroup(true)} className="text-purple-600 font-bold text-sm hover:underline mt-1">
+                        Schedule one now
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="divide-y divide-gray-100">
+                      {upcomingLessons.map(gl => renderLesson(gl))}
+                    </div>
+                  )}
+
+                  {pastLessons.length > 0 && (
+                    <div className="mt-4 pt-4 border-t border-gray-200">
+                      <button
+                        type="button"
+                        onClick={() => setShowPastSessions(v => !v)}
+                        className="flex items-center gap-2 text-sm font-bold text-gray-400 hover:text-gray-600 transition-colors mb-2"
+                      >
+                        <ChevronRight className={`w-4 h-4 transition-transform ${showPastSessions ? 'rotate-90' : ''}`} />
+                        Past Sessions ({pastLessons.length})
+                      </button>
+                      {showPastSessions && (
+                        <div className="divide-y divide-gray-100 opacity-70">
+                          {pastLessons.map(gl => renderLesson(gl))}
+                        </div>
                       )}
                     </div>
-                  )
-                })}
-              </div>
-            )}
+                  )}
+                </div>
+              )
+            })()}
           </div>
 
           {/* Repository */}
@@ -1032,6 +1091,28 @@ export function TutorMyProfile() {
             setShowCreateGroup(false)
           }}
           onClose={() => setShowCreateGroup(false)}
+        />
+      )}
+
+      {editingGroup && (
+        <CreateGroupLessonModal
+          tutorSubjects={(tutorData?.subjects ?? []) as string[]}
+          lesson={editingGroup}
+          onUpdated={updatedLessons => {
+            setGroupLessons(prev => {
+              const updatedIds = new Set(updatedLessons.map(l => l.id))
+              const merged = prev.map(g => {
+                const updated = updatedLessons.find(l => l.id === g.id)
+                return updated ? { ...g, ...updated } : g
+              })
+              // Keep enrollment_count from local state for any updated rows
+              return merged.sort((a, b) =>
+                new Date(a.scheduled_at).getTime() - new Date(b.scheduled_at).getTime()
+              )
+            })
+            setEditingGroup(null)
+          }}
+          onClose={() => setEditingGroup(null)}
         />
       )}
 

@@ -25,7 +25,9 @@ export interface GroupLesson {
 
 interface Props {
   tutorSubjects: string[]
-  onCreated:     (lessons: GroupLesson[]) => void
+  lesson?:       GroupLesson          // present → edit mode
+  onCreated?:    (lessons: GroupLesson[]) => void
+  onUpdated?:    (lessons: GroupLesson[]) => void
   onClose:       () => void
 }
 
@@ -51,21 +53,38 @@ function addOccurrence(base: Date, type: RecurrenceType, n: number): Date {
   return d
 }
 
-export function CreateGroupLessonModal({ tutorSubjects, onCreated, onClose }: Props) {
+// Parse an ISO string to local YYYY-MM-DD and HH:MM strings
+function splitIso(iso: string): { date: string; time: string } {
+  const d = new Date(iso)
+  const date = [
+    d.getFullYear(),
+    String(d.getMonth() + 1).padStart(2, '0'),
+    String(d.getDate()).padStart(2, '0'),
+  ].join('-')
+  const time = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+  return { date, time }
+}
+
+export function CreateGroupLessonModal({ tutorSubjects, lesson, onCreated, onUpdated, onClose }: Props) {
   const { user } = useAuth()
   const [saving, setSaving] = useState(false)
 
-  const [title,      setTitle]      = useState('')
-  const [subject,    setSubject]    = useState(tutorSubjects[0] ?? '')
-  const [date,       setDate]       = useState('')
-  const [time,       setTime]       = useState('10:00')
-  const [duration,   setDuration]   = useState(60)
-  const [maxStudents, setMaxStudents] = useState(8)
-  const [price,      setPrice]      = useState(0)
-  const [desc,       setDesc]       = useState('')
-  const [location,   setLocation]   = useState('')
-  const [recurrence, setRecurrence] = useState<RecurrenceType>('none')
+  const isEdit       = !!lesson
+  const isRecurringSeries = isEdit && lesson!.recurrence_type && lesson!.recurrence_type !== 'none'
+  const initDt       = lesson ? splitIso(lesson.scheduled_at) : { date: '', time: '10:00' }
+
+  const [title,       setTitle]       = useState(lesson?.title       ?? '')
+  const [subject,     setSubject]     = useState(lesson?.subject     ?? tutorSubjects[0] ?? '')
+  const [date,        setDate]        = useState(initDt.date)
+  const [time,        setTime]        = useState(initDt.time)
+  const [duration,    setDuration]    = useState(lesson?.duration_minutes ?? 60)
+  const [maxStudents, setMaxStudents] = useState(lesson?.max_students    ?? 8)
+  const [price,       setPrice]       = useState(lesson?.price           ?? 0)
+  const [desc,        setDesc]        = useState(lesson?.description     ?? '')
+  const [location,    setLocation]    = useState(lesson?.location        ?? '')
+  const [recurrence,  setRecurrence]  = useState<RecurrenceType>(isEdit ? 'none' : 'none')
   const [occurrences, setOccurrences] = useState(8)
+  const [editScope,   setEditScope]   = useState<'this' | 'future'>('this')
 
   const previewDates = useMemo(() => {
     if (recurrence === 'none' || !date) return []
@@ -76,8 +95,7 @@ export function CreateGroupLessonModal({ tutorSubjects, onCreated, onClose }: Pr
     )
   }, [recurrence, date, time, occurrences])
 
-  async function handleSubmit(e: { preventDefault(): void }) {
-    e.preventDefault()
+  async function handleCreate() {
     if (!user) return
     if (!title.trim()) { toast.error('Please add a session title.'); return }
     if (!date)         { toast.error('Please select a date.'); return }
@@ -85,7 +103,6 @@ export function CreateGroupLessonModal({ tutorSubjects, onCreated, onClose }: Pr
     setSaving(true)
     const base = new Date(`${date}T${time}:00`)
 
-    // Insert the first (parent) occurrence
     const { data: parent, error: parentError } = await supabase
       .from('group_lessons')
       .insert({
@@ -113,7 +130,6 @@ export function CreateGroupLessonModal({ tutorSubjects, onCreated, onClose }: Pr
 
     const allCreated: GroupLesson[] = [{ ...parent, enrollment_count: 0 }]
 
-    // Insert child occurrences for recurring sessions
     if (recurrence !== 'none' && occurrences > 1) {
       const childRows = Array.from({ length: occurrences - 1 }, (_, i) => ({
         tutor_id:         user.id,
@@ -140,17 +156,99 @@ export function CreateGroupLessonModal({ tutorSubjects, onCreated, onClose }: Pr
       } else {
         allCreated.push(...(children ?? []).map((c: any) => ({ ...c, enrollment_count: 0 })))
       }
-
       toast.success(`${allCreated.length} session${allCreated.length !== 1 ? 's' : ''} created!`)
     } else {
       toast.success('Group session created!')
     }
 
-    onCreated(allCreated)
+    onCreated?.(allCreated)
     setSaving(false)
   }
 
+  async function handleEdit() {
+    if (!user || !lesson) return
+    if (!title.trim()) { toast.error('Please add a session title.'); return }
+    if (!date)         { toast.error('Please select a date.'); return }
+
+    setSaving(true)
+
+    // Fields that apply to every session in the series when editing "all future"
+    const sharedFields = {
+      title:            title.trim(),
+      subject,
+      description:      desc.trim() || null,
+      location:         location.trim() || null,
+      duration_minutes: duration,
+      max_students:     maxStudents,
+      price,
+    }
+    // This session also gets its date/time updated
+    const thisFields = {
+      ...sharedFields,
+      scheduled_at: new Date(`${date}T${time}:00`).toISOString(),
+    }
+
+    // Update this session
+    const { data: thisData, error: thisErr } = await supabase
+      .from('group_lessons')
+      .update(thisFields)
+      .eq('id', lesson.id)
+      .eq('tutor_id', user.id)
+      .select('*')
+      .single()
+
+    if (thisErr) {
+      toast.error('Failed to update session.')
+      setSaving(false)
+      return
+    }
+
+    const updatedLessons: GroupLesson[] = [{ ...thisData, enrollment_count: lesson.enrollment_count }]
+
+    // If "this & all future", also update content fields on sibling/child sessions
+    if (isRecurringSeries && editScope === 'future') {
+      const parentId = lesson.parent_lesson_id ?? lesson.id
+      const { data: futureData, error: futureErr } = await supabase
+        .from('group_lessons')
+        .update(sharedFields)
+        .or(`id.eq.${parentId},parent_lesson_id.eq.${parentId}`)
+        .neq('id', lesson.id)
+        .gte('scheduled_at', lesson.scheduled_at)
+        .eq('tutor_id', user.id)
+        .select('*')
+
+      if (futureErr) {
+        toast.error('Some sessions could not be updated.')
+      } else {
+        updatedLessons.push(
+          ...(futureData ?? []).map((g: any) => ({ ...g, enrollment_count: g.enrollment_count ?? 0 }))
+        )
+      }
+      toast.success(`Updated ${updatedLessons.length} session${updatedLessons.length !== 1 ? 's' : ''}!`)
+    } else {
+      toast.success('Session updated!')
+    }
+
+    onUpdated?.(updatedLessons)
+    setSaving(false)
+    onClose()
+  }
+
+  async function handleSubmit(e: { preventDefault(): void }) {
+    e.preventDefault()
+    if (isEdit) {
+      await handleEdit()
+    } else {
+      await handleCreate()
+    }
+  }
+
   const today = new Date().toISOString().split('T')[0]
+
+  // Ensure the session's existing subject is always an option in the selector
+  const subjectOptions = lesson && !tutorSubjects.includes(lesson.subject)
+    ? [lesson.subject, ...tutorSubjects]
+    : tutorSubjects
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
@@ -159,8 +257,12 @@ export function CreateGroupLessonModal({ tutorSubjects, onCreated, onClose }: Pr
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-5 border-b border-gray-100 shrink-0">
           <div>
-            <h2 className="text-xl font-black text-gray-900">New Group Session</h2>
-            <p className="text-sm text-gray-400 font-medium">Let multiple students book the same slot</p>
+            <h2 className="text-xl font-black text-gray-900">
+              {isEdit ? 'Edit Group Session' : 'New Group Session'}
+            </h2>
+            <p className="text-sm text-gray-400 font-medium">
+              {isEdit ? 'Update the details for this session' : 'Let multiple students book the same slot'}
+            </p>
           </div>
           <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-full text-gray-400 transition-colors">
             <X className="w-5 h-5" />
@@ -168,6 +270,37 @@ export function CreateGroupLessonModal({ tutorSubjects, onCreated, onClose }: Pr
         </div>
 
         <form onSubmit={handleSubmit} className="overflow-y-auto flex flex-col gap-5 px-6 py-5">
+
+          {/* Edit scope selector — recurring series only */}
+          {isEdit && isRecurringSeries && (
+            <div className="flex flex-col gap-1.5">
+              <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Apply changes to</label>
+              <div className="flex gap-2">
+                {([
+                  { value: 'this',   label: 'This session only' },
+                  { value: 'future', label: 'This & all future sessions' },
+                ] as const).map(opt => (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() => setEditScope(opt.value)}
+                    className={`flex-1 py-2 px-3 rounded-xl font-bold text-sm border transition-colors ${
+                      editScope === opt.value
+                        ? 'bg-purple-600 text-white border-purple-600'
+                        : 'border-gray-200 text-gray-600 hover:border-purple-400 bg-gray-50'
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+              {editScope === 'future' && (
+                <p className="text-xs text-gray-400 font-medium">
+                  Date &amp; time changes apply to this session only. Title, subject, and other details update across all future sessions.
+                </p>
+              )}
+            </div>
+          )}
 
           {/* Title */}
           <div className="flex flex-col gap-1.5">
@@ -183,13 +316,13 @@ export function CreateGroupLessonModal({ tutorSubjects, onCreated, onClose }: Pr
           {/* Subject */}
           <div className="flex flex-col gap-1.5">
             <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Subject</label>
-            {tutorSubjects.length > 1 ? (
+            {subjectOptions.length > 1 ? (
               <select
                 value={subject}
                 onChange={e => setSubject(e.target.value)}
                 className="w-full h-12 px-4 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 font-bold text-gray-800 bg-gray-50"
               >
-                {tutorSubjects.map(s => <option key={s} value={s}>{s}</option>)}
+                {subjectOptions.map(s => <option key={s} value={s}>{s}</option>)}
               </select>
             ) : (
               <input
@@ -203,10 +336,12 @@ export function CreateGroupLessonModal({ tutorSubjects, onCreated, onClose }: Pr
           {/* Date + Time */}
           <div className="grid grid-cols-2 gap-3">
             <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">First Date</label>
+              <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">
+                {isEdit ? 'Date' : 'First Date'}
+              </label>
               <input
                 type="date"
-                min={today}
+                min={isEdit ? undefined : today}
                 value={date}
                 onChange={e => setDate(e.target.value)}
                 className="w-full h-12 px-4 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 font-bold text-gray-800 bg-gray-50"
@@ -302,55 +437,56 @@ export function CreateGroupLessonModal({ tutorSubjects, onCreated, onClose }: Pr
             />
           </div>
 
-          {/* Recurrence */}
-          <div className="flex flex-col gap-2">
-            <label className="text-xs font-bold text-gray-400 uppercase tracking-widest flex items-center gap-1">
-              <RefreshCw className="w-3 h-3" /> Repeat
-            </label>
-            <div className="flex gap-2 flex-wrap">
-              {RECURRENCE_OPTIONS.map(opt => (
-                <button
-                  key={opt.value}
-                  type="button"
-                  onClick={() => setRecurrence(opt.value)}
-                  className={`px-3 py-2 rounded-xl font-bold text-sm border transition-colors ${
-                    recurrence === opt.value
-                      ? 'bg-purple-600 text-white border-purple-600'
-                      : 'border-gray-200 text-gray-600 hover:border-purple-400 bg-gray-50'
-                  }`}
-                >
-                  {opt.label}
-                </button>
-              ))}
-            </div>
-
-            {recurrence !== 'none' && (
-              <div className="flex items-center gap-3 mt-1">
-                <label className="text-xs font-bold text-gray-500 whitespace-nowrap">Number of sessions</label>
-                <input
-                  type="number"
-                  min={2}
-                  max={52}
-                  value={occurrences}
-                  onChange={e => setOccurrences(Math.max(2, Math.min(52, Number(e.target.value))))}
-                  className="w-20 h-9 px-3 border border-gray-200 rounded-lg text-sm font-bold text-gray-800 focus:outline-none focus:ring-2 focus:ring-purple-500 bg-gray-50"
-                />
-              </div>
-            )}
-
-            {/* Schedule preview */}
-            {previewDates.length > 0 && (
-              <div className="bg-purple-50 border border-purple-100 rounded-xl p-3 flex flex-col gap-1 max-h-36 overflow-y-auto">
-                <p className="text-[10px] font-black text-purple-400 uppercase tracking-widest mb-1">Schedule Preview</p>
-                {previewDates.map((d, i) => (
-                  <span key={i} className="text-xs font-medium text-purple-700 flex items-center gap-2">
-                    <span className="w-4 h-4 rounded-full bg-purple-200 text-purple-700 flex items-center justify-center text-[9px] font-black shrink-0">{i + 1}</span>
-                    {d}
-                  </span>
+          {/* Recurrence — create mode only */}
+          {!isEdit && (
+            <div className="flex flex-col gap-2">
+              <label className="text-xs font-bold text-gray-400 uppercase tracking-widest flex items-center gap-1">
+                <RefreshCw className="w-3 h-3" /> Repeat
+              </label>
+              <div className="flex gap-2 flex-wrap">
+                {RECURRENCE_OPTIONS.map(opt => (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() => setRecurrence(opt.value)}
+                    className={`px-3 py-2 rounded-xl font-bold text-sm border transition-colors ${
+                      recurrence === opt.value
+                        ? 'bg-purple-600 text-white border-purple-600'
+                        : 'border-gray-200 text-gray-600 hover:border-purple-400 bg-gray-50'
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
                 ))}
               </div>
-            )}
-          </div>
+
+              {recurrence !== 'none' && (
+                <div className="flex items-center gap-3 mt-1">
+                  <label className="text-xs font-bold text-gray-500 whitespace-nowrap">Number of sessions</label>
+                  <input
+                    type="number"
+                    min={2}
+                    max={52}
+                    value={occurrences}
+                    onChange={e => setOccurrences(Math.max(2, Math.min(52, Number(e.target.value))))}
+                    className="w-20 h-9 px-3 border border-gray-200 rounded-lg text-sm font-bold text-gray-800 focus:outline-none focus:ring-2 focus:ring-purple-500 bg-gray-50"
+                  />
+                </div>
+              )}
+
+              {previewDates.length > 0 && (
+                <div className="bg-purple-50 border border-purple-100 rounded-xl p-3 flex flex-col gap-1 max-h-36 overflow-y-auto">
+                  <p className="text-[10px] font-black text-purple-400 uppercase tracking-widest mb-1">Schedule Preview</p>
+                  {previewDates.map((d, i) => (
+                    <span key={i} className="text-xs font-medium text-purple-700 flex items-center gap-2">
+                      <span className="w-4 h-4 rounded-full bg-purple-200 text-purple-700 flex items-center justify-center text-[9px] font-black shrink-0">{i + 1}</span>
+                      {d}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Actions */}
           <div className="flex gap-3 pt-1 pb-2">
@@ -367,7 +503,10 @@ export function CreateGroupLessonModal({ tutorSubjects, onCreated, onClose }: Pr
               className="flex-1 h-12 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 transition-colors shadow-lg shadow-blue-200 disabled:opacity-60 flex items-center justify-center gap-2"
             >
               {saving && <Loader2 className="w-4 h-4 animate-spin" />}
-              {saving ? 'Creating…' : recurrence !== 'none' ? `Create ${occurrences} Sessions` : 'Create Session'}
+              {isEdit
+                ? (saving ? 'Saving…' : 'Save Changes')
+                : (saving ? 'Creating…' : recurrence !== 'none' ? `Create ${occurrences} Sessions` : 'Create Session')
+              }
             </button>
           </div>
         </form>
