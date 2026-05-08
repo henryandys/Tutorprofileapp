@@ -120,7 +120,7 @@ export function CreateProfile() {
       // 3. Refresh the auth context so navbar/profile update
       await refreshProfile()
 
-      toast.success('Profile created! Welcome to InstructorFind.')
+      toast.success('Profile created! Welcome to InstructorFinder.')
       setTimeout(() => navigate('/my-profile'), 1500)
 
     } catch (err: any) {

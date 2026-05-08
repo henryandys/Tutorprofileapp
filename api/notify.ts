@@ -88,7 +88,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       'Content-Type':  'application/json',
     },
     body: JSON.stringify({
-      from:    'InstructorFind <onboarding@resend.dev>',
+      from:    'InstructorFinder <onboarding@resend.dev>',
       to:      toEmail,
       subject,
       html,

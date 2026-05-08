@@ -39,7 +39,7 @@ export function Navbar() {
             T
           </div>
           <span className="text-xl font-bold tracking-tight text-blue-900 hidden sm:block">
-            InstructorFind
+            InstructorFinder
           </span>
         </Link>
         <div className="hidden lg:flex items-center gap-6">

@@ -76,7 +76,7 @@ export function ForTutors() {
             <span className="text-blue-200">Build your business.</span>
           </h1>
           <p className="text-xl text-blue-100 font-medium max-w-2xl mx-auto mb-10">
-            Join InstructorFind to connect with local students, set your own rates, manage your schedule, and share teaching materials with the community.
+            Join InstructorFinder to connect with local students, set your own rates, manage your schedule, and share teaching materials with the community.
           </p>
           <button
             onClick={handleGetStarted}
