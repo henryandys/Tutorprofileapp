@@ -134,7 +134,7 @@ export function Map({ tutors, selectedId, onSelect, flyTo, initialCenter, groupL
     if (!containerRef.current || mapRef.current) return;
 
     const map = L.map(containerRef.current, { zoomControl: true }).setView(
-      initialCenter ?? [47.6062, -122.3321],
+      initialCenter ?? [38.6270, -90.1994],
       12
     );
 
