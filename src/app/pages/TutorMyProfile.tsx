@@ -12,6 +12,7 @@ import { toast } from "sonner";
 import { Link } from "react-router";
 import { useAuth } from "../../context/AuthContext";
 import { supabase } from "../../lib/supabase";
+import { findBannedWord, CONTENT_POLICY_MESSAGE } from "../../lib/contentPolicy";
 import { CreateGroupLessonModal, type GroupLesson } from "../components/CreateGroupLessonModal";
 import { GroupEnrollmentModal } from "../components/GroupEnrollmentModal";
 
@@ -193,6 +194,11 @@ export function TutorMyProfile() {
 
   async function onSubmit(data: TutorProfileForm) {
     if (!user) return
+    const bannedWord = findBannedWord(data.bio)
+    if (bannedWord) {
+      toast.error(`Your bio contains a banned word: "${bannedWord}". ${CONTENT_POLICY_MESSAGE}`)
+      return
+    }
     setSaving(true)
 
     const expMatch = data.experience.match(/\d+/)
@@ -290,9 +296,21 @@ export function TutorMyProfile() {
               Edit Profile
             </button>
           ) : (
-            <button onClick={() => setIsEditing(false)} className="px-6 py-3 bg-gray-200 text-gray-700 rounded-xl font-bold hover:bg-gray-300 transition-all">
-              Cancel
-            </button>
+            <div className="flex items-center gap-3">
+              <button type="button" onClick={() => setIsEditing(false)} className="px-6 py-3 bg-gray-200 text-gray-700 rounded-xl font-bold hover:bg-gray-300 transition-all">
+                Cancel
+              </button>
+              <button
+                type="submit"
+                form="tutor-profile-form"
+                disabled={saving}
+                className="flex items-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 transition-all shadow-lg shadow-blue-200 disabled:opacity-60"
+              >
+                {saving && <Loader2 className="w-4 h-4 animate-spin" />}
+                <Save className="w-4 h-4" />
+                {saving ? 'Saving…' : 'Save Changes'}
+              </button>
+            </div>
           )}
         </div>
 
@@ -368,7 +386,7 @@ export function TutorMyProfile() {
 
           {/* ── Main form ── */}
           <div className="flex-1 min-w-0">
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
+        <form id="tutor-profile-form" onSubmit={handleSubmit(onSubmit)} className="space-y-6">
 
           {/* Basic Info */}
           <div className="bg-white rounded-3xl shadow-lg border border-gray-100 p-8">

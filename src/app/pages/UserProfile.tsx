@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { Link, useNavigate, Navigate } from "react-router";
 import { useAuth } from "../../context/AuthContext";
 import { supabase } from "../../lib/supabase";
+import { findBannedWord, CONTENT_POLICY_MESSAGE } from "../../lib/contentPolicy";
 
 interface StudentBooking {
   id:           string
@@ -203,6 +204,11 @@ export function UserProfile() {
 
   const onSubmit = async (data: UserProfileForm) => {
     if (!user) return
+    const bannedWord = findBannedWord(data.bio)
+    if (bannedWord) {
+      toast.error(`Your bio contains a banned word: "${bannedWord}". ${CONTENT_POLICY_MESSAGE}`)
+      return
+    }
     setSaving(true)
     const { error } = await supabase
       .from('profiles')

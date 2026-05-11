@@ -8,6 +8,7 @@ import { useNavigate } from "react-router";
 import { toast } from "sonner";
 import { useAuth } from "../../context/AuthContext";
 import { supabase } from "../../lib/supabase";
+import { findBannedWord, CONTENT_POLICY_MESSAGE } from "../../lib/contentPolicy";
 
 interface ProfileForm {
   name:       string;
@@ -77,6 +78,12 @@ export function CreateProfile() {
     }
     if (ageFromDob(dob) < 16) {
       setDobError('You must be at least 16 years old to become an instructor.')
+      return
+    }
+
+    const bannedWord = findBannedWord(data.bio)
+    if (bannedWord) {
+      toast.error(`Your bio contains a banned word: "${bannedWord}". ${CONTENT_POLICY_MESSAGE}`)
       return
     }
 
