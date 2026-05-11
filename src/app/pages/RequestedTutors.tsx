@@ -93,15 +93,55 @@ export function RequestedTutors() {
     // Resolve nearby user IDs when an area filter is active
     let nearbyUserIds: Set<string> | null = null
     if (effectiveCenter && !mineMode) {
+      // Fetch all profiles that have any location info (lat/lng OR text location)
       const { data: profiles } = await supabase
         .from('profiles')
-        .select('id, latitude, longitude')
-        .not('latitude', 'is', null)
-        .not('longitude', 'is', null)
+        .select('id, location, latitude, longitude')
+
+      const allProfiles = profiles ?? []
+
+      // Profiles that already have geocoded coordinates
+      const geocoded = allProfiles.filter(p => p.latitude != null && p.longitude != null)
+
+      // Profiles with a text location but missing coordinates — geocode them now
+      const needsGeocode = allProfiles.filter(
+        p => (p.latitude == null || p.longitude == null) && p.location?.trim()
+      )
+
+      // Geocode up to 25 profiles in parallel and cache results back to DB
+      const freshCoords: { id: string; lat: number; lon: number }[] = []
+      if (needsGeocode.length > 0) {
+        const results = await Promise.allSettled(
+          needsGeocode.slice(0, 25).map(async p => {
+            const res  = await fetch(
+              `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(p.location)}&format=json&limit=1`
+            )
+            const data = await res.json()
+            if (data.length > 0) {
+              return { id: p.id, lat: parseFloat(data[0].lat), lon: parseFloat(data[0].lon) }
+            }
+            return null
+          })
+        )
+        for (const r of results) {
+          if (r.status === 'fulfilled' && r.value) {
+            freshCoords.push(r.value)
+            // Cache back to DB so next search is instant
+            supabase.from('profiles')
+              .update({ latitude: r.value.lat, longitude: r.value.lon })
+              .eq('id', r.value.id)
+          }
+        }
+      }
+
+      // Combine all profiles with coordinates and filter by 100-mile radius
+      const allWithCoords = [
+        ...geocoded.map(p => ({ id: p.id, lat: p.latitude as number, lon: p.longitude as number })),
+        ...freshCoords,
+      ]
       nearbyUserIds = new Set(
-        (profiles ?? [])
-          .filter(p => p.latitude != null && p.longitude != null &&
-            haversineDistance(effectiveCenter[0], effectiveCenter[1], p.latitude, p.longitude) <= 100)
+        allWithCoords
+          .filter(p => haversineDistance(effectiveCenter[0], effectiveCenter[1], p.lat, p.lon) <= 100)
           .map(p => p.id)
       )
     }
