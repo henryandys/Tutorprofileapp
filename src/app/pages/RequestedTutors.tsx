@@ -33,10 +33,19 @@ import { useState, useEffect } from "react"
 import { useForm } from "react-hook-form"
 import { useSearchParams, Link } from "react-router"
 import { Navbar } from "../components/Navbar"
-import { Trophy, ThumbsUp, Plus, Loader2, Lightbulb, Trash2, ArrowRight, X } from "lucide-react"
+import { Trophy, ThumbsUp, Plus, Loader2, Lightbulb, Trash2, ArrowRight, X, MapPin, Search as SearchIcon } from "lucide-react"
 import { toast } from "sonner"
 import { supabase } from "../../lib/supabase"
 import { useAuth } from "../../context/AuthContext"
+
+function haversineDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const R = 3958.8
+  const dLat = (lat2 - lat1) * Math.PI / 180
+  const dLon = (lon2 - lon1) * Math.PI / 180
+  const a = Math.sin(dLat / 2) ** 2 +
+    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) ** 2
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+}
 
 interface TutorRequest {
   id:          string
@@ -66,15 +75,36 @@ export function RequestedTutors() {
   const [pendingVote,     setPendingVote]     = useState<TutorRequest | null>(null)
   const [myRequestsList,  setMyRequestsList]  = useState<TutorRequest[]>([])
   const [loadingMyList,   setLoadingMyList]   = useState(false)
+  const [locationQuery,   setLocationQuery]   = useState('')
+  const [locationCenter,  setLocationCenter]  = useState<[number, number] | null>(null)
+  const [locationLabel,   setLocationLabel]   = useState('')
+  const [geocoding,       setGeocoding]       = useState(false)
 
   const REQUEST_LIMIT = 10
 
   const { register, handleSubmit, reset, formState: { errors } } = useForm<SuggestForm>()
 
-  useEffect(() => { load() }, [user?.id, mineMode])
+  useEffect(() => { load() }, [user?.id, mineMode, locationCenter])
 
-  async function load() {
+  async function load(center?: [number, number] | null) {
     setLoading(true)
+    const effectiveCenter = center !== undefined ? center : locationCenter
+
+    // Resolve nearby user IDs when an area filter is active
+    let nearbyUserIds: Set<string> | null = null
+    if (effectiveCenter && !mineMode) {
+      const { data: profiles } = await supabase
+        .from('profiles')
+        .select('id, latitude, longitude')
+        .not('latitude', 'is', null)
+        .not('longitude', 'is', null)
+      nearbyUserIds = new Set(
+        (profiles ?? [])
+          .filter(p => p.latitude != null && p.longitude != null &&
+            haversineDistance(effectiveCenter[0], effectiveCenter[1], p.latitude, p.longitude) <= 100)
+          .map(p => p.id)
+      )
+    }
 
     let query = supabase
       .from('tutor_requests')
@@ -82,6 +112,13 @@ export function RequestedTutors() {
 
     if (mineMode && user) {
       query = query.eq('suggested_by', user.id).order('created_at', { ascending: false })
+    } else if (nearbyUserIds !== null) {
+      if (nearbyUserIds.size === 0) {
+        setRequests([])
+        setLoading(false)
+        return
+      }
+      query = query.in('suggested_by', [...nearbyUserIds]).limit(200)
     } else {
       query = query.order('vote_count', { ascending: false }).limit(50)
     }
@@ -131,6 +168,33 @@ export function RequestedTutors() {
     }
 
     setLoading(false)
+  }
+
+  async function handleLocationSearch() {
+    const q = locationQuery.trim()
+    if (!q) return
+    setGeocoding(true)
+    try {
+      const res  = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&limit=1`)
+      const data = await res.json()
+      if (!data.length) { toast.error('Location not found. Try a city or zip code.'); setGeocoding(false); return }
+      const lat   = parseFloat(data[0].lat)
+      const lon   = parseFloat(data[0].lon)
+      const label = data[0].display_name.split(',').slice(0, 2).join(',').trim()
+      const center: [number, number] = [lat, lon]
+      setLocationCenter(center)
+      setLocationLabel(label)
+      await load(center)
+    } catch {
+      toast.error('Could not look up location.')
+    }
+    setGeocoding(false)
+  }
+
+  function clearLocation() {
+    setLocationCenter(null)
+    setLocationLabel('')
+    setLocationQuery('')
   }
 
   async function loadMyRequests() {
@@ -395,7 +459,7 @@ export function RequestedTutors() {
           <p className="text-gray-500 font-medium max-w-md mx-auto">
             {mineMode
               ? 'Courses you have requested or voted for. Add new ones or remove ones you no longer need.'
-              : 'Vote for the subjects you most want covered. The top 10 guide who we recruit next.'
+              : 'Vote for the subjects you most want covered. The top 10 guide who we recruit next.  Become an Instructor if you can help.'
             }
           </p>
           {mineMode && (
@@ -407,6 +471,50 @@ export function RequestedTutors() {
             </Link>
           )}
         </div>
+
+        {/* Location search — leaderboard mode only */}
+        {!mineMode && (
+          <div className="mb-6">
+            {locationLabel ? (
+              <div className="flex items-center justify-between bg-blue-50 border border-blue-200 rounded-2xl px-4 py-3">
+                <span className="flex items-center gap-2 text-sm font-bold text-blue-700">
+                  <MapPin className="w-4 h-4 shrink-0" />
+                  Top 10 within 100 miles of <span className="underline">{locationLabel}</span>
+                </span>
+                <button
+                  onClick={clearLocation}
+                  className="ml-3 text-blue-400 hover:text-blue-700 transition-colors"
+                  aria-label="Clear location filter"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            ) : (
+              <form
+                onSubmit={e => { e.preventDefault(); handleLocationSearch() }}
+                className="flex gap-2"
+              >
+                <div className="relative flex-1">
+                  <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                  <input
+                    value={locationQuery}
+                    onChange={e => setLocationQuery(e.target.value)}
+                    placeholder="Search by city, zip code, or area…"
+                    className="w-full h-11 pl-9 pr-4 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium text-gray-800 bg-white text-sm"
+                  />
+                </div>
+                <button
+                  type="submit"
+                  disabled={geocoding || !locationQuery.trim()}
+                  className="flex items-center gap-2 px-4 h-11 bg-blue-600 text-white rounded-xl font-bold text-sm hover:bg-blue-700 transition-colors disabled:opacity-60 shrink-0"
+                >
+                  {geocoding ? <Loader2 className="w-4 h-4 animate-spin" /> : <SearchIcon className="w-4 h-4" />}
+                  Search
+                </button>
+              </form>
+            )}
+          </div>
+        )}
 
         {/* At-limit picker — shown when user tries to vote but is at the cap */}
         {pendingVote && (
@@ -471,8 +579,17 @@ export function RequestedTutors() {
               : <Trophy className="w-10 h-10 text-gray-200 mx-auto mb-3" />
             }
             <p className="text-gray-400 font-medium">
-              {mineMode ? "You haven't requested any courses yet." : 'No suggestions yet — be the first!'}
+              {mineMode
+                ? "You haven't requested any courses yet."
+                : locationLabel
+                  ? `No requests found within 100 miles of ${locationLabel}.`
+                  : 'No suggestions yet — be the first!'}
             </p>
+            {locationLabel && (
+              <button onClick={clearLocation} className="mt-2 text-sm font-bold text-blue-600 hover:underline">
+                View global leaderboard
+              </button>
+            )}
           </div>
         ) : (
           <div className="space-y-3 mb-8">
