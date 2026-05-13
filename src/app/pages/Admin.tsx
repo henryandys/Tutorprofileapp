@@ -13,7 +13,21 @@
 //     ADD COLUMN IF NOT EXISTS is_admin boolean DEFAULT false;
 //
 //   -- Grant yourself admin access (replace with your email):
-//   UPDATE profiles SET is_admin = true WHERE email = 'henry.andy.s@gmail.com';
+//   UPDATE profiles SET is_admin = true
+//     WHERE id = (SELECT id FROM auth.users WHERE email = 'henry.andy.s@gmail.com');
+//
+//   -- Allow admins to read and update all tutor_profiles rows (bypasses RLS):
+//   CREATE POLICY "admins_read_tutor_profiles" ON tutor_profiles
+//     FOR SELECT TO authenticated
+//     USING (EXISTS (
+//       SELECT 1 FROM profiles WHERE profiles.id = auth.uid() AND profiles.is_admin = true
+//     ));
+//
+//   CREATE POLICY "admins_update_tutor_profiles" ON tutor_profiles
+//     FOR UPDATE TO authenticated
+//     USING (EXISTS (
+//       SELECT 1 FROM profiles WHERE profiles.id = auth.uid() AND profiles.is_admin = true
+//     ));
 //
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -22,7 +36,7 @@ import { Link } from "react-router"
 import { Navbar } from "../components/Navbar"
 import { useAuth } from "../../context/AuthContext"
 import { supabase } from "../../lib/supabase"
-import { ShieldCheck, BadgeCheck, Clock, ExternalLink, FileText } from "lucide-react"
+import { ShieldCheck, BadgeCheck, Clock, ExternalLink, FileText, Search, X } from "lucide-react"
 import { toast } from "sonner"
 
 interface TutorRow {
@@ -40,7 +54,8 @@ export function Admin() {
   const [isAdmin, setIsAdmin] = useState<boolean | null>(null)
   const [tutors, setTutors] = useState<TutorRow[]>([])
   const [loading, setLoading] = useState(true)
-  const [filter, setFilter] = useState<'pending' | 'all'>('pending')
+  const [filter, setFilter] = useState<'pending' | 'all'>('all')
+  const [search, setSearch] = useState('')
 
   // Query is_admin directly — don't rely on the cached AuthContext profile
   useEffect(() => {
@@ -56,24 +71,31 @@ export function Admin() {
   useEffect(() => {
     if (isAdmin === null) return
     if (!isAdmin) { setLoading(false); return }
-    supabase
-      .from('tutor_profiles')
-      .select('id, is_verified, verification_requested, verification_document_url, profiles(full_name, email, avatar_url)')
-      .then(({ data, error }) => {
-        if (error) { toast.error('Failed to load instructor list'); setLoading(false); return }
-        setTutors(
-          (data ?? []).map((row: any) => ({
-            id:                        row.id,
-            full_name:                 row.profiles?.full_name ?? 'Unknown',
-            email:                     row.profiles?.email     ?? '',
-            avatar_url:                row.profiles?.avatar_url ?? null,
-            is_verified:               row.is_verified                ?? false,
-            verification_requested:    row.verification_requested     ?? false,
-            verification_document_url: row.verification_document_url  ?? null,
-          }))
-        )
-        setLoading(false)
-      })
+
+    // tutors_view is public (no RLS), gives us name/avatar for all tutors.
+    // tutor_profiles may have RLS — we merge what we can get from it.
+    Promise.all([
+      supabase.from('tutors_view').select('id, full_name, avatar_url'),
+      supabase.from('tutor_profiles').select('id, is_verified, verification_requested, verification_document_url'),
+    ]).then(([viewRes, tpRes]) => {
+      if (viewRes.error) { toast.error('Failed to load instructor list'); setLoading(false); return }
+
+      const tpMap: Record<string, any> = {}
+      for (const row of tpRes.data ?? []) tpMap[row.id] = row
+
+      setTutors(
+        (viewRes.data ?? []).map((row: any) => ({
+          id:                        row.id,
+          full_name:                 row.full_name  ?? 'Unknown',
+          email:                     '',
+          avatar_url:                row.avatar_url ?? null,
+          is_verified:               tpMap[row.id]?.is_verified               ?? false,
+          verification_requested:    tpMap[row.id]?.verification_requested     ?? false,
+          verification_document_url: tpMap[row.id]?.verification_document_url ?? null,
+        }))
+      )
+      setLoading(false)
+    })
   }, [isAdmin])
 
   async function toggleVerified(tutorId: string, value: boolean) {
@@ -99,9 +121,10 @@ export function Admin() {
     )
   }
 
-  const displayed = filter === 'pending'
-    ? tutors.filter(t => t.verification_requested && !t.is_verified)
-    : tutors
+  const q = search.trim().toLowerCase()
+  const displayed = tutors
+    .filter(t => filter === 'pending' ? (t.verification_requested && !t.is_verified) : true)
+    .filter(t => !q || t.full_name.toLowerCase().includes(q) || t.email.toLowerCase().includes(q))
 
   const pendingCount = tutors.filter(t => t.verification_requested && !t.is_verified).length
 
@@ -110,12 +133,34 @@ export function Admin() {
       <Navbar />
       <div className="max-w-5xl mx-auto px-4 py-10">
 
-        <div className="flex items-center justify-between mb-8 flex-wrap gap-4">
-          <div className="flex items-center gap-3">
-            <ShieldCheck className="w-7 h-7 text-blue-600" />
-            <h1 className="text-2xl font-bold text-gray-900">Admin — Instructor Verification</h1>
+        <div className="flex items-center gap-3 mb-6">
+          <ShieldCheck className="w-7 h-7 text-blue-600 shrink-0" />
+          <h1 className="text-2xl font-bold text-gray-900">Admin — Instructor Verification</h1>
+        </div>
+
+        <div className="flex flex-col sm:flex-row gap-3 mb-6">
+          {/* Search */}
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+            <input
+              type="text"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              placeholder="Search by name…"
+              className="w-full h-10 pl-9 pr-9 border border-gray-200 rounded-xl text-sm font-medium text-gray-800 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+            {search && (
+              <button
+                onClick={() => setSearch('')}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            )}
           </div>
-          <div className="flex items-center gap-2">
+
+          {/* Filter tabs */}
+          <div className="flex items-center gap-2 shrink-0">
             <button
               onClick={() => setFilter('pending')}
               className={`px-4 py-1.5 rounded-full text-sm font-bold transition-colors ${
@@ -133,7 +178,7 @@ export function Admin() {
                 filter === 'all' ? 'bg-blue-600 text-white' : 'bg-white border border-gray-200 text-gray-600 hover:border-blue-300'
               }`}
             >
-              All Instructors ({tutors.length})
+              All ({tutors.length})
             </button>
           </div>
         </div>
@@ -144,7 +189,11 @@ export function Admin() {
           <div className="flex flex-col items-center gap-3 py-20 text-center">
             <BadgeCheck className="w-12 h-12 text-gray-300" />
             <p className="text-gray-400 font-bold text-lg">
-              {filter === 'pending' ? 'No pending verification requests.' : 'No instructors yet.'}
+              {q
+                ? `No instructors found matching "${search}".`
+                : filter === 'pending'
+                  ? 'No pending verification requests.'
+                  : 'No instructors yet.'}
             </p>
           </div>
         ) : (
