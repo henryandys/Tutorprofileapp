@@ -30,7 +30,7 @@ export function Search() {
   const [mobileView, setMobileView]             = useState<"list" | "map">("map")
   const [savedTutors, setSavedTutors]           = useState<Set<string>>(new Set())
   const [filters, setFilters]                 = useState<FilterState>({
-    query: '', location: '', minRate: 0, maxRate: 300, minRating: 0, availDays: [], availTime: 'any',
+    query: '', location: '', distance: 50, minRate: 0, maxRate: 300, minRating: 0, availDays: [], availTime: 'any',
   })
 
   // Pick up ?q= and ?location= from home/navbar search
@@ -258,18 +258,23 @@ export function Search() {
     try { const s = sessionStorage.getItem('userHomeCoords'); return s ? JSON.parse(s) as [number, number] : undefined }
     catch { return undefined }
   }, [])
-  const [flyTo, setFlyTo]   = useState<[number, number] | undefined>(cachedHome)
+  const [flyTo, setFlyTo]             = useState<[number, number] | undefined>(cachedHome)
+  const [locationCoords, setLocationCoords] = useState<[number, number] | null>(null)
   const homeCoords          = useRef<[number, number] | undefined>(cachedHome)
   const locationDebounce    = useRef<ReturnType<typeof setTimeout> | null>(null)
   useEffect(() => {
     if (locationDebounce.current) clearTimeout(locationDebounce.current)
     const loc = filters.location.trim()
-    if (!loc) { setFlyTo(homeCoords.current); return }
+    if (!loc) { setFlyTo(homeCoords.current); setLocationCoords(null); return }
     locationDebounce.current = setTimeout(async () => {
       try {
         const res  = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(loc)}&format=json&limit=1&countrycodes=us`)
         const data = await res.json()
-        if (data.length > 0) setFlyTo([parseFloat(data[0].lat), parseFloat(data[0].lon)])
+        if (data.length > 0) {
+          const coords: [number, number] = [parseFloat(data[0].lat), parseFloat(data[0].lon)]
+          setFlyTo(coords)
+          setLocationCoords(coords)
+        }
       } catch { /* ignore */ }
     }, 600)
   }, [filters.location])
@@ -295,6 +300,15 @@ export function Search() {
   }, [profile?.location])
 
   const [groupDateFilter, setGroupDateFilter] = useState<'all' | 'today' | 'week' | 'month'>('all')
+
+  function haversine(lat1: number, lon1: number, lat2: number, lon2: number) {
+    const R = 3958.8
+    const dLat = (lat2 - lat1) * Math.PI / 180
+    const dLon = (lon2 - lon1) * Math.PI / 180
+    const a = Math.sin(dLat / 2) ** 2 +
+      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) ** 2
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+  }
 
   const tutors = useMemo(() => {
     return allTutors.filter(t => {
@@ -334,9 +348,13 @@ export function Search() {
         })
       }
 
-      return matchesQuery && matchesRate && matchesRating && matchesDays && matchesTime
-    })
-  }, [allTutors, filters])
+      const matchesDistance = !locationCoords || !filters.location ||
+        (t.lat != null && t.lng != null &&
+          haversine(locationCoords[0], locationCoords[1], t.lat, t.lng) <= filters.distance)
+
+      return matchesQuery && matchesRate && matchesRating && matchesDays && matchesTime && matchesDistance
+    }).sort((a, b) => Number(b.isVerified) - Number(a.isVerified))
+  }, [allTutors, filters, locationCoords])
 
   const DOW_KEYS = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday']
 

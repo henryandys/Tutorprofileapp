@@ -6,6 +6,7 @@ import { Search, MapPin, SlidersHorizontal, X } from "lucide-react";
 export interface FilterState {
   query:     string;
   location:  string;
+  distance:  number;            // miles; 0 = no limit
   minRate:   number;
   maxRate:   number;
   minRating: number;
@@ -20,12 +21,15 @@ interface FilterBarProps {
 export const DEFAULT_FILTERS: FilterState = {
   query:     '',
   location:  '',
+  distance:  50,
   minRate:   0,
   maxRate:   300,
   minRating: 0,
   availDays: [],
   availTime: 'any',
 }
+
+const DISTANCE_OPTIONS = [10, 25, 50, 100, 250]
 
 const DAYS = [
   { label: 'Sun', value: 'sunday'    },
@@ -109,16 +113,29 @@ export function FilterBar({ onFilter }: FilterBarProps) {
           <input
             type="text"
             value={filters.location}
-            onChange={e => update({ location: e.target.value })}
+            onChange={e => update({ location: e.target.value, distance: 50 })}
             placeholder="City or zip code…"
             className="w-full h-9 pl-9 pr-4 border border-gray-200 rounded-lg text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500 bg-gray-50"
           />
           {filters.location && (
-            <button onClick={() => update({ location: '' })} className="absolute right-3 top-2.5 text-gray-400 hover:text-gray-600">
+            <button onClick={() => update({ location: '', distance: 50 })} className="absolute right-3 top-2.5 text-gray-400 hover:text-gray-600">
               <X className="w-4 h-4" />
             </button>
           )}
         </div>
+
+        {/* Distance selector — only visible when a location is entered */}
+        {filters.location && (
+          <select
+            value={filters.distance}
+            onChange={e => update({ distance: Number(e.target.value) })}
+            className="h-9 px-2 border border-gray-200 rounded-lg text-sm font-bold text-gray-700 bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer"
+          >
+            {DISTANCE_OPTIONS.map(d => (
+              <option key={d} value={d}>{d} mi</option>
+            ))}
+          </select>
+        )}
 
         {/* Filter toggle */}
         <button
