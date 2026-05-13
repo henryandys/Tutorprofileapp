@@ -33,20 +33,26 @@ interface MapProps {
 }
 
 function makePinIcon(tutor: Tutor, selected: boolean) {
-  const badgeBg     = selected ? "#2563eb" : "#ffffff";
-  const badgeColor  = selected ? "#ffffff" : "#111827";
-  const badgeBorder = selected ? "#1d4ed8" : "#e5e7eb";
-  const badgeShadow = selected ? "0 0 0 4px rgba(96,165,250,0.35)" : "none";
-  const pinFill     = selected ? "#2563eb" : "#3b82f6";
-  const pinStroke   = selected ? "#1d4ed8" : "#2563eb";
-  const scale       = selected ? "scale(1.15)" : "scale(1)";
+  const verified = tutor.isVerified;
+
+  // Verified: gold/amber. Regular: blue.
+  const badgeBg     = selected ? (verified ? "#d97706" : "#2563eb") : (verified ? "#f59e0b" : "#ffffff");
+  const badgeColor  = selected ? "#ffffff" : (verified ? "#ffffff" : "#111827");
+  const badgeBorder = selected ? (verified ? "#b45309" : "#1d4ed8") : (verified ? "#f59e0b" : "#e5e7eb");
+  const badgeShadow = selected ? `0 0 0 4px ${verified ? "rgba(251,191,36,0.45)" : "rgba(96,165,250,0.35)"}` : "none";
+  const pinFill     = selected ? (verified ? "#d97706" : "#2563eb") : (verified ? "#f59e0b" : "#3b82f6");
+  const pinStroke   = selected ? (verified ? "#b45309" : "#1d4ed8") : (verified ? "#d97706" : "#2563eb");
+  const scale       = selected ? "scale(1.2)" : (verified ? "scale(1.08)" : "scale(1)");
+  const checkmark   = verified
+    ? `<svg xmlns='http://www.w3.org/2000/svg' width='11' height='11' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'><polyline points='20 6 9 17 4 12'/></svg>`
+    : "";
 
   const html = `
-    <div style="display:flex;flex-direction:column;align-items:center;gap:2px;transform:${scale};transition:transform 0.2s;filter:drop-shadow(0 2px 4px rgba(0,0,0,0.25))">
-      <div style="padding:3px 10px;border-radius:9999px;border:2px solid ${badgeBorder};background:${badgeBg};color:${badgeColor};font-weight:700;font-size:13px;white-space:nowrap;box-shadow:${badgeShadow};font-family:sans-serif">
-        $${tutor.hourlyRate}
+    <div style="display:flex;flex-direction:column;align-items:center;gap:2px;transform:${scale};transition:transform 0.2s;filter:drop-shadow(0 2px 6px rgba(0,0,0,0.3))">
+      <div style="padding:3px 10px;border-radius:9999px;border:2px solid ${badgeBorder};background:${badgeBg};color:${badgeColor};font-weight:700;font-size:13px;white-space:nowrap;box-shadow:${badgeShadow};font-family:sans-serif;display:flex;align-items:center;gap:3px">
+        ${checkmark}$${tutor.hourlyRate}
       </div>
-      <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="${pinFill}" stroke="${pinStroke}" stroke-width="1.5">
+      <svg xmlns="http://www.w3.org/2000/svg" width="${verified ? 24 : 22}" height="${verified ? 24 : 22}" viewBox="0 0 24 24" fill="${pinFill}" stroke="${pinStroke}" stroke-width="1.5">
         <path d="M20 10c0 6-8 13-8 13s-8-7-8-13a8 8 0 0 1 16 0Z"/>
         <circle cx="12" cy="10" r="3" fill="white" stroke="none"/>
       </svg>

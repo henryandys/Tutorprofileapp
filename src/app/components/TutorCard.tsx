@@ -14,7 +14,13 @@ interface TutorCardProps {
 
 export function TutorCard({ tutor, isSelected, isSaved, onToggleSave, onClick }: TutorCardProps) {
   const content = (
-    <div className={`block relative rounded-xl border border-gray-200 overflow-hidden bg-white shadow-sm hover:shadow-md transition-shadow group ${isSelected ? "ring-2 ring-blue-500" : ""}`}>
+    <div className={`block relative rounded-xl overflow-hidden bg-white shadow-sm hover:shadow-md transition-shadow group ${
+      isSelected
+        ? "ring-2 ring-blue-500 border border-blue-500"
+        : tutor.isVerified
+          ? "border-2 border-amber-400 ring-1 ring-amber-200"
+          : "border border-gray-200"
+    }`}>
       <div className="relative aspect-[4/3] overflow-hidden">
         {tutor.imageUrl ? (
           <ImageWithFallback
@@ -32,6 +38,12 @@ export function TutorCard({ tutor, isSelected, isSaved, onToggleSave, onClick }:
         <div className="absolute top-3 left-3 bg-white/90 backdrop-blur-sm px-2 py-1 rounded text-xs font-bold text-gray-800 uppercase tracking-wider">
           {tutor.subject.split(" & ")[0]}
         </div>
+        {tutor.isVerified && (
+          <div className="absolute top-3 right-12 flex items-center gap-1 px-2 py-1 rounded-full bg-amber-400 text-white text-xs font-black shadow">
+            <BadgeCheck className="w-3 h-3" />
+            Verified
+          </div>
+        )}
         <button
           onClick={(e) => {
             e.preventDefault();
@@ -62,14 +74,7 @@ export function TutorCard({ tutor, isSelected, isSaved, onToggleSave, onClick }:
         </div>
 
         <div className="flex flex-col gap-0.5">
-          <div className="flex items-center gap-1.5">
-            <p className="text-base font-bold text-gray-800 line-clamp-1">{tutor.name}</p>
-            {tutor.isVerified && (
-              <span title="Verified Instructor">
-                <BadgeCheck className="w-4 h-4 text-blue-600 shrink-0" />
-              </span>
-            )}
-          </div>
+          <p className="text-base font-bold text-gray-800 line-clamp-1">{tutor.name}</p>
           <p className="text-sm font-medium text-gray-600 line-clamp-1">{tutor.subject}</p>
           <div className="flex items-center gap-1 mt-1 text-xs text-gray-500">
             <MapPin className="w-3 h-3" />
