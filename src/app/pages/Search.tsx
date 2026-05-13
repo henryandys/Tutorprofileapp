@@ -305,14 +305,16 @@ export function Search() {
         matchesTime = daysToCheck.some(day => {
           const slot = t.availability[day]
           if (!slot?.available) return false
-          const [sh, sm] = slot.start.split(':').map(Number)
-          const [eh, em] = slot.end.split(':').map(Number)
-          const startMins = sh * 60 + sm
-          const endMins   = eh * 60 + em
-          if (filters.availTime === 'morning')   return startMins < 12 * 60
-          if (filters.availTime === 'afternoon') return startMins < 17 * 60 && endMins > 12 * 60
-          if (filters.availTime === 'evening')   return endMins > 17 * 60
-          return true
+          return slot.blocks.some(block => {
+            const [sh, sm] = block.start.split(':').map(Number)
+            const [eh, em] = block.end.split(':').map(Number)
+            const startMins = sh * 60 + sm
+            const endMins   = eh * 60 + em
+            if (filters.availTime === 'morning')   return startMins < 12 * 60
+            if (filters.availTime === 'afternoon') return startMins < 17 * 60 && endMins > 12 * 60
+            if (filters.availTime === 'evening')   return endMins > 17 * 60
+            return true
+          })
         })
       }
 

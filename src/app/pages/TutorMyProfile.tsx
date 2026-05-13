@@ -18,12 +18,20 @@ import { GroupEnrollmentModal } from "../components/GroupEnrollmentModal";
 
 const DAYS = ['monday','tuesday','wednesday','thursday','friday','saturday','sunday'] as const
 type Day = typeof DAYS[number]
-interface DaySlot { available: boolean; start: string; end: string }
+interface TimeBlock { start: string; end: string }
+interface DaySlot { available: boolean; blocks: TimeBlock[] }
 type WeekAvail = Record<Day, DaySlot>
 
 const DEFAULT_AVAIL: WeekAvail = Object.fromEntries(
-  DAYS.map(d => [d, { available: false, start: '09:00', end: '17:00' }])
+  DAYS.map(d => [d, { available: false, blocks: [{ start: '09:00', end: '17:00' }] }])
 ) as WeekAvail
+
+function normalizeDaySlot(raw: unknown): DaySlot {
+  if (!raw || typeof raw !== 'object') return { available: false, blocks: [{ start: '09:00', end: '17:00' }] }
+  const r = raw as Record<string, unknown>
+  if (Array.isArray(r.blocks)) return { available: !!r.available, blocks: r.blocks as TimeBlock[] }
+  return { available: !!r.available, blocks: [{ start: (r.start as string) || '09:00', end: (r.end as string) || '17:00' }] }
+}
 
 const DAY_LABELS: Record<Day, string> = {
   monday: 'Monday', tuesday: 'Tuesday', wednesday: 'Wednesday',
@@ -118,8 +126,23 @@ export function TutorMyProfile() {
   function toggleDay(day: Day) {
     setAvailability(prev => ({ ...prev, [day]: { ...prev[day], available: !prev[day].available } }))
   }
-  function updateTime(day: Day, field: 'start' | 'end', value: string) {
-    setAvailability(prev => ({ ...prev, [day]: { ...prev[day], [field]: value } }))
+  function updateBlock(day: Day, idx: number, field: 'start' | 'end', value: string) {
+    setAvailability(prev => {
+      const blocks = prev[day].blocks.map((b, i) => i === idx ? { ...b, [field]: value } : b)
+      return { ...prev, [day]: { ...prev[day], blocks } }
+    })
+  }
+  function addBlock(day: Day) {
+    setAvailability(prev => ({
+      ...prev,
+      [day]: { ...prev[day], blocks: [...prev[day].blocks, { start: '09:00', end: '17:00' }] },
+    }))
+  }
+  function removeBlock(day: Day, idx: number) {
+    setAvailability(prev => {
+      const blocks = prev[day].blocks.filter((_, i) => i !== idx)
+      return { ...prev, [day]: { ...prev[day], blocks: blocks.length ? blocks : [{ start: '09:00', end: '17:00' }] } }
+    })
   }
 
   // Load tutor profile + bookings
@@ -135,7 +158,10 @@ export function TutorMyProfile() {
       .then(({ data }) => {
         setTutorData(data)
         if (data?.availability) {
-          setAvailability({ ...DEFAULT_AVAIL, ...data.availability })
+          const normalized = Object.fromEntries(
+            DAYS.map(d => [d, normalizeDaySlot((data.availability as Record<string, unknown>)[d]) ?? DEFAULT_AVAIL[d]])
+          ) as WeekAvail
+          setAvailability(normalized)
         }
         if (data?.blackout_dates) {
           setBlackoutDates(data.blackout_dates)
@@ -585,38 +611,63 @@ export function TutorMyProfile() {
               {DAYS.map(day => {
                 const slot = availability[day]
                 return (
-                  <div key={day} className="flex flex-wrap items-center gap-4 py-3">
-                    <span className="w-28 font-bold text-gray-700 capitalize">{DAY_LABELS[day]}</span>
-
-                    <button
-                      type="button"
-                      onClick={() => isEditing && toggleDay(day)}
-                      className={`px-3 py-1 rounded-full text-sm font-bold transition-colors ${
-                        slot.available
-                          ? 'bg-green-100 text-green-700'
-                          : 'bg-gray-100 text-gray-400'
-                      } ${isEditing ? 'cursor-pointer hover:opacity-80' : 'cursor-default'}`}
-                    >
-                      {slot.available ? 'Available' : 'Unavailable'}
-                    </button>
+                  <div key={day} className="py-3">
+                    <div className="flex items-center gap-4">
+                      <span className="w-28 font-bold text-gray-700 capitalize">{DAY_LABELS[day]}</span>
+                      <button
+                        type="button"
+                        onClick={() => isEditing && toggleDay(day)}
+                        className={`px-3 py-1 rounded-full text-sm font-bold transition-colors ${
+                          slot.available
+                            ? 'bg-green-100 text-green-700'
+                            : 'bg-gray-100 text-gray-400'
+                        } ${isEditing ? 'cursor-pointer hover:opacity-80' : 'cursor-default'}`}
+                      >
+                        {slot.available ? 'Available' : 'Unavailable'}
+                      </button>
+                    </div>
 
                     {slot.available && (
-                      <div className="flex items-center gap-2 ml-auto">
-                        <input
-                          type="time"
-                          value={slot.start}
-                          disabled={!isEditing}
-                          onChange={e => updateTime(day, 'start', e.target.value)}
-                          className="h-9 px-3 border border-gray-200 rounded-lg text-sm font-bold text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-50 disabled:text-gray-500"
-                        />
-                        <span className="text-gray-400 font-bold">–</span>
-                        <input
-                          type="time"
-                          value={slot.end}
-                          disabled={!isEditing}
-                          onChange={e => updateTime(day, 'end', e.target.value)}
-                          className="h-9 px-3 border border-gray-200 rounded-lg text-sm font-bold text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-50 disabled:text-gray-500"
-                        />
+                      <div className="mt-2 ml-32 flex flex-col gap-2">
+                        {slot.blocks.map((block, idx) => (
+                          <div key={idx} className="flex items-center gap-2">
+                            <input
+                              type="time"
+                              value={block.start}
+                              disabled={!isEditing}
+                              onChange={e => updateBlock(day, idx, 'start', e.target.value)}
+                              className="h-9 px-3 border border-gray-200 rounded-lg text-sm font-bold text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-50 disabled:text-gray-500"
+                            />
+                            <span className="text-gray-400 font-bold">–</span>
+                            <input
+                              type="time"
+                              value={block.end}
+                              disabled={!isEditing}
+                              onChange={e => updateBlock(day, idx, 'end', e.target.value)}
+                              className="h-9 px-3 border border-gray-200 rounded-lg text-sm font-bold text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-50 disabled:text-gray-500"
+                            />
+                            {isEditing && slot.blocks.length > 1 && (
+                              <button
+                                type="button"
+                                onClick={() => removeBlock(day, idx)}
+                                className="p-1 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors"
+                                title="Remove this block"
+                              >
+                                <X className="w-4 h-4" />
+                              </button>
+                            )}
+                          </div>
+                        ))}
+                        {isEditing && (
+                          <button
+                            type="button"
+                            onClick={() => addBlock(day)}
+                            className="flex items-center gap-1 text-xs font-bold text-blue-600 hover:text-blue-700 w-fit mt-0.5"
+                          >
+                            <Plus className="w-3.5 h-3.5" />
+                            Add time block
+                          </button>
+                        )}
                       </div>
                     )}
                   </div>

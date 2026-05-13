@@ -1,11 +1,23 @@
 import { supabase } from '../../lib/supabase'
 
+export interface TimeBlock {
+  start: string  // "09:00"
+  end:   string  // "17:00"
+}
+
 export interface DaySlot {
   available: boolean
-  start: string   // "09:00"
-  end:   string   // "17:00"
+  blocks:    TimeBlock[]
 }
 export type WeeklyAvailability = Partial<Record<string, DaySlot>>
+
+function normalizeDaySlot(raw: unknown): DaySlot {
+  if (!raw || typeof raw !== 'object') return { available: false, blocks: [{ start: '09:00', end: '17:00' }] }
+  const r = raw as Record<string, unknown>
+  if (Array.isArray(r.blocks)) return { available: !!r.available, blocks: r.blocks as TimeBlock[] }
+  // Legacy format: { available, start, end }
+  return { available: !!r.available, blocks: [{ start: (r.start as string) || '09:00', end: (r.end as string) || '17:00' }] }
+}
 
 export interface Tutor {
   id:               string
@@ -97,7 +109,10 @@ function rowToTutor(row: any): Tutor {
     location:         row.location ?? '',
     tutoringLocation: row.tutoring_location ?? '',
     bio:              row.bio ?? '',
-    availability:     (row.availability as WeeklyAvailability) ?? {},
+    availability:     Object.fromEntries(
+      Object.entries((row.availability as Record<string, unknown>) ?? {})
+        .map(([day, slot]) => [day, normalizeDaySlot(slot)])
+    ) as WeeklyAvailability,
     blackoutDates:    (row.blackout_dates as string[]) ?? [],
     policy:           row.policy ?? '',
     imageUrl:    row.avatar_url ?? '',

@@ -1,4 +1,31 @@
 // src/app/pages/TutorProfile.tsx
+//
+// ── REQUIRED SUPABASE MIGRATION ──────────────────────────────────────────────
+// The bookings table's RLS policy only lets participants see their own rows.
+// Without this function, the availability calendar only blocks slots for the
+// student who made the booking — everyone else sees the slot as free.
+//
+// Run this once in the Supabase SQL editor:
+//
+//   create or replace function get_booked_slots(
+//     p_tutor_id   uuid,
+//     p_date_start timestamptz,
+//     p_date_end   timestamptz
+//   )
+//   returns table (scheduled_at timestamptz, duration_minutes integer)
+//   language sql
+//   security definer
+//   as $$
+//     select scheduled_at, duration_minutes
+//     from bookings
+//     where tutor_id    = p_tutor_id
+//       and status      not in ('declined', 'cancelled')
+//       and scheduled_at >= p_date_start
+//       and scheduled_at <= p_date_end
+//       and scheduled_at is not null;
+//   $$;
+//
+// ─────────────────────────────────────────────────────────────────────────────
 
 import { useParams, Link } from "react-router";
 import { fetchTutorById } from "../data/tutors";
@@ -16,19 +43,23 @@ import { sendNotificationEmail } from "../../lib/notify";
 
 const DOW = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday']
 function getDayKey(d: Date) { return DOW[d.getDay()] }
-function generateSlots(start: string, end: string): string[] {
+function generateSlots(blocks: Array<{ start: string; end: string }>): string[] {
   const slots: string[] = []
-  const [sh, sm] = start.split(':').map(Number)
-  const [eh, em] = end.split(':').map(Number)
-  let mins = sh * 60 + sm
-  const endMins = eh * 60 + em
-  while (mins < endMins) {
-    const h = Math.floor(mins / 60)
-    const m = mins % 60
-    const period = h >= 12 ? 'PM' : 'AM'
-    const hour = h % 12 || 12
-    slots.push(`${hour}:${String(m).padStart(2, '0')} ${period}`)
-    mins += 30
+  const seen = new Set<string>()
+  for (const { start, end } of blocks) {
+    const [sh, sm] = start.split(':').map(Number)
+    const [eh, em] = end.split(':').map(Number)
+    let mins = sh * 60 + sm
+    const endMins = eh * 60 + em
+    while (mins < endMins) {
+      const h = Math.floor(mins / 60)
+      const m = mins % 60
+      const period = h >= 12 ? 'PM' : 'AM'
+      const hour = h % 12 || 12
+      const label = `${hour}:${String(m).padStart(2, '0')} ${period}`
+      if (!seen.has(label)) { seen.add(label); slots.push(label) }
+      mins += 30
+    }
   }
   return slots
 }
@@ -316,30 +347,50 @@ export function TutorProfile() {
     return () => document.removeEventListener('mousedown', onDown)
   }, [showMonthPicker])
 
-  // Fetch booked slots for the selected date; each booking blocks its start + its duration in 30-min chunks.
+  // Fetch booked slots for the selected date visible to ALL viewers.
+  // Uses a security-definer RPC to bypass RLS on the bookings table so every
+  // student sees the same blocked slots, not just the one who made the booking.
+  // Also blocks time occupied by the tutor's group sessions.
   useEffect(() => {
     if (!selectedDate || !tutor) { setTakenMinutes(new Set()); return }
     const start = new Date(selectedDate); start.setHours(0, 0, 0, 0)
     const end   = new Date(selectedDate); end.setHours(23, 59, 59, 999)
-    supabase
-      .from('bookings')
-      .select('scheduled_at, duration_minutes')
-      .eq('tutor_id', tutor.id)
-      .neq('status', 'declined')
-      .neq('status', 'cancelled')
-      .gte('scheduled_at', start.toISOString())
-      .lte('scheduled_at', end.toISOString())
-      .then(({ data }) => {
-        const blocked = new Set<number>()
-        for (const b of data ?? []) {
-          if (!b.scheduled_at) continue
-          const d = new Date(b.scheduled_at)
-          const startM = d.getHours() * 60 + d.getMinutes()
-          const dur = (b.duration_minutes ?? 60)
-          for (let m = startM; m < startM + dur; m += 30) blocked.add(m)
-        }
-        setTakenMinutes(blocked)
-      })
+
+    function minutesBlocked(scheduledAt: string, durationMinutes: number): number[] {
+      const d      = new Date(scheduledAt)
+      const startM = d.getHours() * 60 + d.getMinutes()
+      const result: number[] = []
+      for (let m = startM; m < startM + durationMinutes; m += 30) result.push(m)
+      return result
+    }
+
+    Promise.all([
+      // RPC bypasses RLS — returns scheduled_at + duration for all non-cancelled bookings
+      supabase.rpc('get_booked_slots', {
+        p_tutor_id:   tutor.id,
+        p_date_start: start.toISOString(),
+        p_date_end:   end.toISOString(),
+      }),
+      // Group sessions are publicly readable; block their time too
+      supabase
+        .from('group_lessons')
+        .select('scheduled_at, duration_minutes')
+        .eq('tutor_id', tutor.id)
+        .neq('status', 'cancelled')
+        .gte('scheduled_at', start.toISOString())
+        .lte('scheduled_at', end.toISOString()),
+    ]).then(([bookingsRes, groupRes]) => {
+      const blocked = new Set<number>()
+      for (const b of bookingsRes.data ?? []) {
+        if (!b.scheduled_at) continue
+        for (const m of minutesBlocked(b.scheduled_at, b.duration_minutes ?? 60)) blocked.add(m)
+      }
+      for (const g of groupRes.data ?? []) {
+        if (!g.scheduled_at) continue
+        for (const m of minutesBlocked(g.scheduled_at, g.duration_minutes ?? 60)) blocked.add(m)
+      }
+      setTakenMinutes(blocked)
+    })
   }, [selectedDate, tutor])
 
   // Load reviews
@@ -674,9 +725,13 @@ export function TutorProfile() {
                       return `${hour}${m ? `:${String(m).padStart(2,'0')}` : ''} ${period}`
                     }
                     return (
-                      <div key={day} className="flex items-center justify-between px-5 py-3 bg-green-50 border border-green-100 rounded-xl">
+                      <div key={day} className="flex items-start justify-between px-5 py-3 bg-green-50 border border-green-100 rounded-xl">
                         <span className="font-bold text-gray-900 capitalize">{day}</span>
-                        <span className="text-sm font-bold text-green-700">{fmt(slot.start)} – {fmt(slot.end)}</span>
+                        <div className="flex flex-col items-end gap-0.5">
+                          {slot.blocks.map((b, i) => (
+                            <span key={i} className="text-sm font-bold text-green-700">{fmt(b.start)} – {fmt(b.end)}</span>
+                          ))}
+                        </div>
                       </div>
                     )
                   })}
@@ -1026,7 +1081,7 @@ export function TutorProfile() {
                 {selectedDate && (() => {
                   const avail = tutor.availability[getDayKey(selectedDate)]
                   if (!avail?.available) return null
-                  const slots = generateSlots(avail.start, avail.end)
+                  const slots = generateSlots(avail.blocks)
                   return (
                     <div className="flex flex-col gap-1.5">
                       <label className="text-xs font-bold text-gray-400 uppercase tracking-widest px-1">Select Start Time</label>
