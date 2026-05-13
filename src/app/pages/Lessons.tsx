@@ -1,11 +1,30 @@
-// ── REQUIRED SUPABASE MIGRATION ──────────────────────────────────────────────
-// Run once in the Supabase SQL editor to enable rescheduling:
+// ── REQUIRED SUPABASE MIGRATIONS ─────────────────────────────────────────────
+// Run once in the Supabase SQL editor:
 //
+//   -- Rescheduling columns:
 //   ALTER TABLE bookings
 //     ADD COLUMN IF NOT EXISTS reschedule_proposed_at  timestamptz,
 //     ADD COLUMN IF NOT EXISTS reschedule_status        text
 //       CHECK (reschedule_status IN ('pending','accepted','declined')),
 //     ADD COLUMN IF NOT EXISTS reschedule_proposed_by   uuid REFERENCES auth.users;
+//
+//   -- Session notes: allow students to read their instructor's notes.
+//   -- Drop the old policy first if it only allowed user_id = auth.uid():
+//   DROP POLICY IF EXISTS "Users can manage their own session notes" ON session_notes;
+//   CREATE POLICY "session_notes_select" ON session_notes
+//     FOR SELECT TO authenticated
+//     USING (
+//       auth.uid() = user_id
+//       OR EXISTS (
+//         SELECT 1 FROM bookings
+//         WHERE bookings.id = session_notes.booking_id
+//           AND bookings.student_id = auth.uid()
+//       )
+//     );
+//   CREATE POLICY "session_notes_insert_update" ON session_notes
+//     FOR ALL TO authenticated
+//     USING (auth.uid() = user_id)
+//     WITH CHECK (auth.uid() = user_id);
 //
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -550,22 +569,24 @@ export function Lessons() {
       })
   }, [user, isTutor])
 
-  // Load private notes for all completed lessons
+  // Load session notes for completed lessons.
+  // Tutors see their own notes; students see the instructor's notes (RLS allows this).
   useEffect(() => {
     if (!user || lessons.length === 0) return
     const completedIds = lessons.filter(l => l.status === 'completed').map(l => l.id)
     if (completedIds.length === 0) return
-    supabase
+    let q = supabase
       .from('session_notes')
       .select('booking_id, content')
-      .eq('user_id', user.id)
       .in('booking_id', completedIds)
-      .then(({ data }) => {
-        const map: Record<string, string> = {}
-        for (const n of data ?? []) map[n.booking_id] = n.content
-        setNotes(map)
-      })
-  }, [user, lessons])
+    if (isTutor) q = q.eq('user_id', user.id)          // own notes
+    // else: no user_id filter — RLS returns the tutor's note for each booking
+    q.then(({ data }) => {
+      const map: Record<string, string> = {}
+      for (const n of data ?? []) map[n.booking_id] = n.content
+      setNotes(map)
+    })
+  }, [user, lessons, isTutor])
 
   function handleDismiss(id: string) {
     const next = new Set([...dismissedIds, id])
@@ -1031,7 +1052,7 @@ export function Lessons() {
                       paying={payingId === l.id}
                       onMarkPaid={l.perspective === 'tutor' && l.status === 'accepted' && (l.price_cents ?? 0) > 0 && l.payment_status !== 'paid' ? () => handleMarkPaid(l) : undefined}
                       markingPaid={markingPaidId === l.id}
-                      onNote={l.status === 'completed' ? () => setNoteLesson(l) : undefined}
+                      onNote={l.status === 'completed' && (isTutor || notes[l.id]) ? () => setNoteLesson(l) : undefined}
                       notePreview={notes[l.id]}
                     />
                   ))}
@@ -1122,12 +1143,14 @@ export function Lessons() {
                     )}
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
-                    <button
-                      onClick={() => setNoteLesson(l)}
-                      className="flex items-center gap-1.5 px-3 py-2 bg-gray-100 text-gray-600 rounded-xl font-bold text-sm hover:bg-blue-50 hover:text-blue-600 transition-colors"
-                    >
-                      <StickyNote className="w-4 h-4" /> {notes[l.id] ? 'Note' : 'Add Note'}
-                    </button>
+                    {notes[l.id] && (
+                      <button
+                        onClick={() => setNoteLesson(l)}
+                        className="flex items-center gap-1.5 px-3 py-2 bg-blue-50 text-blue-600 rounded-xl font-bold text-sm hover:bg-blue-100 transition-colors"
+                      >
+                        <StickyNote className="w-4 h-4" /> View Note
+                      </button>
+                    )}
                     <button
                       onClick={() => setReviewLesson(l)}
                       className="flex items-center gap-1.5 px-4 py-2 bg-yellow-400 text-yellow-900 rounded-xl font-bold text-sm hover:bg-yellow-500 transition-colors"
@@ -1192,6 +1215,37 @@ export function Lessons() {
           </div>
         )}
 
+        {/* ── Session Notes Log (students only) ── */}
+        {!loading && !isTutor && Object.keys(notes).length > 0 && (
+          <div className="mt-8">
+            <h2 className="text-lg font-black text-gray-900 mb-4 flex items-center gap-2">
+              <StickyNote className="w-5 h-5 text-blue-500" />
+              Notes from Your Instructors
+            </h2>
+            <div className="flex flex-col gap-3">
+              {lessons
+                .filter(l => notes[l.id])
+                .sort((a, b) => new Date(b.scheduled_at ?? b.created_at).getTime() - new Date(a.scheduled_at ?? a.created_at).getTime())
+                .map(l => (
+                  <div key={l.id} className="bg-white rounded-2xl border border-blue-100 shadow-sm p-5">
+                    <div className="flex items-start justify-between gap-3 mb-3">
+                      <div>
+                        <p className="font-bold text-gray-900">{l.subject}</p>
+                        <p className="text-sm text-gray-500 font-medium">with {l.other_name}</p>
+                      </div>
+                      {l.scheduled_at && (
+                        <p className="text-xs text-gray-400 font-medium shrink-0">
+                          {new Date(l.scheduled_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                        </p>
+                      )}
+                    </div>
+                    <p className="text-sm text-gray-700 font-medium leading-relaxed whitespace-pre-wrap">{notes[l.id]}</p>
+                  </div>
+                ))}
+            </div>
+          </div>
+        )}
+
         {/* ── Past Sessions ── */}
         {!loading && pastLessons.length > 0 && (
           <div className="mt-8">
@@ -1221,7 +1275,7 @@ export function Lessons() {
                     onDecline={() => {}}
                     onCancel={() => {}}
                     onDismiss={() => handleDismiss(l.id)}
-                    onNote={() => setNoteLesson(l)}
+                    onNote={isTutor || notes[l.id] ? () => setNoteLesson(l) : undefined}
                     notePreview={notes[l.id]}
                   />
                 ))}
@@ -1338,6 +1392,7 @@ export function Lessons() {
           initialContent={notes[noteLesson.id] ?? ''}
           onSave={handleSaveNote}
           onClose={() => setNoteLesson(null)}
+          readOnly={!isTutor}
         />
       )}
     </div>
@@ -1603,7 +1658,8 @@ function LessonCard({ lesson: l, isTutor, onChat, onAccept, onDecline, onCancel,
               onClick={onNote}
               className="flex items-center gap-1.5 px-3 py-2 bg-gray-100 text-gray-600 rounded-xl font-bold text-sm hover:bg-blue-50 hover:text-blue-600 transition-colors"
             >
-              <StickyNote className="w-4 h-4" /> {notePreview ? 'Edit Note' : 'Add Note'}
+              <StickyNote className="w-4 h-4" />
+              {isTutor ? (notePreview ? 'Edit Note' : 'Add Note') : 'View Note'}
             </button>
           )}
         </div>
@@ -2069,11 +2125,12 @@ function ReviewModal({ lesson, onSubmit, onClose }: {
   )
 }
 
-function SessionNoteModal({ lesson, initialContent, onSave, onClose }: {
+function SessionNoteModal({ lesson, initialContent, onSave, onClose, readOnly = false }: {
   lesson:         Lesson
   initialContent: string
   onSave:         (bookingId: string, content: string) => Promise<void>
   onClose:        () => void
+  readOnly?:      boolean
 }) {
   const [content, setContent] = useState(initialContent)
   const [saving, setSaving]   = useState(false)
@@ -2098,32 +2155,47 @@ function SessionNoteModal({ lesson, initialContent, onSave, onClose }: {
             <XCircle className="w-5 h-5" />
           </button>
         </div>
-        <p className="text-xs text-gray-400 font-medium -mt-1">Private — only you can see this note.</p>
-        <div className="flex flex-col gap-1.5">
-          <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Your Note</label>
-          <textarea
-            value={content}
-            onChange={e => setContent(e.target.value)}
-            placeholder="What did you cover? What to review next time? Any thoughts on the session…"
-            rows={5}
-            disabled={saving}
-            autoFocus
-            className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm font-medium text-gray-800 bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-400 resize-none disabled:opacity-60"
-          />
-        </div>
-        <div className="flex gap-3">
-          <button onClick={onClose} disabled={saving} className="flex-1 h-11 border-2 border-gray-200 text-gray-600 rounded-xl font-bold hover:bg-gray-50 transition-colors disabled:opacity-50">
-            Cancel
-          </button>
-          <button
-            onClick={handleSave}
-            disabled={saving}
-            className="flex-1 h-11 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
-          >
-            {saving && <Loader2 className="w-4 h-4 animate-spin" />}
-            Save Note
-          </button>
-        </div>
+
+        {readOnly ? (
+          <>
+            <p className="text-xs text-blue-600 font-bold -mt-1">Note from your instructor</p>
+            <div className="bg-blue-50 rounded-xl px-4 py-3 text-sm text-gray-700 font-medium leading-relaxed whitespace-pre-wrap min-h-[80px]">
+              {initialContent || <span className="text-gray-400 italic">No note written yet.</span>}
+            </div>
+            <button onClick={onClose} className="h-11 border-2 border-gray-200 text-gray-600 rounded-xl font-bold hover:bg-gray-50 transition-colors">
+              Close
+            </button>
+          </>
+        ) : (
+          <>
+            <p className="text-xs text-blue-600 font-bold -mt-1">Your student can see this note.</p>
+            <div className="flex flex-col gap-1.5">
+              <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Session Summary</label>
+              <textarea
+                value={content}
+                onChange={e => setContent(e.target.value)}
+                placeholder="What did you cover? Homework assigned? Topics to review next session…"
+                rows={5}
+                disabled={saving}
+                autoFocus
+                className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm font-medium text-gray-800 bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-400 resize-none disabled:opacity-60"
+              />
+            </div>
+            <div className="flex gap-3">
+              <button onClick={onClose} disabled={saving} className="flex-1 h-11 border-2 border-gray-200 text-gray-600 rounded-xl font-bold hover:bg-gray-50 transition-colors disabled:opacity-50">
+                Cancel
+              </button>
+              <button
+                onClick={handleSave}
+                disabled={saving}
+                className="flex-1 h-11 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {saving && <Loader2 className="w-4 h-4 animate-spin" />}
+                Save Note
+              </button>
+            </div>
+          </>
+        )}
       </div>
     </div>
   )

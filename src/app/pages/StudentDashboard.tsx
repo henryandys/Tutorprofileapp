@@ -5,7 +5,7 @@ import { useAuth } from "../../context/AuthContext"
 import { supabase } from "../../lib/supabase"
 import {
   Calendar, Clock, BookOpen, Heart, Search, ChevronRight, Star,
-  User, CheckCircle, XCircle, Loader2, TrendingUp, Lightbulb, Ban,
+  User, CheckCircle, XCircle, Loader2, TrendingUp, Lightbulb, Ban, StickyNote,
 } from "lucide-react"
 
 interface UpcomingLesson {
@@ -32,6 +32,15 @@ interface RecentActivity {
   subject:    string
   tutor_name: string
   created_at: string
+}
+
+interface NoteEntry {
+  booking_id:   string
+  content:      string
+  updated_at:   string
+  subject:      string
+  tutor_name:   string
+  scheduled_at: string | null
 }
 
 interface SavedTutor {
@@ -86,6 +95,7 @@ export function StudentDashboard() {
   const [pending,  setPending]  = useState<PendingRequest[]>([])
   const [activity, setActivity] = useState<RecentActivity[]>([])
   const [saved,    setSaved]    = useState<SavedTutor[]>([])
+  const [notes,    setNotes]    = useState<NoteEntry[]>([])
   const [stats,    setStats]    = useState({ upcoming: 0, pending: 0, completed: 0 })
   const [fetching, setFetching] = useState(true)
 
@@ -99,7 +109,7 @@ export function StudentDashboard() {
     setFetching(true)
     const now = new Date().toISOString()
 
-    const [upcomingRes, pendingRes, allRes, activityRes, savedRes] = await Promise.all([
+    const [upcomingRes, pendingRes, allRes, activityRes, savedRes, notesRes] = await Promise.all([
       supabase
         .from('bookings')
         .select('id, subject, scheduled_at, tutor:tutor_id(id, full_name, avatar_url)')
@@ -136,6 +146,14 @@ export function StudentDashboard() {
         .eq('student_id', user.id)
         .order('created_at', { ascending: false })
         .limit(6),
+
+      // Instructor notes written about me (RLS allows via booking.student_id = me)
+      supabase
+        .from('session_notes')
+        .select('booking_id, content, updated_at, booking:booking_id(subject, scheduled_at, tutor:tutor_id(full_name))')
+        .neq('user_id', user.id)
+        .order('updated_at', { ascending: false })
+        .limit(4),
     ])
 
     setUpcoming(
@@ -203,6 +221,17 @@ export function StudentDashboard() {
         rating:      rMap[id] ? Math.round((rMap[id].sum / rMap[id].count) * 10) / 10 : null,
       })))
     }
+
+    setNotes(
+      (notesRes.data ?? []).map((n: any) => ({
+        booking_id:   n.booking_id,
+        content:      n.content,
+        updated_at:   n.updated_at,
+        subject:      (n.booking as any)?.subject     ?? '',
+        tutor_name:   (n.booking as any)?.tutor?.full_name ?? 'Instructor',
+        scheduled_at: (n.booking as any)?.scheduled_at ?? null,
+      }))
+    )
 
     setFetching(false)
   }
@@ -360,6 +389,43 @@ export function StudentDashboard() {
                 </div>
               )}
             </div>
+
+            {/* Session Notes */}
+            {(fetching || notes.length > 0) && (
+              <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+                <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+                  <div className="flex items-center gap-2">
+                    <StickyNote className="w-4 h-4 text-blue-500" />
+                    <h2 className="font-black text-gray-900">Notes from Your Instructors</h2>
+                  </div>
+                  <Link to="/lessons" className="text-sm font-bold text-blue-600 hover:text-blue-700">All →</Link>
+                </div>
+                {fetching ? (
+                  <div className="px-6 py-10 flex justify-center">
+                    <Loader2 className="w-6 h-6 animate-spin text-gray-300" />
+                  </div>
+                ) : (
+                  <div className="divide-y divide-gray-50">
+                    {notes.map(n => (
+                      <div key={n.booking_id} className="px-6 py-4">
+                        <div className="flex items-start justify-between gap-3 mb-2">
+                          <div>
+                            <p className="font-bold text-gray-900 text-sm">{n.subject}</p>
+                            <p className="text-xs text-gray-500 font-medium">with {n.tutor_name}</p>
+                          </div>
+                          {n.scheduled_at && (
+                            <p className="text-xs text-gray-400 font-medium shrink-0">
+                              {new Date(n.scheduled_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                            </p>
+                          )}
+                        </div>
+                        <p className="text-sm text-gray-700 font-medium leading-relaxed line-clamp-3">{n.content}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           {/* ── Right column (1/3) ── */}
