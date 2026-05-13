@@ -1,7 +1,7 @@
 // src/app/components/Navbar.tsx
 
 import { useState, useRef, useEffect } from "react";
-import { Search, Menu, User, LogOut, BookOpen, GraduationCap, Lightbulb, X, ShieldCheck } from "lucide-react";
+import { Search, Menu, User, LogOut, BookOpen, GraduationCap, Lightbulb, X, ShieldCheck, LayoutDashboard } from "lucide-react";
 import { Link, useNavigate } from "react-router";
 import { useAuth } from "../../context/AuthContext";
 import { NotificationsPanel } from "./NotificationsPanel";
@@ -136,6 +136,14 @@ export function Navbar() {
                     <User className="w-4 h-4 text-gray-400" />
                     My Profile
                   </button>
+                  <Link
+                    to={role === 'tutor' ? '/instructor-dashboard' : '/dashboard'}
+                    onClick={() => setMenuOpen(false)}
+                    className="flex items-center gap-3 px-4 py-2.5 text-sm font-semibold text-gray-700 hover:bg-gray-50 transition-colors"
+                  >
+                    <LayoutDashboard className="w-4 h-4 text-gray-400" />
+                    Dashboard
+                  </Link>
                   <Link
                     to="/lessons"
                     onClick={() => setMenuOpen(false)}

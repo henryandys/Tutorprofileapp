@@ -1,12 +1,12 @@
 import { useState, useEffect, useRef } from "react"
-import { Bell, CheckCheck, BookOpen, ThumbsUp, ThumbsDown, X } from "lucide-react"
+import { Bell, CheckCheck, BookOpen, ThumbsUp, ThumbsDown, X, RefreshCw } from "lucide-react"
 import { useNavigate } from "react-router"
 import { supabase } from "../../lib/supabase"
 import { useAuth } from "../../context/AuthContext"
 
 interface Notif {
   id:         string
-  type:       'new_booking' | 'accepted' | 'declined'
+  type:       'new_booking' | 'accepted' | 'declined' | 'reschedule_requested' | 'reschedule_accepted' | 'reschedule_declined'
   title:      string
   body:       string
   created_at: string
@@ -89,6 +89,53 @@ export function NotificationsPanel() {
         created_at: b.created_at,
       }))
     }
+
+    // Reschedule requests addressed TO me (proposed by the other party)
+    const myField = role === 'tutor' ? 'tutor_id' : 'student_id'
+    const [reschReqRes, reschRespRes] = await Promise.all([
+      supabase
+        .from('bookings')
+        .select('id, subject, student_name, reschedule_proposed_at, tutor:tutor_id(full_name)')
+        .eq(myField, user.id)
+        .eq('reschedule_status', 'pending')
+        .neq('reschedule_proposed_by', user.id)
+        .order('reschedule_proposed_at', { ascending: false })
+        .limit(10),
+      // My own reschedule proposals that received a response
+      supabase
+        .from('bookings')
+        .select('id, subject, reschedule_status, reschedule_proposed_at, student_name, tutor:tutor_id(full_name)')
+        .eq('reschedule_proposed_by', user.id)
+        .in('reschedule_status', ['accepted', 'declined'])
+        .order('reschedule_proposed_at', { ascending: false })
+        .limit(10),
+    ])
+
+    const reschReqNotifs: Notif[] = (reschReqRes.data ?? []).map((b: any) => ({
+      id:         `${b.id}_rq`,
+      type:       'reschedule_requested' as const,
+      title:      'Reschedule request',
+      body:       `${role === 'tutor' ? b.student_name : (b.tutor as any)?.full_name ?? 'Your tutor'} wants to reschedule your ${b.subject} lesson`,
+      created_at: b.reschedule_proposed_at ?? '',
+    }))
+
+    const reschRespNotifs: Notif[] = (reschRespRes.data ?? []).map((b: any) => {
+      const accepted      = b.reschedule_status === 'accepted'
+      const responderName = role === 'student'
+        ? (b.tutor as any)?.full_name ?? 'Your tutor'
+        : b.student_name
+      return {
+        id:         `${b.id}_rr`,
+        type:       (accepted ? 'reschedule_accepted' : 'reschedule_declined') as 'reschedule_accepted' | 'reschedule_declined',
+        title:      accepted ? 'Reschedule approved!' : 'Reschedule declined',
+        body:       `${responderName} ${accepted ? 'approved' : 'declined'} your ${b.subject} reschedule request`,
+        created_at: b.reschedule_proposed_at ?? '',
+      }
+    })
+
+    fetched = [...fetched, ...reschReqNotifs, ...reschRespNotifs]
+      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+      .slice(0, 25)
 
     setNotifs(fetched)
     // Prune IDs that are no longer in the fetch window so localStorage doesn't grow unboundedly
@@ -189,13 +236,19 @@ export function NotificationsPanel() {
                     }`}
                   >
                     <div className={`mt-0.5 w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${
-                      n.type === 'new_booking' ? 'bg-blue-100 text-blue-600' :
-                      n.type === 'accepted'    ? 'bg-green-100 text-green-600' :
-                                                 'bg-red-100 text-red-500'
+                      n.type === 'new_booking'          ? 'bg-blue-100 text-blue-600'   :
+                      n.type === 'accepted'             ? 'bg-green-100 text-green-600' :
+                      n.type === 'reschedule_requested' ? 'bg-amber-100 text-amber-600' :
+                      n.type === 'reschedule_accepted'  ? 'bg-green-100 text-green-600' :
+                      n.type === 'reschedule_declined'  ? 'bg-red-100 text-red-500'     :
+                                                          'bg-red-100 text-red-500'
                     }`}>
-                      {n.type === 'new_booking' ? <BookOpen  className="w-4 h-4" /> :
-                       n.type === 'accepted'    ? <ThumbsUp  className="w-4 h-4" /> :
-                                                  <ThumbsDown className="w-4 h-4" />}
+                      {n.type === 'new_booking'          ? <BookOpen   className="w-4 h-4" /> :
+                       n.type === 'accepted'             ? <ThumbsUp   className="w-4 h-4" /> :
+                       n.type === 'reschedule_requested' ? <RefreshCw  className="w-4 h-4" /> :
+                       n.type === 'reschedule_accepted'  ? <ThumbsUp   className="w-4 h-4" /> :
+                       n.type === 'reschedule_declined'  ? <ThumbsDown className="w-4 h-4" /> :
+                                                           <ThumbsDown className="w-4 h-4" />}
                     </div>
                     <div className="flex-1 min-w-0">
                       <p className={`text-sm font-bold leading-tight ${isUnread ? 'text-gray-900' : 'text-gray-600'}`}>

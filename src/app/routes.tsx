@@ -13,7 +13,9 @@ import { ForTutors } from "./pages/ForTutors";
 import { Lessons } from "./pages/Lessons";
 import { RequestedTutors } from "./pages/RequestedTutors";
 import { ProtectedRoute } from "./components/ProtectedRoute";
-import { Admin } from "./pages/Admin";
+import { Admin } from "./pages/Admin"
+import { StudentDashboard } from "./pages/StudentDashboard"
+import { InstructorDashboard } from "./pages/InstructorDashboard";
 
 export const router = createBrowserRouter([
   {
@@ -71,6 +73,22 @@ export const router = createBrowserRouter([
     element: (
       <ProtectedRoute>
         <Lessons />
+      </ProtectedRoute>
+    ),
+  },
+  {
+    path: "/dashboard",
+    element: (
+      <ProtectedRoute>
+        <StudentDashboard />
+      </ProtectedRoute>
+    ),
+  },
+  {
+    path: "/instructor-dashboard",
+    element: (
+      <ProtectedRoute>
+        <InstructorDashboard />
       </ProtectedRoute>
     ),
   },

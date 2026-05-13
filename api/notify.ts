@@ -57,6 +57,21 @@ const EMAIL_TEMPLATES: Record<string, (d: any) => { subject: string; html: strin
            <p>You're next on the waitlist — head back to enroll before it fills up.</p>
            <p><a href="${h(d.appUrl)}/lessons">Go to My Lessons →</a></p>`,
   }),
+  reschedule_requested: (d) => ({
+    subject: `${h(d.requesterName)} wants to reschedule your lesson`,
+    html: `<p>${h(d.requesterName)} has requested to reschedule your <strong>${h(d.subject)}</strong> lesson to <strong>${h(d.proposedAt)}</strong>.</p>
+           <p><a href="${h(d.appUrl)}/lessons">Review the request →</a></p>`,
+  }),
+  reschedule_accepted: (d) => ({
+    subject: `Your reschedule request was approved`,
+    html: `<p>${h(d.responderName)} approved your request to reschedule the <strong>${h(d.subject)}</strong> lesson.</p>
+           <p><a href="${h(d.appUrl)}/lessons">View your lessons →</a></p>`,
+  }),
+  reschedule_declined: (d) => ({
+    subject: `Your reschedule request was declined`,
+    html: `<p>${h(d.responderName)} declined your request to reschedule the <strong>${h(d.subject)}</strong> lesson.</p>
+           <p><a href="${h(d.appUrl)}/lessons">View your lessons →</a></p>`,
+  }),
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {

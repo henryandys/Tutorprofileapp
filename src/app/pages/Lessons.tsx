@@ -1,3 +1,14 @@
+// ── REQUIRED SUPABASE MIGRATION ──────────────────────────────────────────────
+// Run once in the Supabase SQL editor to enable rescheduling:
+//
+//   ALTER TABLE bookings
+//     ADD COLUMN IF NOT EXISTS reschedule_proposed_at  timestamptz,
+//     ADD COLUMN IF NOT EXISTS reschedule_status        text
+//       CHECK (reschedule_status IN ('pending','accepted','declined')),
+//     ADD COLUMN IF NOT EXISTS reschedule_proposed_by   uuid REFERENCES auth.users;
+//
+// ─────────────────────────────────────────────────────────────────────────────
+
 import { useState, useEffect, useMemo } from "react"
 import { Link, useSearchParams } from "react-router"
 import { Navbar } from "../components/Navbar"
@@ -54,17 +65,21 @@ const DOW      = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat']
 const DOW_KEYS = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday']
 const MONTHS   = ['January','February','March','April','May','June','July','August','September','October','November','December']
 
-function generateSlots(start: string, end: string): string[] {
+function generateSlots(blocks: Array<{ start: string; end: string }>): string[] {
   const slots: string[] = []
-  const [sh, sm] = start.split(':').map(Number)
-  const [eh, em] = end.split(':').map(Number)
-  let mins = sh * 60 + sm
-  const endMins = eh * 60 + em
-  while (mins < endMins) {
-    const h = Math.floor(mins / 60); const m = mins % 60
-    const period = h >= 12 ? 'PM' : 'AM'; const hour = h % 12 || 12
-    slots.push(`${hour}:${String(m).padStart(2, '0')} ${period}`)
-    mins += 30
+  const seen = new Set<string>()
+  for (const { start, end } of blocks) {
+    const [sh, sm] = start.split(':').map(Number)
+    const [eh, em] = end.split(':').map(Number)
+    let mins = sh * 60 + sm
+    const endMins = eh * 60 + em
+    while (mins < endMins) {
+      const h = Math.floor(mins / 60); const m = mins % 60
+      const period = h >= 12 ? 'PM' : 'AM'; const hour = h % 12 || 12
+      const label = `${hour}:${String(m).padStart(2, '0')} ${period}`
+      if (!seen.has(label)) { seen.add(label); slots.push(label) }
+      mins += 30
+    }
   }
   return slots
 }
@@ -570,6 +585,15 @@ export function Lessons() {
         : l
     ))
     setRescheduleLesson(null)
+    sendNotificationEmail({
+      type: 'reschedule_requested',
+      recipientId: lesson.other_user_id,
+      data: {
+        requesterName: profile?.full_name ?? user!.email?.split('@')[0] ?? 'Someone',
+        subject:       lesson.subject,
+        proposedAt:    new Date(proposedAt).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' }),
+      },
+    })
     toast.success('Reschedule request sent!')
   }
 
@@ -586,6 +610,16 @@ export function Lessons() {
       .eq(userField, user!.id)
     if (error) { toast.error('Failed to update reschedule.'); return }
     setLessons(prev => prev.map(l => l.id === lesson.id ? { ...l, ...updates } : l))
+    if (lesson.reschedule_proposed_by) {
+      sendNotificationEmail({
+        type:        accept ? 'reschedule_accepted' : 'reschedule_declined',
+        recipientId: lesson.reschedule_proposed_by,
+        data: {
+          responderName: profile?.full_name ?? user!.email?.split('@')[0] ?? 'Someone',
+          subject:       lesson.subject,
+        },
+      })
+    }
     toast.success(accept ? 'Reschedule approved!' : 'Reschedule declined.')
   }
 
@@ -988,7 +1022,7 @@ export function Lessons() {
                       onMarkComplete={isTutor ? () => handleMarkComplete(l) : undefined}
                       completing={completingId === l.id}
                       onDismiss={() => handleDismiss(l.id)}
-                      onReschedule={l.status === 'accepted' && !l.reschedule_status ? () => setRescheduleLesson(l) : undefined}
+                      onReschedule={l.status === 'accepted' && l.reschedule_status !== 'pending' ? () => setRescheduleLesson(l) : undefined}
                       onRescheduleAccept={l.reschedule_status === 'pending' && l.reschedule_proposed_by === l.other_user_id ? () => handleRescheduleResponse(l, true) : undefined}
                       onRescheduleDecline={l.reschedule_status === 'pending' && l.reschedule_proposed_by === l.other_user_id ? () => handleRescheduleResponse(l, false) : undefined}
                       selected={selectedIds.has(l.id)}
@@ -1754,7 +1788,7 @@ function RescheduleModal({ lesson, tutorId: tutorIdProp, onConfirm, onClose }: {
   onClose:   () => void
 }) {
   const tutorId = tutorIdProp
-  const [avail, setAvail]             = useState<Record<string, { available: boolean; start: string; end: string }> | null>(null)
+  const [avail, setAvail]             = useState<Record<string, { available: boolean; blocks: Array<{ start: string; end: string }> }> | null>(null)
   const [blackoutDates, setBlackout]  = useState<string[]>([])
   const [selectedDate, setSelectedDate] = useState<Date | null>(null)
   const [selectedSlot, setSelectedSlot] = useState<string | null>(null)
@@ -1774,7 +1808,15 @@ function RescheduleModal({ lesson, tutorId: tutorIdProp, onConfirm, onClose }: {
   useEffect(() => {
     supabase.from('tutor_profiles').select('availability, blackout_dates').eq('id', tutorId).single()
       .then(({ data }) => {
-        setAvail(data?.availability ?? {})
+        const raw = (data?.availability ?? {}) as Record<string, any>
+        const normalized = Object.fromEntries(
+          Object.entries(raw).map(([day, slot]) => {
+            if (!slot) return [day, { available: false, blocks: [{ start: '09:00', end: '17:00' }] }]
+            if (Array.isArray(slot.blocks)) return [day, slot]
+            return [day, { available: !!slot.available, blocks: [{ start: slot.start || '09:00', end: slot.end || '17:00' }] }]
+          })
+        )
+        setAvail(normalized)
         setBlackout(data?.blackout_dates ?? [])
         setLoading(false)
       })
@@ -1784,19 +1826,20 @@ function RescheduleModal({ lesson, tutorId: tutorIdProp, onConfirm, onClose }: {
     if (!selectedDate) { setTaken(new Set()); return }
     const start = new Date(selectedDate); start.setHours(0, 0, 0, 0)
     const end   = new Date(selectedDate); end.setHours(23, 59, 59, 999)
-    supabase.from('bookings').select('scheduled_at, duration_minutes')
-      .eq('tutor_id', tutorId).neq('status', 'declined').neq('status', 'cancelled')
-      .gte('scheduled_at', start.toISOString()).lte('scheduled_at', end.toISOString())
-      .then(({ data }) => {
-        const blocked = new Set<number>()
-        for (const b of data ?? []) {
-          if (!b.scheduled_at) continue
-          const d = new Date(b.scheduled_at)
-          const startM = d.getHours() * 60 + d.getMinutes()
-          for (let m = startM; m < startM + (b.duration_minutes ?? 60); m += 30) blocked.add(m)
-        }
-        setTaken(blocked)
-      })
+    supabase.rpc('get_booked_slots', {
+      p_tutor_id:   tutorId,
+      p_date_start: start.toISOString(),
+      p_date_end:   end.toISOString(),
+    }).then(({ data }) => {
+      const blocked = new Set<number>()
+      for (const b of data ?? []) {
+        if (!b.scheduled_at) continue
+        const d = new Date(b.scheduled_at)
+        const startM = d.getHours() * 60 + d.getMinutes()
+        for (let m = startM; m < startM + (b.duration_minutes ?? 60); m += 30) blocked.add(m)
+      }
+      setTaken(blocked)
+    })
   }, [selectedDate, tutorId])
 
   async function handleConfirm() {
@@ -1872,7 +1915,7 @@ function RescheduleModal({ lesson, tutorId: tutorIdProp, onConfirm, onClose }: {
               const dayKey  = DOW_KEYS[selectedDate.getDay()]
               const dayAvail = avail[dayKey]
               if (!dayAvail?.available) return null
-              const slots = generateSlots(dayAvail.start, dayAvail.end)
+              const slots = generateSlots(dayAvail.blocks)
               return (
                 <div className="flex flex-col gap-1.5">
                   <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Select Time</label>

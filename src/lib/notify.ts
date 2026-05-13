@@ -4,11 +4,14 @@
 import { supabase } from './supabase'
 
 type NotifyPayload =
-  | { type: 'new_booking';         recipientId: string; data: { tutorName: string; studentName: string; subject: string; message?: string } }
-  | { type: 'booking_accepted';    recipientId: string; data: { tutorName: string; studentName: string; subject: string } }
-  | { type: 'booking_declined';    recipientId: string; data: { tutorName: string; studentName: string; subject: string } }
-  | { type: 'new_message';         recipientId: string; data: { senderName: string; subject: string } }
-  | { type: 'waitlist_spot_open';  recipientId: string; data: { sessionTitle: string; subject: string; tutorName: string } }
+  | { type: 'new_booking';           recipientId: string; data: { tutorName: string; studentName: string; subject: string; message?: string } }
+  | { type: 'booking_accepted';      recipientId: string; data: { tutorName: string; studentName: string; subject: string } }
+  | { type: 'booking_declined';      recipientId: string; data: { tutorName: string; studentName: string; subject: string } }
+  | { type: 'new_message';           recipientId: string; data: { senderName: string; subject: string } }
+  | { type: 'waitlist_spot_open';    recipientId: string; data: { sessionTitle: string; subject: string; tutorName: string } }
+  | { type: 'reschedule_requested';  recipientId: string; data: { requesterName: string; subject: string; proposedAt: string } }
+  | { type: 'reschedule_accepted';   recipientId: string; data: { responderName: string; subject: string } }
+  | { type: 'reschedule_declined';   recipientId: string; data: { responderName: string; subject: string } }
 
 export function sendNotificationEmail(payload: NotifyPayload): void {
   supabase.auth.getSession().then(({ data: { session } }) => {
