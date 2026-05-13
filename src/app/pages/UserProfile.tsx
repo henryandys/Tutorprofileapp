@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useForm } from "react-hook-form";
 import { Navbar } from "../components/Navbar";
-import { User, Mail, Phone, MapPin, Camera, Save, Bell, Shield, CreditCard, ChevronRight, Clock, Loader2, Heart, Star, GraduationCap, Lightbulb } from "lucide-react";
+import { User, Mail, Phone, MapPin, Camera, Save, Bell, Shield, CreditCard, ChevronRight, Clock, Loader2, Heart, Star, GraduationCap, Lightbulb, Users, Copy, Check, X } from "lucide-react";
 import { toast } from "sonner";
 import { Link, useNavigate, Navigate } from "react-router";
 import { useAuth } from "../../context/AuthContext";
@@ -65,7 +65,8 @@ export function UserProfile() {
   }, [user, refreshProfile])
 
   useEffect(() => {
-    if (role === 'tutor') navigate('/my-profile', { replace: true })
+    if (role === 'tutor')   navigate('/my-profile',         { replace: true })
+    if (role === 'parent')  navigate('/guardian-dashboard', { replace: true })
   }, [role, navigate])
 
   const [bookings, setBookings]               = useState<StudentBooking[]>([])
@@ -73,6 +74,13 @@ export function UserProfile() {
   const [sessionNotifCount, setSessionNotifCount] = useState(0)
   const [savedTutors, setSavedTutors]         = useState<SavedTutorRow[]>([])
   const notifSectionRef = useRef<HTMLDivElement>(null)
+
+  // Guardian link state
+  interface GuardianRow { id: string; parent_id: string | null; parent_name: string; parent_avatar: string | null; created_at: string; status: string }
+  const [guardians,         setGuardians]         = useState<GuardianRow[]>([])
+  const [generatingInvite,  setGeneratingInvite]  = useState(false)
+  const [pendingInviteLink, setPendingInviteLink] = useState<string | null>(null)
+  const [inviteCopied,      setInviteCopied]      = useState(false)
 
   // Fetch notification counts for students
   useEffect(() => {
@@ -156,6 +164,56 @@ export function UserProfile() {
         }))
       })
   }, [user])
+
+  // Load active guardians for the student
+  useEffect(() => {
+    if (!user) return
+    supabase
+      .from('parent_links')
+      .select('id, parent_id, status, created_at, parent:parent_id(full_name, avatar_url)')
+      .eq('student_id', user.id)
+      .eq('status', 'active')
+      .then(({ data }) => {
+        setGuardians(
+          (data ?? []).map((r: any) => ({
+            id:           r.id,
+            parent_id:    r.parent_id,
+            parent_name:  r.parent?.full_name ?? 'Guardian',
+            parent_avatar: r.parent?.avatar_url ?? null,
+            created_at:   r.created_at,
+            status:       r.status,
+          }))
+        )
+      })
+  }, [user])
+
+  async function generateInviteLink() {
+    if (!user) return
+    setGeneratingInvite(true)
+    const { data, error } = await supabase
+      .from('parent_links')
+      .insert({ student_id: user.id })
+      .select('invite_token')
+      .single()
+    if (error || !data) { toast.error('Failed to generate link.'); setGeneratingInvite(false); return }
+    const link = `${window.location.origin}/join-family/${data.invite_token}`
+    setPendingInviteLink(link)
+    setGeneratingInvite(false)
+  }
+
+  async function copyInviteLink() {
+    if (!pendingInviteLink) return
+    await navigator.clipboard.writeText(pendingInviteLink)
+    setInviteCopied(true)
+    setTimeout(() => setInviteCopied(false), 2000)
+  }
+
+  async function revokeGuardian(linkId: string) {
+    const { error } = await supabase.from('parent_links').delete().eq('id', linkId).eq('student_id', user!.id)
+    if (error) { toast.error('Failed to remove guardian.'); return }
+    setGuardians(prev => prev.filter(g => g.id !== linkId))
+    toast.success('Guardian access removed.')
+  }
 
   const totalNotifCount = msgCount + sessionNotifCount
 
@@ -554,6 +612,82 @@ export function UserProfile() {
                 </div>
               </div>
             )}
+            {/* Family Access */}
+            <div className="mt-8 bg-white rounded-3xl border border-gray-200 shadow-sm overflow-hidden">
+              <div className="px-8 py-5 border-b border-gray-100 flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 bg-green-50 rounded-2xl flex items-center justify-center shrink-0">
+                    <Users className="w-5 h-5 text-green-600" />
+                  </div>
+                  <div>
+                    <h2 className="text-xl font-black text-gray-900">Family Access</h2>
+                    <p className="text-sm text-gray-500 font-medium">Let a parent or guardian view your lessons and notes.</p>
+                  </div>
+                </div>
+                <button
+                  onClick={generateInviteLink}
+                  disabled={generatingInvite}
+                  className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-xl text-sm font-bold hover:bg-green-700 transition-colors disabled:opacity-60"
+                >
+                  {generatingInvite ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Users className="w-3.5 h-3.5" />}
+                  Generate Invite Link
+                </button>
+              </div>
+
+              {pendingInviteLink && (
+                <div className="px-8 py-4 bg-green-50 border-b border-green-100">
+                  <p className="text-xs font-bold text-green-700 mb-2">Share this link with your parent or guardian — it works once:</p>
+                  <div className="flex items-center gap-2">
+                    <input
+                      readOnly
+                      value={pendingInviteLink}
+                      className="flex-1 h-9 px-3 border border-green-200 rounded-lg text-xs font-mono text-gray-700 bg-white focus:outline-none"
+                    />
+                    <button
+                      onClick={copyInviteLink}
+                      className="flex items-center gap-1.5 px-3 h-9 bg-green-600 text-white rounded-lg text-xs font-bold hover:bg-green-700 transition-colors shrink-0"
+                    >
+                      {inviteCopied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                      {inviteCopied ? 'Copied!' : 'Copy'}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {guardians.length === 0 ? (
+                <div className="px-8 py-8 text-center">
+                  <p className="text-gray-400 font-medium text-sm">No guardians linked yet.</p>
+                  <p className="text-gray-400 text-xs mt-1">Generate an invite link and share it with a parent or guardian.</p>
+                </div>
+              ) : (
+                <div className="divide-y divide-gray-100">
+                  {guardians.map(g => (
+                    <div key={g.id} className="flex items-center gap-4 px-8 py-4">
+                      {g.parent_avatar ? (
+                        <img src={g.parent_avatar} alt={g.parent_name} className="w-10 h-10 rounded-xl object-cover shrink-0 bg-gray-100" />
+                      ) : (
+                        <div className="w-10 h-10 rounded-xl bg-green-100 flex items-center justify-center shrink-0">
+                          <span className="text-green-700 font-black text-sm">{g.parent_name.charAt(0).toUpperCase()}</span>
+                        </div>
+                      )}
+                      <div className="flex-1 min-w-0">
+                        <p className="font-bold text-gray-900 truncate">{g.parent_name}</p>
+                        <p className="text-xs text-gray-400 font-medium">
+                          Connected {new Date(g.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                        </p>
+                      </div>
+                      <button
+                        onClick={() => revokeGuardian(g.id)}
+                        className="flex items-center gap-1.5 px-3 py-1.5 border border-red-200 text-red-600 rounded-lg text-xs font-bold hover:bg-red-50 transition-colors"
+                      >
+                        <X className="w-3 h-3" /> Remove
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
             {/* Become a Tutor CTA */}
             <div className="mt-8 bg-gradient-to-br from-blue-600 to-purple-600 rounded-3xl p-8 text-white">
               <div className="flex items-center gap-3 mb-2">

@@ -15,7 +15,9 @@ import { RequestedTutors } from "./pages/RequestedTutors";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 import { Admin } from "./pages/Admin"
 import { StudentDashboard } from "./pages/StudentDashboard"
-import { InstructorDashboard } from "./pages/InstructorDashboard";
+import { InstructorDashboard } from "./pages/InstructorDashboard"
+import { GuardianDashboard } from "./pages/GuardianDashboard"
+import { JoinFamily } from "./pages/JoinFamily"
 
 export const router = createBrowserRouter([
   {
@@ -91,6 +93,18 @@ export const router = createBrowserRouter([
         <InstructorDashboard />
       </ProtectedRoute>
     ),
+  },
+  {
+    path: "/guardian-dashboard",
+    element: (
+      <ProtectedRoute>
+        <GuardianDashboard />
+      </ProtectedRoute>
+    ),
+  },
+  {
+    path: "/join-family/:token",
+    Component: JoinFamily,
   },
 
   // ── Requires any logged-in user ─────────────────────────

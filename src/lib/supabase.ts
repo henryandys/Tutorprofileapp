@@ -7,7 +7,7 @@ const supabaseAnonKey = publicAnonKey;
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 // Type definitions
-export type UserRole = 'student' | 'tutor';
+export type UserRole = 'student' | 'tutor' | 'parent';
 
 export interface Profile {
   id: string;

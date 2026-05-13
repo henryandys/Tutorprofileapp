@@ -43,9 +43,15 @@ export function Navbar() {
           </span>
         </Link>
         <div className="hidden lg:flex items-center gap-6">
-          <Link to="/search" className="text-sm font-semibold text-gray-600 hover:text-blue-600">Find Instructors</Link>
-          <Link to="/for-tutors" className="text-sm font-semibold text-gray-600 hover:text-blue-600">For Instructors</Link>
-          <Link to="/needed-courses" className="text-sm font-semibold text-gray-600 hover:text-amber-600">Requested Courses</Link>
+          {role === 'parent' ? (
+            <Link to="/guardian-dashboard" className="text-sm font-semibold text-green-600 hover:text-green-700">Guardian Portal</Link>
+          ) : (
+            <>
+              <Link to="/search" className="text-sm font-semibold text-gray-600 hover:text-blue-600">Find Instructors</Link>
+              <Link to="/for-tutors" className="text-sm font-semibold text-gray-600 hover:text-blue-600">For Instructors</Link>
+              <Link to="/needed-courses" className="text-sm font-semibold text-gray-600 hover:text-amber-600">Requested Courses</Link>
+            </>
+          )}
         </div>
       </div>
 
@@ -74,6 +80,15 @@ export function Navbar() {
             <span className="hidden sm:block text-sm font-semibold text-gray-700 max-w-[140px] truncate">
               {profile?.full_name ?? user.email}
             </span>
+            {role === 'parent' && (
+              <Link
+                to="/guardian-dashboard"
+                className="hidden sm:flex items-center gap-1.5 text-sm font-bold text-green-600 hover:text-green-700 transition-colors"
+              >
+                <LayoutDashboard className="w-4 h-4" />
+                <span>Guardian Portal</span>
+              </Link>
+            )}
             <button
               onClick={handleLogout}
               className="hidden sm:flex items-center gap-1.5 text-sm font-bold text-red-600 hover:text-red-700 transition-colors cursor-pointer"
@@ -130,19 +145,19 @@ export function Navbar() {
                   {/* Profile */}
                   <button
                     type="button"
-                    onClick={() => { setMenuOpen(false); navigate(role === 'tutor' ? '/my-profile' : '/profile') }}
+                    onClick={() => { setMenuOpen(false); navigate(role === 'tutor' ? '/my-profile' : role === 'parent' ? '/guardian-dashboard' : '/profile') }}
                     className="w-full flex items-center gap-3 px-4 py-2.5 text-sm font-semibold text-gray-700 hover:bg-gray-50 transition-colors"
                   >
                     <User className="w-4 h-4 text-gray-400" />
                     My Profile
                   </button>
                   <Link
-                    to={role === 'tutor' ? '/instructor-dashboard' : '/dashboard'}
+                    to={role === 'tutor' ? '/instructor-dashboard' : role === 'parent' ? '/guardian-dashboard' : '/dashboard'}
                     onClick={() => setMenuOpen(false)}
                     className="flex items-center gap-3 px-4 py-2.5 text-sm font-semibold text-gray-700 hover:bg-gray-50 transition-colors"
                   >
                     <LayoutDashboard className="w-4 h-4 text-gray-400" />
-                    Dashboard
+                    {role === 'parent' ? 'Guardian Portal' : 'Dashboard'}
                   </Link>
                   <Link
                     to="/lessons"

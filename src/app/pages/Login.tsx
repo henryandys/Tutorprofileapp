@@ -55,7 +55,7 @@ export default function Login() {
   useEffect(() => {
     if (user && signupRoleRef.current && !didRedirect.current) {
       didRedirect.current = true
-      const dest = signupRoleRef.current === 'tutor' ? '/my-profile' : '/profile'
+      const dest = signupRoleRef.current === 'tutor' ? '/my-profile' : signupRoleRef.current === 'parent' ? '/guardian-dashboard' : '/profile'
       navigate(dest, { replace: true })
       toast.success('Welcome! Please fill out your profile to get started.')
     }
@@ -179,8 +179,8 @@ export default function Login() {
             {mode === 'signup' && (
               <div className="space-y-1">
                 <Label>I am a…</Label>
-                <div className="flex gap-3 mt-1">
-                  {(['student', 'tutor'] as UserRole[]).map(r => (
+                <div className="flex gap-2 mt-1 flex-wrap">
+                  {(['student', 'tutor', 'parent'] as UserRole[]).map(r => (
                     <button
                       key={r}
                       type="button"
@@ -191,12 +191,12 @@ export default function Login() {
                           : 'border-input bg-background hover:bg-accent'
                         }`}
                     >
-                      {r === 'tutor' ? 'Instructor' : 'Student'}
+                      {r === 'tutor' ? 'Instructor' : r === 'parent' ? 'Parent/Guardian' : 'Student'}
                     </button>
                   ))}
                 </div>
                 <p className="text-xs text-muted-foreground pt-1">
-                  You must be at least 16 years old to create an instructor account.
+                  Instructors must be at least 16. Parents can monitor their child's lessons.
                 </p>
               </div>
             )}
