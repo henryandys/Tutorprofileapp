@@ -1,7 +1,7 @@
 // src/app/components/Navbar.tsx
 
 import { useState, useRef, useEffect } from "react";
-import { Search, Menu, User, LogOut, BookOpen, GraduationCap, Lightbulb, X } from "lucide-react";
+import { Search, Menu, User, LogOut, BookOpen, GraduationCap, Lightbulb, X, ShieldCheck } from "lucide-react";
 import { Link, useNavigate } from "react-router";
 import { useAuth } from "../../context/AuthContext";
 import { NotificationsPanel } from "./NotificationsPanel";
@@ -144,6 +144,20 @@ export function Navbar() {
                     <BookOpen className="w-4 h-4 text-gray-400" />
                     My Lessons
                   </Link>
+
+                  {profile?.is_admin && (
+                    <>
+                      <div className="my-1.5 border-t border-gray-100" />
+                      <Link
+                        to="/admin"
+                        onClick={() => setMenuOpen(false)}
+                        className="flex items-center gap-3 px-4 py-2.5 text-sm font-semibold text-blue-700 hover:bg-blue-50 transition-colors"
+                      >
+                        <ShieldCheck className="w-4 h-4 text-blue-600" />
+                        Admin Panel
+                      </Link>
+                    </>
+                  )}
 
                   <div className="my-1.5 border-t border-gray-100" />
 

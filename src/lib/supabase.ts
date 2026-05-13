@@ -19,6 +19,7 @@ export interface Profile {
   bio?: string;
   phone?: string;
   date_of_birth?: string;
+  is_admin?: boolean;
   created_at: string;
   updated_at: string;
 }

@@ -6,7 +6,8 @@ import { Navbar } from "../components/Navbar";
 import {
   User, BookOpen, DollarSign, MapPin, GraduationCap, Briefcase,
   Plus, X, Save, Camera, Award, Star, FileText, Calendar,
-  ChevronRight, Loader2, Clock, Shield, CreditCard, Users, RefreshCw, Bell, Lightbulb
+  ChevronRight, Loader2, Clock, Shield, CreditCard, Users, RefreshCw, Bell, Lightbulb,
+  BadgeCheck, ShieldCheck, Upload
 } from "lucide-react";
 import { toast } from "sonner";
 import { Link } from "react-router";
@@ -102,6 +103,34 @@ export function TutorMyProfile() {
     setUploadingAvatar(false)
     e.target.value = ''
   }, [user, refreshProfile])
+
+  const handleVerifDocUpload = useCallback(async (e: { target: HTMLInputElement & EventTarget }) => {
+    const file = e.target.files?.[0]
+    if (!file || !user) return
+    const ext = file.name.split('.').pop()?.toLowerCase() ?? 'pdf'
+    const allowed = ['pdf', 'jpg', 'jpeg', 'png', 'webp']
+    if (!allowed.includes(ext)) { toast.error('Upload a PDF, JPG, or PNG document.'); return }
+    if (file.size > 10 * 1024 * 1024) { toast.error('File must be under 10 MB.'); return }
+    setUploadingVerif(true)
+    const path = `verification/${user.id}/doc.${ext}`
+    const { error: uploadError } = await supabase.storage
+      .from('avatars')
+      .upload(path, file, { upsert: true, contentType: file.type })
+    if (uploadError) { toast.error('Upload failed: ' + uploadError.message); setUploadingVerif(false); return }
+    const { data: { publicUrl } } = supabase.storage.from('avatars').getPublicUrl(path)
+    const { error: dbError } = await supabase
+      .from('tutor_profiles')
+      .update({ verification_requested: true, verification_document_url: publicUrl })
+      .eq('id', user.id)
+    if (dbError) { toast.error('Failed to submit request.') } else {
+      setVerifDocUrl(publicUrl)
+      setVerifRequested(true)
+      toast.success('Verification request submitted! We\'ll review it shortly.')
+    }
+    setUploadingVerif(false)
+    e.target.value = ''
+  }, [user])
+
   const [bookings, setBookings]         = useState<Booking[]>([])
   const [loadingBookings, setLoadingBookings] = useState(true)
   const [tutorData, setTutorData]       = useState<any>(null)
@@ -115,6 +144,12 @@ export function TutorMyProfile() {
   const [enrollmentGroup, setEnrollmentGroup] = useState<GroupLesson | null>(null)
   const [cancelMenuId, setCancelMenuId]       = useState<string | null>(null)
   const notifSectionRef = useRef<HTMLDivElement>(null)
+
+  const [isVerified, setIsVerified]           = useState(false)
+  const [verifRequested, setVerifRequested]   = useState(false)
+  const [verifDocUrl, setVerifDocUrl]         = useState<string | null>(null)
+  const [uploadingVerif, setUploadingVerif]   = useState(false)
+  const verifInputRef = useRef<HTMLInputElement>(null)
 
   const [availability, setAvailability]   = useState<WeekAvail>(DEFAULT_AVAIL)
   const [blackoutDates, setBlackoutDates] = useState<string[]>([])
@@ -157,6 +192,9 @@ export function TutorMyProfile() {
       .single()
       .then(({ data }) => {
         setTutorData(data)
+        setIsVerified(data?.is_verified ?? false)
+        setVerifRequested(data?.verification_requested ?? false)
+        setVerifDocUrl(data?.verification_document_url ?? null)
         if (data?.availability) {
           const normalized = Object.fromEntries(
             DAYS.map(d => [d, normalizeDaySlot((data.availability as Record<string, unknown>)[d]) ?? DEFAULT_AVAIL[d]])
@@ -727,6 +765,76 @@ export function TutorMyProfile() {
                 </div>
               )}
             </div>
+          </div>
+
+          {/* Verification */}
+          <div className="bg-white rounded-3xl shadow-lg border border-gray-100 p-8">
+            <h2 className="text-xl font-bold text-gray-900 mb-2 flex items-center gap-2">
+              <ShieldCheck className="w-6 h-6 text-blue-600" />
+              Instructor Verification
+            </h2>
+            <div className="flex items-center gap-2 mb-4">
+              <span className="px-2.5 py-0.5 rounded-full text-xs font-black bg-amber-100 text-amber-700 uppercase tracking-wide">Coming Soon</span>
+            </div>
+            <p className="text-sm text-gray-500 font-medium mb-6">
+              Verified badges are coming soon. Once available, you'll be able to upload your credentials here and receive a badge on your public profile.
+            </p>
+
+            {isVerified ? (
+              <div className="flex items-center gap-3 px-5 py-4 bg-blue-50 border border-blue-200 rounded-2xl">
+                <BadgeCheck className="w-6 h-6 text-blue-600 shrink-0" />
+                <div>
+                  <p className="font-bold text-blue-800">You're a Verified Instructor</p>
+                  <p className="text-sm text-blue-600 font-medium">Your badge is visible on your public profile and in search results.</p>
+                </div>
+              </div>
+            ) : verifRequested ? (
+              <div className="flex flex-col gap-4">
+                <div className="flex items-center gap-3 px-5 py-4 bg-yellow-50 border border-yellow-200 rounded-2xl">
+                  <Clock className="w-5 h-5 text-yellow-600 shrink-0" />
+                  <div>
+                    <p className="font-bold text-yellow-800">Verification Under Review</p>
+                    <p className="text-sm text-yellow-700 font-medium">We've received your document and will verify your profile within 1–2 business days.</p>
+                  </div>
+                </div>
+                {verifDocUrl && (
+                  <a href={verifDocUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 text-sm font-bold text-blue-600 hover:underline w-fit">
+                    <FileText className="w-4 h-4" />
+                    View submitted document
+                  </a>
+                )}
+                <p className="text-xs text-gray-400">Document replacement will be available once the feature launches.</p>
+                <input ref={verifInputRef} type="file" accept=".pdf,.jpg,.jpeg,.png,.webp" className="hidden" onChange={handleVerifDocUpload} />
+                <button
+                  type="button"
+                  disabled
+                  className="flex items-center gap-2 px-4 py-2 rounded-xl border border-gray-200 text-sm font-bold text-gray-400 cursor-not-allowed opacity-50 w-fit"
+                >
+                  <Upload className="w-4 h-4" />
+                  Replace Document
+                </button>
+              </div>
+            ) : (
+              <div className="flex flex-col gap-4">
+                <p className="text-sm text-gray-600 font-medium">
+                  Upload a document to verify your credentials — a degree, certificate, teaching license, or government-issued ID.
+                </p>
+                <ul className="text-sm text-gray-500 font-medium list-disc list-inside space-y-1">
+                  <li>Accepted formats: PDF, JPG, PNG (max 10 MB)</li>
+                  <li>We review submissions within 1–2 business days</li>
+                  <li>Documents are kept private and only reviewed by admins</li>
+                </ul>
+                <input ref={verifInputRef} type="file" accept=".pdf,.jpg,.jpeg,.png,.webp" className="hidden" onChange={handleVerifDocUpload} />
+                <button
+                  type="button"
+                  disabled
+                  className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gray-200 text-gray-400 text-sm font-bold cursor-not-allowed opacity-60 w-fit"
+                >
+                  <Upload className="w-4 h-4" />
+                  Upload Verification Document
+                </button>
+              </div>
+            )}
           </div>
 
           {/* Performance stats */}

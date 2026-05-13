@@ -32,7 +32,7 @@ import { fetchTutorById } from "../data/tutors";
 import type { Tutor } from "../data/tutors";
 import { Navbar } from "../components/Navbar";
 import { ConversationModal } from "../components/ConversationModal";
-import { Star, MapPin, Share2, Heart, MessageCircle, Clock, GraduationCap, Briefcase, Calendar, ChevronLeft, ChevronRight, Loader2, Send, CornerDownRight, Users, RefreshCw } from "lucide-react";
+import { Star, MapPin, Share2, Heart, MessageCircle, Clock, GraduationCap, Briefcase, Calendar, ChevronLeft, ChevronRight, Loader2, Send, CornerDownRight, Users, RefreshCw, BadgeCheck } from "lucide-react";
 import type { GroupLesson, RecurrenceType } from "../components/CreateGroupLessonModal";
 import { ImageWithFallback } from "../components/figma/ImageWithFallback";
 import { useState, useEffect, useMemo, useRef } from "react";
@@ -240,10 +240,11 @@ export function TutorProfile() {
         // tutors_view doesn't include blackout_dates — fetch it separately
         const { data: tp } = await supabase
           .from('tutor_profiles')
-          .select('blackout_dates')
+          .select('blackout_dates, is_verified')
           .eq('id', id)
           .single()
         data.blackoutDates = (tp?.blackout_dates as string[]) ?? []
+        data.isVerified    = tp?.is_verified ?? false
       }
       setTutor(data)
       setLoading(false)
@@ -601,7 +602,15 @@ export function TutorProfile() {
               <span className="inline-block px-3 py-1 bg-blue-600 text-white text-xs font-bold rounded-full uppercase tracking-wider w-fit">
                 {tutor.subject.split(' & ')[0]}
               </span>
-              <h1 className="text-4xl md:text-5xl font-extrabold text-white tracking-tight">{tutor.name}</h1>
+              <div className="flex items-center gap-3 flex-wrap">
+                <h1 className="text-4xl md:text-5xl font-extrabold text-white tracking-tight">{tutor.name}</h1>
+                {tutor.isVerified && (
+                  <span className="flex items-center gap-1.5 px-3 py-1 bg-blue-600/80 backdrop-blur-sm text-white text-sm font-bold rounded-full border border-blue-400/50">
+                    <BadgeCheck className="w-4 h-4" />
+                    Verified
+                  </span>
+                )}
+              </div>
               <div className="flex items-center gap-4 text-white/90">
                 <div className="flex items-center gap-1.5 font-bold">
                   <Star className="w-5 h-5 fill-yellow-400 text-yellow-400" />

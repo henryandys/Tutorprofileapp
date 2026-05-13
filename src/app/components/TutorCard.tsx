@@ -1,5 +1,5 @@
 import React from "react";
-import { Star, MapPin, Heart, Share2, MessageCircle } from "lucide-react";
+import { Star, MapPin, Heart, Share2, MessageCircle, BadgeCheck } from "lucide-react";
 import { Tutor } from "../data/tutors";
 import { ImageWithFallback } from "./figma/ImageWithFallback";
 import { Link } from "react-router";
@@ -62,7 +62,14 @@ export function TutorCard({ tutor, isSelected, isSaved, onToggleSave, onClick }:
         </div>
 
         <div className="flex flex-col gap-0.5">
-          <p className="text-base font-bold text-gray-800 line-clamp-1">{tutor.name}</p>
+          <div className="flex items-center gap-1.5">
+            <p className="text-base font-bold text-gray-800 line-clamp-1">{tutor.name}</p>
+            {tutor.isVerified && (
+              <span title="Verified Instructor">
+                <BadgeCheck className="w-4 h-4 text-blue-600 shrink-0" />
+              </span>
+            )}
+          </div>
           <p className="text-sm font-medium text-gray-600 line-clamp-1">{tutor.subject}</p>
           <div className="flex items-center gap-1 mt-1 text-xs text-gray-500">
             <MapPin className="w-3 h-3" />

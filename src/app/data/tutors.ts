@@ -38,6 +38,7 @@ export interface Tutor {
   coordinates:      { x: number; y: number }
   lat:              number | null
   lng:              number | null
+  isVerified:       boolean
 }
 
 // ── Geocoding ────────────────────────────────────────────────
@@ -124,8 +125,9 @@ function rowToTutor(row: any): Tutor {
       x: row.longitude != null ? Math.round(((row.longitude - (-122.44)) / 0.20) * 100) : 50,
       y: row.latitude  != null ? Math.round(((47.74 - row.latitude)      / 0.26) * 100) : 50,
     },
-    lat: row.latitude  ?? null,
-    lng: row.longitude ?? null,
+    lat:        row.latitude  ?? null,
+    lng:        row.longitude ?? null,
+    isVerified: row.is_verified ?? false,
   }
 }
 

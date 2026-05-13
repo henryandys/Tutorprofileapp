@@ -43,8 +43,24 @@ export function Search() {
 
   // Load tutors immediately, geocode coords in the background
   useEffect(() => {
-    fetchTutors().then(data => {
+    fetchTutors().then(async data => {
       console.log('[TutorFind] loaded', data.length, 'tutors')
+      // Batch-fetch is_verified (tutors_view may not expose this column)
+      const ids = data.map(t => t.id)
+      if (ids.length > 0) {
+        const { data: vRows } = await supabase
+          .from('tutor_profiles')
+          .select('id, is_verified')
+          .in('id', ids)
+        if (vRows) {
+          const vMap: Record<string, boolean> = Object.fromEntries(vRows.map(r => [r.id, r.is_verified ?? false]))
+          const merged = data.map(t => ({ ...t, isVerified: vMap[t.id] ?? t.isVerified }))
+          setAllTutors(merged)
+          setLoading(false)
+          geocodeTutors(merged, updated => setAllTutors(updated))
+          return
+        }
+      }
       setAllTutors(data)
       setLoading(false)
       geocodeTutors(data, updated => setAllTutors(updated))
