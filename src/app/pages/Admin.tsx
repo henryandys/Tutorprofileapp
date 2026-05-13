@@ -36,13 +36,26 @@ interface TutorRow {
 }
 
 export function Admin() {
-  const { profile } = useAuth()
+  const { user } = useAuth()
+  const [isAdmin, setIsAdmin] = useState<boolean | null>(null)
   const [tutors, setTutors] = useState<TutorRow[]>([])
   const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState<'pending' | 'all'>('pending')
 
+  // Query is_admin directly — don't rely on the cached AuthContext profile
   useEffect(() => {
-    if (!profile?.is_admin) { setLoading(false); return }
+    if (!user) { setIsAdmin(false); setLoading(false); return }
+    supabase
+      .from('profiles')
+      .select('is_admin')
+      .eq('id', user.id)
+      .single()
+      .then(({ data }) => setIsAdmin(data?.is_admin ?? false))
+  }, [user])
+
+  useEffect(() => {
+    if (isAdmin === null) return
+    if (!isAdmin) { setLoading(false); return }
     supabase
       .from('tutor_profiles')
       .select('id, is_verified, verification_requested, verification_document_url, profiles(full_name, email, avatar_url)')
@@ -61,7 +74,7 @@ export function Admin() {
         )
         setLoading(false)
       })
-  }, [profile])
+  }, [isAdmin])
 
   async function toggleVerified(tutorId: string, value: boolean) {
     const { error } = await supabase
@@ -73,7 +86,9 @@ export function Admin() {
     toast.success(value ? 'Instructor verified!' : 'Verification removed')
   }
 
-  if (!profile?.is_admin) {
+  if (isAdmin === null) return null
+
+  if (!isAdmin) {
     return (
       <div className="min-h-screen bg-gray-50">
         <Navbar />
