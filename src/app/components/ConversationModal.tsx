@@ -29,6 +29,10 @@ export function ConversationModal({ bookingId, otherName, otherUserId, subject, 
   const [sending, setSending]     = useState(false)
   const bottomRef                 = useRef<HTMLDivElement>(null)
 
+  // Third-party sender names (e.g. guardians who join the conversation)
+  const [senderNames,    setSenderNames]    = useState<Record<string, string>>({})
+  const [hasThirdParty,  setHasThirdParty]  = useState(false)
+
   // Block state
   const [blocked, setBlocked]         = useState(false)
   const [blockedByThem, setBlockedByThem] = useState(false)
@@ -40,7 +44,7 @@ export function ConversationModal({ bookingId, otherName, otherUserId, subject, 
   const blockedRef       = useRef(false)
   const blockedByThemRef = useRef(false)
 
-  // Load existing messages
+  // Load existing messages and detect third-party senders
   useEffect(() => {
     supabase
       .from('messages')
@@ -48,8 +52,20 @@ export function ConversationModal({ bookingId, otherName, otherUserId, subject, 
       .eq('booking_id', bookingId)
       .order('created_at', { ascending: true })
       .then(({ data }) => {
-        setMessages(data ?? [])
+        const msgs = data ?? []
+        setMessages(msgs)
         setLoading(false)
+        const thirdPartyIds = [...new Set(msgs.map(m => m.sender_id))]
+          .filter(id => id !== user?.id && id !== otherUserId)
+        if (thirdPartyIds.length > 0) {
+          setHasThirdParty(true)
+          supabase.from('profiles').select('id, full_name').in('id', thirdPartyIds)
+            .then(({ data: profiles }) => {
+              const names: Record<string, string> = {}
+              for (const p of profiles ?? []) names[p.id] = p.full_name ?? 'Guardian'
+              setSenderNames(names)
+            })
+        }
       })
   }, [bookingId])
 
@@ -83,6 +99,13 @@ export function ConversationModal({ bookingId, otherName, otherUserId, subject, 
           const msg = payload.new as Message
           if (msg.sender_id === otherUserId && (blockedRef.current || blockedByThemRef.current)) return
           setMessages(prev => [...prev, msg])
+          if (msg.sender_id !== user?.id && msg.sender_id !== otherUserId) {
+            setHasThirdParty(true)
+            supabase.from('profiles').select('id, full_name').eq('id', msg.sender_id).single()
+              .then(({ data: p }) => {
+                if (p) setSenderNames(prev => ({ ...prev, [p.id]: p.full_name ?? 'Guardian' }))
+              })
+          }
         }
       )
       .subscribe()
@@ -254,15 +277,23 @@ export function ConversationModal({ bookingId, otherName, otherUserId, subject, 
               const isMine = msg.sender_id === user?.id
               const isFromBlockedUser = msg.sender_id === otherUserId && blocked
               if (isFromBlockedUser) return null
+              const isThirdParty = !isMine && msg.sender_id !== otherUserId
+              const bubble = isMine
+                ? 'bg-blue-600 text-white rounded-br-sm'
+                : isThirdParty
+                ? 'bg-green-100 text-green-900 rounded-bl-sm'
+                : 'bg-gray-100 text-gray-800 rounded-bl-sm'
+              const timeColor = isMine ? 'text-blue-200' : isThirdParty ? 'text-green-500' : 'text-gray-400'
               return (
-                <div key={msg.id} className={`flex ${isMine ? 'justify-end' : 'justify-start'}`}>
-                  <div className={`max-w-[75%] px-4 py-2.5 rounded-2xl text-sm font-medium leading-relaxed ${
-                    isMine
-                      ? 'bg-blue-600 text-white rounded-br-sm'
-                      : 'bg-gray-100 text-gray-800 rounded-bl-sm'
-                  }`}>
+                <div key={msg.id} className={`flex flex-col gap-0.5 ${isMine ? 'items-end' : 'items-start'}`}>
+                  {!isMine && (hasThirdParty || isThirdParty) && (
+                    <p className={`text-[10px] font-bold px-1 ${isThirdParty ? 'text-green-600' : 'text-gray-400'}`}>
+                      {isThirdParty ? (senderNames[msg.sender_id] ?? 'Guardian') : otherName}
+                    </p>
+                  )}
+                  <div className={`max-w-[75%] px-4 py-2.5 rounded-2xl text-sm font-medium leading-relaxed ${bubble}`}>
                     {msg.body}
-                    <div className={`text-[10px] mt-1 ${isMine ? 'text-blue-200' : 'text-gray-400'}`}>
+                    <div className={`text-[10px] mt-1 ${timeColor}`}>
                       {new Date(msg.created_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
                     </div>
                   </div>

@@ -45,15 +45,34 @@
 //     SELECT 1 FROM parent_links pl JOIN bookings b ON b.id = session_notes.booking_id
 //     WHERE pl.parent_id = auth.uid() AND pl.student_id = b.student_id AND pl.status = 'active'
 //   ));
+//
+// -- 5. Parents can read messages for their linked children's bookings
+// CREATE POLICY "messages_parent_read" ON messages FOR SELECT TO authenticated
+//   USING (EXISTS (
+//     SELECT 1 FROM parent_links pl JOIN bookings b ON b.id = messages.booking_id
+//     WHERE pl.parent_id = auth.uid() AND pl.student_id = b.student_id AND pl.status = 'active'
+//   ));
+//
+// -- 6. Parents can send messages into their linked children's bookings
+// CREATE POLICY "messages_parent_insert" ON messages FOR INSERT TO authenticated
+//   WITH CHECK (
+//     sender_id = auth.uid() AND
+//     EXISTS (
+//       SELECT 1 FROM parent_links pl JOIN bookings b ON b.id = messages.booking_id
+//       WHERE pl.parent_id = auth.uid() AND pl.student_id = b.student_id AND pl.status = 'active'
+//     )
+//   );
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { Link, useNavigate } from "react-router"
 import { Navbar } from "../components/Navbar"
 import { useAuth } from "../../context/AuthContext"
 import { supabase } from "../../lib/supabase"
+import { toast } from "sonner"
 import {
   Calendar, BookOpen, StickyNote, GraduationCap, User,
-  ChevronRight, Loader2, Users, Shield, Star,
+  ChevronRight, Loader2, Users, Shield, Star, Target, CheckCircle,
+  MessageCircle, X, Send,
 } from "lucide-react"
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -97,11 +116,40 @@ interface ChildStats {
   tutors:    number
 }
 
+interface ChildMilestone {
+  id:          string
+  title:       string
+  created_at:  string
+  marker_name: string | null
+}
+
+interface ChildGoal {
+  id:         string
+  title:      string
+  subject:    string | null
+  target_date: string | null
+  milestones: ChildMilestone[]
+}
+
+interface ChildConversation {
+  booking_id:    string
+  subject:       string
+  tutor_id:      string
+  tutor_name:    string
+  tutor_avatar:  string | null
+  student_id:    string
+  last_message:  string
+  last_at:       string
+  message_count: number
+}
+
 interface ChildData {
-  lessons:     ChildLesson[]
-  notes:       ChildNote[]
-  instructors: ChildInstructor[]
-  stats:       ChildStats
+  lessons:       ChildLesson[]
+  notes:         ChildNote[]
+  instructors:   ChildInstructor[]
+  stats:         ChildStats
+  goals:         ChildGoal[]
+  conversations: ChildConversation[]
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -150,10 +198,36 @@ export function GuardianDashboard() {
   const [connecting,    setConnecting]    = useState(false)
   const [connectError,  setConnectError]  = useState<string | null>(null)
 
+  // Conversation modal
+  const [viewConv,     setViewConv]     = useState<{ bookingId: string; subject: string; tutorName: string; studentId: string; studentName: string } | null>(null)
+  const [convMessages, setConvMessages] = useState<{ id: string; sender_id: string; body: string; created_at: string }[]>([])
+  const [loadingConv,  setLoadingConv]  = useState(false)
+  const [convBody,     setConvBody]     = useState('')
+  const [sendingConv,  setSendingConv]  = useState(false)
+  const convBottomRef = useRef<HTMLDivElement>(null)
+
   useEffect(() => {
     if (!user) return
     loadData()
   }, [user])
+
+  // Realtime subscription for the open conversation
+  useEffect(() => {
+    if (!viewConv) return
+    const channel = supabase
+      .channel(`guardian-conv-${viewConv.bookingId}`)
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'messages', filter: `booking_id=eq.${viewConv.bookingId}` },
+        payload => {
+          const msg = payload.new as { id: string; sender_id: string; body: string; created_at: string }
+          setConvMessages(prev => prev.some(m => m.id === msg.id) ? prev : [...prev, msg])
+          setTimeout(() => convBottomRef.current?.scrollIntoView({ behavior: 'smooth' }), 50)
+        }
+      )
+      .subscribe()
+    return () => { supabase.removeChannel(channel) }
+  }, [viewConv?.bookingId])
 
   async function loadData() {
     if (!user) return
@@ -217,7 +291,50 @@ export function GuardianDashboard() {
         ).data ?? []
       : []
 
-    // 4. Build per-child data map
+    // 4. Fetch goals for all children
+    const allGoalsRes = await supabase
+      .from('learning_goals')
+      .select('id, student_id, title, subject, target_date')
+      .in('student_id', childIds)
+      .eq('status', 'active')
+      .order('created_at', { ascending: false })
+    const allGoals = (allGoalsRes.data ?? []) as any[]
+    const allGoalIds = allGoals.map(g => g.id)
+    const mRes = allGoalIds.length > 0
+      ? await supabase
+          .from('goal_milestones')
+          .select('id, goal_id, title, created_at, marker:marked_by(full_name)')
+          .in('goal_id', allGoalIds)
+          .order('created_at', { ascending: true })
+      : { data: [] }
+    const milestonesMap: Record<string, ChildMilestone[]> = {}
+    for (const m of (mRes.data ?? []) as any[]) {
+      if (!milestonesMap[m.goal_id]) milestonesMap[m.goal_id] = []
+      milestonesMap[m.goal_id].push({
+        id:          m.id,
+        title:       m.title,
+        created_at:  m.created_at,
+        marker_name: m.marker?.full_name ?? null,
+      })
+    }
+
+    // 5. Fetch messages for all children's bookings
+    const allBookingIds = allBookings.map(b => b.id)
+    const msgsRes = allBookingIds.length > 0
+      ? await supabase
+          .from('messages')
+          .select('id, booking_id, sender_id, body, created_at')
+          .in('booking_id', allBookingIds)
+          .order('created_at', { ascending: false })
+          .limit(500)
+      : { data: [] }
+    const msgsByBooking: Record<string, any[]> = {}
+    for (const m of (msgsRes.data ?? []) as any[]) {
+      if (!msgsByBooking[m.booking_id]) msgsByBooking[m.booking_id] = []
+      msgsByBooking[m.booking_id].push(m)
+    }
+
+    // 6. Build per-child data map
     const dataMap: Record<string, ChildData> = {}
     for (const kid of kids) {
       const kidUpcoming  = upcoming.filter(b => b.student_id === kid.id)
@@ -267,6 +384,29 @@ export function GuardianDashboard() {
           completed: kidCompleted.length,
           tutors:    Object.keys(instrMap).length,
         },
+        goals: allGoals
+          .filter(g => g.student_id === kid.id)
+          .map(g => ({
+            id: g.id, title: g.title, subject: g.subject, target_date: g.target_date,
+            milestones: milestonesMap[g.id] ?? [],
+          })),
+        conversations: kidAll
+          .filter(b => (msgsByBooking[b.id]?.length ?? 0) > 0)
+          .map(b => {
+            const msgs = msgsByBooking[b.id]
+            return {
+              booking_id:    b.id,
+              subject:       (b as any).subject ?? '',
+              tutor_id:      (b as any).tutor?.id ?? '',
+              tutor_name:    (b as any).tutor?.full_name ?? 'Instructor',
+              tutor_avatar:  (b as any).tutor?.avatar_url ?? null,
+              student_id:    kid.id,
+              last_message:  msgs[0].body,
+              last_at:       msgs[0].created_at,
+              message_count: msgs.length,
+            }
+          })
+          .sort((a, b) => b.last_at.localeCompare(a.last_at)),
       }
     }
 
@@ -295,6 +435,38 @@ export function GuardianDashboard() {
     setInviteInput('')
     setConnecting(false)
     await loadData()
+  }
+
+  async function openConversation(conv: typeof viewConv) {
+    if (!conv) return
+    setViewConv(conv)
+    setConvBody('')
+    setLoadingConv(true)
+    const { data } = await supabase
+      .from('messages')
+      .select('id, sender_id, body, created_at')
+      .eq('booking_id', conv.bookingId)
+      .order('created_at', { ascending: true })
+    setConvMessages(data ?? [])
+    setLoadingConv(false)
+    setTimeout(() => convBottomRef.current?.scrollIntoView({ behavior: 'smooth' }), 50)
+  }
+
+  async function sendConvMessage(e: React.FormEvent) {
+    e.preventDefault()
+    if (!convBody.trim() || !user || !viewConv) return
+    setSendingConv(true)
+    const { error } = await supabase.from('messages').insert({
+      booking_id: viewConv.bookingId,
+      sender_id:  user.id,
+      body:       convBody.trim(),
+    })
+    if (error) {
+      toast.error('Failed to send: ' + error.message)
+    } else {
+      setConvBody('')
+    }
+    setSendingConv(false)
   }
 
   if (loading) return (
@@ -452,6 +624,63 @@ export function GuardianDashboard() {
                   )}
                 </div>
 
+                {/* Learning Goals */}
+                {data.goals.length > 0 && (
+                  <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+                    <div className="flex items-center gap-2 px-6 py-4 border-b border-gray-100">
+                      <Target className="w-4 h-4 text-indigo-600" />
+                      <h2 className="font-black text-gray-900">Learning Goals</h2>
+                      <span className="px-1.5 py-0.5 bg-indigo-100 text-indigo-700 text-xs font-bold rounded-full ml-1">
+                        {data.goals.length}
+                      </span>
+                    </div>
+                    <div className="divide-y divide-gray-50">
+                      {data.goals.map(g => (
+                        <div key={g.id} className="px-6 py-4">
+                          {/* Goal header */}
+                          <div className="flex items-start gap-3">
+                            <div className="w-8 h-8 rounded-xl bg-indigo-100 flex items-center justify-center shrink-0 mt-0.5">
+                              <Target className="w-4 h-4 text-indigo-600" />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="font-bold text-gray-900 text-sm">{g.title}</p>
+                              <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                                {g.subject && <span className="text-xs text-gray-500">{g.subject}</span>}
+                                {g.target_date && (
+                                  <span className="text-xs font-bold text-indigo-600">
+                                    by {new Date(g.target_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Milestones */}
+                          {g.milestones.length > 0 ? (
+                            <div className="mt-3 ml-11 space-y-2">
+                              {g.milestones.map(m => (
+                                <div key={m.id} className="flex items-start gap-2">
+                                  <div className="w-4 h-4 rounded-full bg-green-100 flex items-center justify-center shrink-0 mt-0.5">
+                                    <CheckCircle className="w-2.5 h-2.5 text-green-600" />
+                                  </div>
+                                  <div>
+                                    <p className="text-sm font-bold text-gray-800">{m.title}</p>
+                                    <p className="text-xs text-gray-400 font-medium">
+                                      {m.marker_name ? `by ${m.marker_name} · ` : ''}{timeAgo(m.created_at)}
+                                    </p>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <p className="mt-2 ml-11 text-xs text-gray-400 italic">No milestones marked yet.</p>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 {/* Session Notes */}
                 {data.notes.length > 0 && (
                   <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
@@ -489,46 +718,86 @@ export function GuardianDashboard() {
                   </div>
                 )}
 
-              </div>
-
-              {/* Right 1/3 */}
-              <div className="flex flex-col gap-6">
-
                 {/* Instructors */}
                 <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-                  <div className="flex items-center gap-2 px-5 py-4 border-b border-gray-100">
-                    <GraduationCap className="w-4 h-4 text-purple-600" />
-                    <h2 className="font-black text-gray-900 text-sm">Instructors</h2>
-                    {data.instructors.length > 0 && (
-                      <span className="px-1.5 py-0.5 bg-purple-100 text-purple-700 text-xs font-bold rounded-full ml-auto">
-                        {data.instructors.length}
-                      </span>
-                    )}
+                  <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+                    <div className="flex items-center gap-2">
+                      <GraduationCap className="w-4 h-4 text-purple-600" />
+                      <h2 className="font-black text-gray-900">Instructors</h2>
+                      {data.instructors.length > 0 && (
+                        <span className="px-1.5 py-0.5 bg-purple-100 text-purple-700 text-xs font-bold rounded-full">
+                          {data.instructors.length}
+                        </span>
+                      )}
+                    </div>
+                    <Link to="/search" className="text-sm font-bold text-purple-600 hover:text-purple-700">Find more →</Link>
                   </div>
                   {data.instructors.length === 0 ? (
-                    <div className="px-5 py-8 text-center">
-                      <p className="text-gray-400 font-medium text-sm">No instructors yet.</p>
+                    <div className="px-6 py-12 flex flex-col items-center gap-2 text-center">
+                      <GraduationCap className="w-10 h-10 text-gray-200" />
+                      <p className="text-gray-400 font-bold">No instructors yet</p>
+                      <p className="text-gray-400 text-sm font-medium">Instructors will appear once your child books a session.</p>
                     </div>
                   ) : (
                     <div className="divide-y divide-gray-50">
                       {data.instructors.map(t => (
-                        <Link key={t.id} to={`/tutor/${t.id}`} className="flex items-center gap-3 px-5 py-3.5 hover:bg-gray-50 transition-colors group">
-                          <Avatar name={t.name} url={t.avatar_url} sm />
+                        <Link key={t.id} to={`/tutor/${t.id}`} className="flex items-center gap-4 px-6 py-4 hover:bg-gray-50 transition-colors group">
+                          <Avatar name={t.name} url={t.avatar_url} />
                           <div className="flex-1 min-w-0">
-                            <p className="font-bold text-gray-900 text-sm truncate">{t.name}</p>
+                            <p className="font-bold text-gray-900 truncate">{t.name}</p>
                             {t.subjects.length > 0 && (
-                              <p className="text-xs text-gray-500 truncate">{t.subjects.join(', ')}</p>
+                              <p className="text-sm text-gray-500 font-medium truncate">{t.subjects.join(', ')}</p>
                             )}
                           </div>
                           <div className="text-right shrink-0">
-                            <p className="text-sm font-black text-purple-600">{t.sessions}</p>
-                            <p className="text-[10px] text-gray-400 leading-none">{t.sessions === 1 ? 'session' : 'sessions'}</p>
+                            <p className="text-lg font-black text-purple-600">{t.sessions}</p>
+                            <p className="text-[10px] text-gray-400 font-medium leading-none">{t.sessions === 1 ? 'session' : 'sessions'}</p>
                           </div>
                         </Link>
                       ))}
                     </div>
                   )}
                 </div>
+
+                {/* Messages */}
+                {data.conversations.length > 0 && (
+                  <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+                    <div className="flex items-center gap-2 px-6 py-4 border-b border-gray-100">
+                      <MessageCircle className="w-4 h-4 text-blue-500" />
+                      <h2 className="font-black text-gray-900">Messages</h2>
+                      <span className="px-1.5 py-0.5 bg-blue-100 text-blue-700 text-xs font-bold rounded-full">
+                        {data.conversations.length}
+                      </span>
+                    </div>
+                    <div className="divide-y divide-gray-50">
+                      {data.conversations.map(c => (
+                        <button
+                          key={c.booking_id}
+                          onClick={() => openConversation({ bookingId: c.booking_id, subject: c.subject, tutorName: c.tutor_name, studentId: c.student_id, studentName: child!.name })}
+                          className="w-full flex items-start gap-4 px-6 py-4 hover:bg-gray-50 transition-colors text-left"
+                        >
+                          <Avatar name={c.tutor_name} url={c.tutor_avatar} />
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center justify-between gap-2 mb-0.5">
+                              <p className="font-bold text-gray-900 text-sm truncate">{c.tutor_name}</p>
+                              <p className="text-[10px] text-gray-400 font-medium shrink-0">{timeAgo(c.last_at)}</p>
+                            </div>
+                            <p className="text-xs text-gray-500 font-bold truncate">{c.subject}</p>
+                            <p className="text-xs text-gray-400 truncate mt-0.5 italic">"{c.last_message}"</p>
+                          </div>
+                          <div className="shrink-0 mt-1">
+                            <span className="text-[10px] font-bold text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded-full">{c.message_count}</span>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+              </div>
+
+              {/* Right 1/3 */}
+              <div className="flex flex-col gap-6">
 
                 {/* Quick actions */}
                 <div className="bg-gradient-to-br from-green-600 to-teal-600 rounded-2xl p-5 text-white">
@@ -574,6 +843,82 @@ export function GuardianDashboard() {
           </>
         )}
       </main>
+
+      {/* ── Conversation modal ────────────────────────────────────────── */}
+      {viewConv && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-lg bg-white rounded-3xl shadow-2xl flex flex-col overflow-hidden" style={{ height: '72vh' }}>
+
+            {/* Header */}
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 shrink-0">
+              <div>
+                <h3 className="font-black text-gray-900">{viewConv.tutorName}</h3>
+                <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">{viewConv.subject}</p>
+              </div>
+              <button
+                onClick={() => { setViewConv(null); setConvBody('') }}
+                className="p-2 hover:bg-gray-100 rounded-full text-gray-400 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Messages */}
+            <div className="flex-1 overflow-y-auto px-6 py-4 flex flex-col gap-3">
+              {loadingConv ? (
+                <div className="flex justify-center py-10">
+                  <Loader2 className="w-6 h-6 animate-spin text-blue-600" />
+                </div>
+              ) : convMessages.length === 0 ? (
+                <p className="text-center text-gray-400 font-medium text-sm py-10">No messages yet.</p>
+              ) : (
+                convMessages.map(msg => {
+                  const isMe      = msg.sender_id === user?.id
+                  const isStudent = msg.sender_id === viewConv.studentId
+                  const label     = isMe ? 'You' : isStudent ? viewConv.studentName : viewConv.tutorName
+                  const align     = isMe ? 'items-end' : 'items-start'
+                  const bubble    = isMe
+                    ? 'bg-green-600 text-white rounded-br-sm'
+                    : isStudent
+                    ? 'bg-blue-100 text-blue-900 rounded-bl-sm'
+                    : 'bg-gray-100 text-gray-800 rounded-bl-sm'
+                  const timeColor = isMe ? 'text-green-200' : isStudent ? 'text-blue-400' : 'text-gray-400'
+                  const nameColor = isMe ? 'text-green-600' : isStudent ? 'text-blue-500' : 'text-gray-400'
+                  return (
+                    <div key={msg.id} className={`flex flex-col gap-0.5 ${align}`}>
+                      <p className={`text-[10px] font-bold px-1 ${nameColor}`}>{label}</p>
+                      <div className={`max-w-[75%] px-4 py-2.5 rounded-2xl text-sm font-medium leading-relaxed ${bubble}`}>
+                        {msg.body}
+                        <div className={`text-[10px] mt-1 ${timeColor}`}>
+                          {new Date(msg.created_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })
+              )}
+              <div ref={convBottomRef} />
+            </div>
+
+            {/* Send form */}
+            <form onSubmit={sendConvMessage} className="px-6 py-4 border-t border-gray-100 flex gap-3 shrink-0">
+              <input
+                value={convBody}
+                onChange={e => setConvBody(e.target.value)}
+                placeholder="Message as guardian…"
+                className="flex-1 h-11 px-4 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-green-400 font-medium text-gray-800 bg-gray-50 text-sm"
+              />
+              <button
+                type="submit"
+                disabled={sendingConv || !convBody.trim()}
+                className="h-11 w-11 flex items-center justify-center bg-green-600 text-white rounded-xl hover:bg-green-700 disabled:opacity-50 transition-colors shrink-0"
+              >
+                {sendingConv ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

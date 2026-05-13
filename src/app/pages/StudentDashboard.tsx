@@ -1,11 +1,58 @@
+// SQL migration — run once in Supabase SQL editor (Progress Tracking / Learning Goals):
+//
+// CREATE TABLE IF NOT EXISTS learning_goals (
+//   id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+//   student_id  uuid NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+//   title       text NOT NULL,
+//   subject     text,
+//   target_date date,
+//   status      text NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'completed', 'paused')),
+//   created_at  timestamptz DEFAULT now()
+// );
+// CREATE TABLE IF NOT EXISTS goal_milestones (
+//   id         uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+//   goal_id    uuid NOT NULL REFERENCES learning_goals(id) ON DELETE CASCADE,
+//   marked_by  uuid NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+//   title      text NOT NULL,
+//   created_at timestamptz DEFAULT now()
+// );
+// ALTER TABLE learning_goals ENABLE ROW LEVEL SECURITY;
+// ALTER TABLE goal_milestones  ENABLE ROW LEVEL SECURITY;
+// -- Students manage their own goals
+// CREATE POLICY "goals_student_all" ON learning_goals FOR ALL TO authenticated
+//   USING (auth.uid() = student_id) WITH CHECK (auth.uid() = student_id);
+// -- Tutors with an accepted/completed booking can read student goals
+// CREATE POLICY "goals_tutor_read" ON learning_goals FOR SELECT TO authenticated
+//   USING (EXISTS (SELECT 1 FROM bookings WHERE tutor_id = auth.uid() AND student_id = learning_goals.student_id AND status IN ('accepted','completed')));
+// -- Parents can read linked children's goals
+// CREATE POLICY "goals_parent_read" ON learning_goals FOR SELECT TO authenticated
+//   USING (EXISTS (SELECT 1 FROM parent_links WHERE parent_id = auth.uid() AND student_id = learning_goals.student_id AND status = 'active'));
+// -- Tutors can insert milestones for students they've worked with
+// CREATE POLICY "milestones_tutor_insert" ON goal_milestones FOR INSERT TO authenticated
+//   WITH CHECK (marked_by = auth.uid() AND EXISTS (
+//     SELECT 1 FROM learning_goals g JOIN bookings b ON b.student_id = g.student_id
+//     WHERE g.id = goal_id AND b.tutor_id = auth.uid() AND b.status IN ('accepted','completed')
+//   ));
+// -- Anyone who can see the goal can see its milestones
+// CREATE POLICY "milestones_read" ON goal_milestones FOR SELECT TO authenticated
+//   USING (EXISTS (
+//     SELECT 1 FROM learning_goals g WHERE g.id = goal_id AND (
+//       g.student_id = auth.uid()
+//       OR EXISTS (SELECT 1 FROM parent_links WHERE parent_id = auth.uid() AND student_id = g.student_id AND status = 'active')
+//       OR EXISTS (SELECT 1 FROM bookings WHERE tutor_id = auth.uid() AND student_id = g.student_id AND status IN ('accepted','completed'))
+//     )
+//   ));
+
 import { useState, useEffect } from "react"
 import { Link, Navigate } from "react-router"
 import { Navbar } from "../components/Navbar"
 import { useAuth } from "../../context/AuthContext"
 import { supabase } from "../../lib/supabase"
+import { toast } from "sonner"
 import {
   Calendar, Clock, BookOpen, Heart, Search, ChevronRight, Star,
   User, CheckCircle, XCircle, Loader2, TrendingUp, Lightbulb, Ban, StickyNote,
+  Target, Plus, X, Flag,
 } from "lucide-react"
 
 interface UpcomingLesson {
@@ -50,6 +97,23 @@ interface SavedTutor {
   hourly_rate: number | null
   subject:     string | null
   rating:      number | null
+}
+
+interface LearningGoal {
+  id:              string
+  title:           string
+  subject:         string | null
+  target_date:     string | null
+  status:          'active' | 'completed' | 'paused'
+  created_at:      string
+  milestone_count: number
+}
+
+interface GoalMilestone {
+  id:          string
+  title:       string
+  created_at:  string
+  marker_name: string | null
 }
 
 function Avatar({ name, url, sm }: { name: string; url: string | null; sm?: boolean }) {
@@ -99,6 +163,17 @@ export function StudentDashboard() {
   const [stats,    setStats]    = useState({ upcoming: 0, pending: 0, completed: 0 })
   const [fetching, setFetching] = useState(true)
 
+  // Goal state
+  const [goals,             setGoals]             = useState<LearningGoal[]>([])
+  const [addingGoal,        setAddingGoal]        = useState(false)
+  const [goalTitle,         setGoalTitle]         = useState('')
+  const [goalSubject,       setGoalSubject]       = useState('')
+  const [goalDate,          setGoalDate]          = useState('')
+  const [savingGoal,        setSavingGoal]        = useState(false)
+  const [expandedGoal,      setExpandedGoal]      = useState<string | null>(null)
+  const [goalMilestones,    setGoalMilestones]    = useState<Record<string, GoalMilestone[]>>({})
+  const [loadingMilestones, setLoadingMilestones] = useState<string | null>(null)
+
   useEffect(() => {
     if (user) loadData()
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -109,7 +184,7 @@ export function StudentDashboard() {
     setFetching(true)
     const now = new Date().toISOString()
 
-    const [upcomingRes, pendingRes, allRes, activityRes, savedRes, notesRes] = await Promise.all([
+    const [upcomingRes, pendingRes, allRes, activityRes, savedRes, notesRes, goalsRes] = await Promise.all([
       supabase
         .from('bookings')
         .select('id, subject, scheduled_at, tutor:tutor_id(id, full_name, avatar_url)')
@@ -154,6 +229,14 @@ export function StudentDashboard() {
         .neq('user_id', user.id)
         .order('updated_at', { ascending: false })
         .limit(4),
+
+      supabase
+        .from('learning_goals')
+        .select('id, title, subject, target_date, status, created_at')
+        .eq('student_id', user.id)
+        .eq('status', 'active')
+        .order('created_at', { ascending: false })
+        .limit(10),
     ])
 
     setUpcoming(
@@ -233,7 +316,67 @@ export function StudentDashboard() {
       }))
     )
 
+    const goalsList = (goalsRes.data ?? []) as any[]
+    if (goalsList.length > 0) {
+      const goalIds = goalsList.map(g => g.id)
+      const { data: mData } = await supabase
+        .from('goal_milestones')
+        .select('goal_id')
+        .in('goal_id', goalIds)
+      const cMap: Record<string, number> = {}
+      for (const m of mData ?? []) cMap[(m as any).goal_id] = (cMap[(m as any).goal_id] ?? 0) + 1
+      setGoals(goalsList.map(g => ({ ...g, milestone_count: cMap[g.id] ?? 0 })))
+    } else {
+      setGoals([])
+    }
+
     setFetching(false)
+  }
+
+  async function handleAddGoal() {
+    if (!goalTitle.trim() || !user) return
+    setSavingGoal(true)
+    const { data, error } = await supabase
+      .from('learning_goals')
+      .insert({ student_id: user.id, title: goalTitle.trim(), subject: goalSubject.trim() || null, target_date: goalDate || null })
+      .select('id, title, subject, target_date, status, created_at')
+      .single()
+    if (error || !data) {
+      console.error('Goal insert error:', error)
+      toast.error(error?.message ?? 'Failed to add goal.')
+      setSavingGoal(false)
+      return
+    }
+    setGoals(prev => [{ ...data, milestone_count: 0 }, ...prev])
+    setGoalTitle(''); setGoalSubject(''); setGoalDate('')
+    setAddingGoal(false)
+    setSavingGoal(false)
+  }
+
+  async function handleCompleteGoal(id: string) {
+    await supabase.from('learning_goals').update({ status: 'completed' }).eq('id', id).eq('student_id', user!.id)
+    setGoals(prev => prev.filter(g => g.id !== id))
+    toast.success('Goal marked complete!')
+  }
+
+  async function handleExpandGoal(id: string) {
+    if (expandedGoal === id) { setExpandedGoal(null); return }
+    setExpandedGoal(id)
+    if (goalMilestones[id]) return
+    setLoadingMilestones(id)
+    const { data } = await supabase
+      .from('goal_milestones')
+      .select('id, title, created_at, marker:marked_by(full_name)')
+      .eq('goal_id', id)
+      .order('created_at', { ascending: true })
+    setGoalMilestones(prev => ({
+      ...prev,
+      [id]: (data ?? []).map((m: any) => ({
+        id: m.id, title: m.title, created_at: m.created_at,
+        marker_name: (m.marker as any)?.full_name ?? null,
+      })),
+    }))
+    setLoadingMilestones(null)
   }
 
   if (loading) return (
@@ -518,6 +661,136 @@ export function StudentDashboard() {
                       </div>
                       <ChevronRight className="w-3.5 h-3.5 text-gray-300 group-hover:text-blue-500 shrink-0" />
                     </Link>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* My Goals */}
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+              <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+                <div className="flex items-center gap-2">
+                  <Target className="w-4 h-4 text-indigo-600" />
+                  <h2 className="font-black text-gray-900 text-sm">My Goals</h2>
+                  {goals.length > 0 && (
+                    <span className="px-1.5 py-0.5 bg-indigo-100 text-indigo-700 text-xs font-bold rounded-full">
+                      {goals.length}
+                    </span>
+                  )}
+                </div>
+                <button
+                  onClick={() => setAddingGoal(v => !v)}
+                  className="flex items-center gap-1 text-xs font-bold text-indigo-600 hover:text-indigo-700 transition-colors"
+                >
+                  {addingGoal ? <X className="w-3.5 h-3.5" /> : <Plus className="w-3.5 h-3.5" />}
+                  {addingGoal ? 'Cancel' : 'Add'}
+                </button>
+              </div>
+
+              {addingGoal && (
+                <div className="px-5 py-4 border-b border-gray-50 bg-indigo-50/40 flex flex-col gap-2">
+                  <input
+                    type="text"
+                    value={goalTitle}
+                    onChange={e => setGoalTitle(e.target.value)}
+                    placeholder="Goal (e.g. Pass SAT Math by May)"
+                    autoFocus
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-xs font-medium text-gray-800 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                  />
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={goalSubject}
+                      onChange={e => setGoalSubject(e.target.value)}
+                      placeholder="Subject (optional)"
+                      className="flex-1 px-3 py-2 border border-gray-200 rounded-lg text-xs font-medium text-gray-800 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                    />
+                    <input
+                      type="date"
+                      value={goalDate}
+                      onChange={e => setGoalDate(e.target.value)}
+                      className="flex-1 px-3 py-2 border border-gray-200 rounded-lg text-xs font-medium text-gray-800 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                    />
+                  </div>
+                  <button
+                    onClick={handleAddGoal}
+                    disabled={savingGoal || !goalTitle.trim()}
+                    className="w-full py-2 bg-indigo-600 text-white rounded-lg text-xs font-bold hover:bg-indigo-700 transition-colors disabled:opacity-60 flex items-center justify-center gap-1.5"
+                  >
+                    {savingGoal && <Loader2 className="w-3 h-3 animate-spin" />}
+                    Save Goal
+                  </button>
+                </div>
+              )}
+
+              {fetching ? (
+                <div className="px-5 py-8 flex justify-center"><Loader2 className="w-5 h-5 animate-spin text-gray-300" /></div>
+              ) : goals.length === 0 ? (
+                <div className="px-5 py-8 text-center">
+                  <p className="text-gray-400 font-medium text-sm">No active goals yet.</p>
+                  <p className="text-gray-400 text-xs mt-1">Set a goal and your instructor can mark progress.</p>
+                </div>
+              ) : (
+                <div>
+                  {goals.map(g => (
+                    <div key={g.id} className="border-b border-gray-50 last:border-b-0">
+                      <button
+                        onClick={() => handleExpandGoal(g.id)}
+                        className="w-full flex items-center gap-3 px-5 py-3.5 hover:bg-gray-50 transition-colors text-left group"
+                      >
+                        <div className="w-7 h-7 rounded-lg bg-indigo-100 flex items-center justify-center shrink-0">
+                          <Target className="w-3.5 h-3.5 text-indigo-600" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="font-bold text-gray-900 text-sm truncate">{g.title}</p>
+                          <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                            {g.subject && <span className="text-[10px] font-bold text-gray-400">{g.subject}</span>}
+                            {g.target_date && (
+                              <span className="text-[10px] font-bold text-indigo-500">
+                                by {new Date(g.target_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                              </span>
+                            )}
+                            {g.milestone_count > 0 && (
+                              <span className="text-[10px] font-bold text-green-600">
+                                {g.milestone_count} milestone{g.milestone_count !== 1 ? 's' : ''}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                        <button
+                          onClick={e => { e.stopPropagation(); handleCompleteGoal(g.id) }}
+                          className="opacity-0 group-hover:opacity-100 w-6 h-6 rounded-full bg-green-100 flex items-center justify-center shrink-0 hover:bg-green-200 transition-all"
+                          title="Mark complete"
+                        >
+                          <CheckCircle className="w-3.5 h-3.5 text-green-600" />
+                        </button>
+                      </button>
+                      {expandedGoal === g.id && (
+                        <div className="px-5 pb-3 bg-gray-50/50">
+                          {loadingMilestones === g.id ? (
+                            <div className="py-3 flex justify-center"><Loader2 className="w-4 h-4 animate-spin text-gray-300" /></div>
+                          ) : (goalMilestones[g.id] ?? []).length === 0 ? (
+                            <p className="text-[11px] text-gray-400 font-medium py-2 italic">No milestones yet — your instructor can mark progress here.</p>
+                          ) : (
+                            <div className="space-y-2 pt-2">
+                              {(goalMilestones[g.id] ?? []).map(m => (
+                                <div key={m.id} className="flex items-start gap-2">
+                                  <div className="w-4 h-4 rounded-full bg-green-100 flex items-center justify-center shrink-0 mt-0.5">
+                                    <CheckCircle className="w-2.5 h-2.5 text-green-600" />
+                                  </div>
+                                  <div>
+                                    <p className="text-xs font-bold text-gray-800">{m.title}</p>
+                                    <p className="text-[10px] text-gray-400">
+                                      {m.marker_name ? `by ${m.marker_name} · ` : ''}{timeAgo(m.created_at)}
+                                    </p>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
                   ))}
                 </div>
               )}

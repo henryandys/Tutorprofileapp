@@ -8,6 +8,7 @@ import {
   Calendar, Clock, BookOpen, Heart, Search, ChevronRight, Star,
   User, CheckCircle, XCircle, Loader2, TrendingUp, Lightbulb, Ban,
   Users, GraduationCap, MessageCircle, LayoutDashboard, Check, StickyNote, PenLine,
+  Target, Flag,
 } from "lucide-react"
 import { toast } from "sonner"
 
@@ -67,6 +68,7 @@ interface TutorStudent {
   subjects:       string[]
   total_sessions: number
   last_session:   string | null
+  goals:          { id: string; title: string; subject: string | null }[]
 }
 
 // ── Learning types ────────────────────────────────────────────────────────────
@@ -205,6 +207,14 @@ export function InstructorDashboard() {
   // Students state
   const [students, setStudents] = useState<TutorStudent[]>([])
 
+  // Milestone state
+  const [milestoneStudentId, setMilestoneStudentId] = useState<string | null>(null)
+  const [studentGoals,       setStudentGoals]       = useState<{id: string; title: string; subject: string|null}[]>([])
+  const [loadingGoals,       setLoadingGoals]       = useState(false)
+  const [selectedGoalId,     setSelectedGoalId]     = useState<string>('')
+  const [milestoneText,      setMilestoneText]      = useState('')
+  const [savingMilestone,    setSavingMilestone]    = useState(false)
+
   const loadTeaching = useCallback(async () => {
     if (!user) return
     setFetchingTeaching(true)
@@ -275,9 +285,9 @@ export function InstructorDashboard() {
     }
     const studentIds = Object.keys(studentMap)
 
-    // Fetch notes I've written + completed sessions missing notes + student avatars
+    // Fetch notes I've written + completed sessions missing notes + student avatars + student goals
     const completedIds = all.filter(b => b.status === 'completed').map(b => (b as any).id ?? '')
-    const [notesRes, completedBookingsRes, studentProfilesRes] = await Promise.all([
+    const [notesRes, completedBookingsRes, studentProfilesRes, goalsRes] = await Promise.all([
       supabase
         .from('session_notes')
         .select('booking_id, content, updated_at, booking:booking_id(subject, scheduled_at, student_name)')
@@ -295,6 +305,15 @@ export function InstructorDashboard() {
         : Promise.resolve({ data: [] }),
       studentIds.length > 0
         ? supabase.from('profiles').select('id, avatar_url').in('id', studentIds)
+        : Promise.resolve({ data: [] }),
+
+      studentIds.length > 0
+        ? supabase
+            .from('learning_goals')
+            .select('id, student_id, title, subject')
+            .in('student_id', studentIds)
+            .eq('status', 'active')
+            .order('created_at', { ascending: false })
         : Promise.resolve({ data: [] }),
     ])
 
@@ -318,6 +337,13 @@ export function InstructorDashboard() {
 
     const avatarMap: Record<string, string | null> = {}
     for (const p of (studentProfilesRes.data ?? []) as any[]) avatarMap[p.id] = p.avatar_url ?? null
+
+    const goalsMap: Record<string, { id: string; title: string; subject: string | null }[]> = {}
+    for (const g of (goalsRes.data ?? []) as any[]) {
+      if (!goalsMap[g.student_id]) goalsMap[g.student_id] = []
+      goalsMap[g.student_id].push({ id: g.id, title: g.title, subject: g.subject ?? null })
+    }
+
     setStudents(
       studentIds
         .map(id => ({
@@ -327,6 +353,7 @@ export function InstructorDashboard() {
           subjects:       Array.from(studentMap[id].subjects),
           total_sessions: studentMap[id].sessions,
           last_session:   studentMap[id].last,
+          goals:          goalsMap[id] ?? [],
         }))
         .sort((a, b) => (b.last_session ?? '').localeCompare(a.last_session ?? ''))
         .slice(0, 15)
@@ -519,6 +546,38 @@ export function InstructorDashboard() {
     })
     toast.success(`Accepted ${booking.student_name}'s request!`)
     setAcceptingId(null)
+  }
+
+  async function openMilestone(studentId: string) {
+    if (milestoneStudentId === studentId) { setMilestoneStudentId(null); return }
+    setMilestoneStudentId(studentId)
+    setSelectedGoalId('')
+    setMilestoneText('')
+    const cached = students.find(s => s.id === studentId)?.goals
+    if (cached) { setStudentGoals(cached); return }
+    setLoadingGoals(true)
+    const { data } = await supabase
+      .from('learning_goals')
+      .select('id, title, subject')
+      .eq('student_id', studentId)
+      .eq('status', 'active')
+      .order('created_at', { ascending: false })
+    setStudentGoals(data ?? [])
+    setLoadingGoals(false)
+  }
+
+  async function saveMilestone() {
+    if (!selectedGoalId || !milestoneText.trim()) return
+    setSavingMilestone(true)
+    const { error } = await supabase
+      .from('goal_milestones')
+      .insert({ goal_id: selectedGoalId, marked_by: user!.id, title: milestoneText.trim() })
+    if (error) { toast.error('Failed to save milestone.'); setSavingMilestone(false); return }
+    toast.success('Milestone marked!')
+    setMilestoneStudentId(null)
+    setMilestoneText('')
+    setSelectedGoalId('')
+    setSavingMilestone(false)
   }
 
   if (loading) return (
@@ -738,25 +797,95 @@ export function InstructorDashboard() {
                       <p className="text-gray-400 text-sm font-medium">Students from accepted and completed bookings will appear here.</p>
                     </div>
                   ) : (
-                    <div className="divide-y divide-gray-50">
+                    <div>
                       {students.map(s => (
-                        <div key={s.id} className="flex items-center gap-4 px-6 py-3.5">
-                          <Avatar name={s.name} url={s.avatar_url} />
-                          <div className="flex-1 min-w-0">
-                            <p className="font-bold text-gray-900 truncate">{s.name}</p>
-                            {s.subjects.length > 0 && (
-                              <p className="text-sm text-gray-500 font-medium truncate">{s.subjects.join(', ')}</p>
-                            )}
-                            {s.last_session && (
-                              <p className="text-xs text-gray-400 font-medium mt-0.5">Last: {timeAgo(s.last_session)}</p>
-                            )}
+                        <div key={s.id} className="border-b border-gray-50 last:border-b-0">
+                          <div className="flex items-center gap-4 px-6 py-3.5">
+                            <Avatar name={s.name} url={s.avatar_url} />
+                            <div className="flex-1 min-w-0">
+                              <p className="font-bold text-gray-900 truncate">{s.name}</p>
+                              {s.subjects.length > 0 && (
+                                <p className="text-sm text-gray-500 font-medium truncate">{s.subjects.join(', ')}</p>
+                              )}
+                              {s.last_session && (
+                                <p className="text-xs text-gray-400 font-medium mt-0.5">Last: {timeAgo(s.last_session)}</p>
+                              )}
+                              {s.goals.length > 0 && (
+                                <div className="flex items-center gap-1 mt-1 flex-wrap">
+                                  <Target className="w-3 h-3 text-indigo-400 shrink-0" />
+                                  {s.goals.map(g => (
+                                    <span key={g.id} className="text-[10px] font-bold text-indigo-700 bg-indigo-50 px-1.5 py-0.5 rounded-full truncate max-w-[160px]">
+                                      {g.title}
+                                    </span>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-3 shrink-0">
+                              {s.goals.length > 0 && (
+                                <button
+                                  onClick={() => openMilestone(s.id)}
+                                  className={`flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-bold transition-colors ${
+                                    milestoneStudentId === s.id
+                                      ? 'bg-indigo-600 text-white'
+                                      : 'bg-indigo-50 text-indigo-600 hover:bg-indigo-100'
+                                  }`}
+                                  title="Mark a milestone toward this student's goal"
+                                >
+                                  <Flag className="w-3 h-3" />
+                                  Milestone
+                                </button>
+                              )}
+                              <div className="text-right">
+                                <p className="text-lg font-black text-purple-600">{s.total_sessions}</p>
+                                <p className="text-[10px] text-gray-400 font-medium leading-none">
+                                  {s.total_sessions === 1 ? 'session' : 'sessions'}
+                                </p>
+                              </div>
+                            </div>
                           </div>
-                          <div className="text-right shrink-0">
-                            <p className="text-lg font-black text-purple-600">{s.total_sessions}</p>
-                            <p className="text-[10px] text-gray-400 font-medium leading-none">
-                              {s.total_sessions === 1 ? 'session' : 'sessions'}
-                            </p>
-                          </div>
+                          {milestoneStudentId === s.id && (
+                            <div className="px-6 pb-4 bg-indigo-50/40 border-t border-indigo-100">
+                              {loadingGoals ? (
+                                <div className="py-3 flex justify-center"><Loader2 className="w-4 h-4 animate-spin text-indigo-400" /></div>
+                              ) : studentGoals.length === 0 ? (
+                                <p className="text-xs text-gray-400 font-medium py-3 italic">This student hasn't set any learning goals yet.</p>
+                              ) : (
+                                <div className="pt-3 flex flex-col gap-2">
+                                  <select
+                                    value={selectedGoalId}
+                                    onChange={e => setSelectedGoalId(e.target.value)}
+                                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-xs font-medium text-gray-800 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                                  >
+                                    <option value="">Select goal…</option>
+                                    {studentGoals.map(g => (
+                                      <option key={g.id} value={g.id}>
+                                        {g.title}{g.subject ? ` (${g.subject})` : ''}
+                                      </option>
+                                    ))}
+                                  </select>
+                                  <div className="flex gap-2">
+                                    <input
+                                      type="text"
+                                      value={milestoneText}
+                                      onChange={e => setMilestoneText(e.target.value)}
+                                      onKeyDown={e => e.key === 'Enter' && saveMilestone()}
+                                      placeholder="Milestone reached (e.g. Mastered quadratic equations)"
+                                      className="flex-1 px-3 py-2 border border-gray-200 rounded-lg text-xs font-medium text-gray-800 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                                    />
+                                    <button
+                                      onClick={saveMilestone}
+                                      disabled={savingMilestone || !selectedGoalId || !milestoneText.trim()}
+                                      className="flex items-center gap-1 px-3 py-2 bg-indigo-600 text-white rounded-lg text-xs font-bold hover:bg-indigo-700 transition-colors disabled:opacity-60 shrink-0"
+                                    >
+                                      {savingMilestone ? <Loader2 className="w-3 h-3 animate-spin" /> : <Flag className="w-3 h-3" />}
+                                      Mark
+                                    </button>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          )}
                         </div>
                       ))}
                     </div>
