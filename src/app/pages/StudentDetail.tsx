@@ -8,6 +8,7 @@ import {
   ArrowLeft, Calendar, CheckCircle, Target, Flag, MessageCircle,
   StickyNote, PenLine, Loader2, ChevronDown, ChevronUp, Send, X,
 } from "lucide-react"
+import { markConversationRead } from "../components/NotificationsPanel"
 
 interface StudentProfile {
   id: string
@@ -144,6 +145,7 @@ export function StudentDetail() {
     setShowMessages(true)
     setLoadingMsgs(true)
     const ids = bookings.map(b => b.id)
+    if (user) ids.forEach(bid => markConversationRead(user.id, bid))
     if (ids.length === 0) { setLoadingMsgs(false); return }
     const { data } = await supabase
       .from('messages')

@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { supabase } from "../../lib/supabase";
 import { useAuth } from "../../context/AuthContext";
 import { sendNotificationEmail } from "../../lib/notify";
+import { markConversationRead } from "./NotificationsPanel";
 
 interface Message {
   id:         string
@@ -68,6 +69,12 @@ export function ConversationModal({ bookingId, otherName, otherUserId, subject, 
         }
       })
   }, [bookingId])
+
+  // Mark this conversation as read when the modal finishes loading
+  useEffect(() => {
+    if (!user || loading) return
+    markConversationRead(user.id, bookingId)
+  }, [user, bookingId, loading])
 
   // Check block status (both directions)
   useEffect(() => {

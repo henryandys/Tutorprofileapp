@@ -188,6 +188,7 @@ export function InstructorDashboard() {
   const [teachingStats,    setTeachingStats]    = useState<TeachingStats>({ upcoming: 0, pending: 0, students: 0, rating: null })
   const [fetchingTeaching, setFetchingTeaching] = useState(true)
   const [acceptingId,      setAcceptingId]      = useState<string | null>(null)
+  const [decliningId,      setDecliningId]      = useState<string | null>(null)
 
   // Learning state
   const [upcomingLessons,  setUpcomingLessons]  = useState<UpcomingLesson[]>([])
@@ -590,6 +591,30 @@ export function InstructorDashboard() {
     setAcceptingId(null)
   }
 
+  async function handleDecline(booking: PendingBooking) {
+    setDecliningId(booking.id)
+    const { error } = await supabase
+      .from('bookings')
+      .update({ status: 'declined' })
+      .eq('id', booking.id)
+      .eq('tutor_id', user!.id)
+    if (error) { toast.error('Failed to decline booking.'); setDecliningId(null); return }
+
+    setPendingBookings(prev => prev.filter(b => b.id !== booking.id))
+    setTeachingStats(prev => ({ ...prev, pending: Math.max(0, prev.pending - 1) }))
+    sendNotificationEmail({
+      type: 'booking_declined',
+      recipientId: booking.student_id,
+      data: {
+        tutorName:   profile?.full_name ?? 'Your instructor',
+        studentName: booking.student_name,
+        subject:     booking.subject,
+      },
+    })
+    toast.success(`Declined ${booking.student_name}'s request.`)
+    setDecliningId(null)
+  }
+
   async function openMilestone(studentId: string) {
     if (milestoneStudentId === studentId) { setMilestoneStudentId(null); return }
     setMilestoneStudentId(studentId)
@@ -843,7 +868,7 @@ export function InstructorDashboard() {
                           <div className="flex items-center gap-2 shrink-0 mt-0.5">
                             <button
                               onClick={() => handleAccept(b)}
-                              disabled={acceptingId === b.id}
+                              disabled={acceptingId === b.id || decliningId === b.id}
                               className="flex items-center gap-1.5 px-3 py-1.5 bg-green-600 text-white rounded-lg text-xs font-bold hover:bg-green-700 transition-colors disabled:opacity-60"
                             >
                               {acceptingId === b.id
@@ -851,12 +876,16 @@ export function InstructorDashboard() {
                                 : <Check    className="w-3 h-3" />}
                               Accept
                             </button>
-                            <Link
-                              to="/lessons"
-                              className="px-3 py-1.5 border border-gray-200 text-gray-600 rounded-lg text-xs font-bold hover:bg-gray-50 transition-colors"
+                            <button
+                              onClick={() => handleDecline(b)}
+                              disabled={acceptingId === b.id || decliningId === b.id}
+                              className="flex items-center gap-1.5 px-3 py-1.5 bg-red-50 text-red-600 border border-red-200 rounded-lg text-xs font-bold hover:bg-red-100 transition-colors disabled:opacity-60"
                             >
-                              View
-                            </Link>
+                              {decliningId === b.id
+                                ? <Loader2 className="w-3 h-3 animate-spin" />
+                                : <XCircle  className="w-3 h-3" />}
+                              Decline
+                            </button>
                           </div>
                         </div>
                       ))}

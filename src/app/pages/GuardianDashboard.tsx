@@ -74,6 +74,7 @@ import {
   ChevronRight, Loader2, Users, Shield, Star, Target, CheckCircle,
   MessageCircle, X, Send, CreditCard,
 } from "lucide-react"
+import { markConversationRead } from "../components/NotificationsPanel"
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -556,6 +557,7 @@ export function GuardianDashboard() {
     setViewConv(conv)
     setConvBody('')
     setLoadingConv(true)
+    if (user) markConversationRead(user.id, conv.bookingId)
     const { data } = await supabase
       .from('messages')
       .select('id, sender_id, body, created_at')
