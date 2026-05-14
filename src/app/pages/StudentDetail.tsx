@@ -551,35 +551,38 @@ export function StudentDetail() {
 
                               {/* Add milestone */}
                               {milestonePanelGoalId === g.id ? (
-                                <div className="mt-2 flex gap-2">
+                                <div className="mt-3 bg-indigo-50/60 rounded-xl p-3 flex flex-col gap-2 border border-indigo-100">
+                                  <p className="text-[10px] font-black text-indigo-600 uppercase tracking-widest">Mark a milestone</p>
                                   <input
                                     type="text"
                                     value={milestoneText}
                                     onChange={e => setMilestoneText(e.target.value)}
                                     onKeyDown={e => { if (e.key === 'Enter') saveMilestone(g.id); if (e.key === 'Escape') setMilestonePanelGoalId(null) }}
-                                    placeholder="Milestone reached…"
+                                    placeholder="e.g. Mastered quadratic equations, completed chapter 5…"
                                     autoFocus
-                                    className="flex-1 px-3 py-1.5 border border-gray-200 rounded-lg text-xs font-medium text-gray-800 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                                    className="w-full px-3 py-2 border border-indigo-200 rounded-lg text-xs font-medium text-gray-800 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-400"
                                   />
-                                  <button
-                                    onClick={() => saveMilestone(g.id)}
-                                    disabled={savingMilestone || !milestoneText.trim()}
-                                    className="flex items-center gap-1 px-2.5 py-1.5 bg-indigo-600 text-white rounded-lg text-xs font-bold hover:bg-indigo-700 disabled:opacity-60 transition-colors shrink-0"
-                                  >
-                                    {savingMilestone ? <Loader2 className="w-3 h-3 animate-spin" /> : <Flag className="w-3 h-3" />}
-                                    Mark
-                                  </button>
-                                  <button
-                                    onClick={() => setMilestonePanelGoalId(null)}
-                                    className="px-2.5 py-1.5 border border-gray-200 text-gray-500 rounded-lg text-xs font-bold hover:bg-gray-50 transition-colors"
-                                  >
-                                    Cancel
-                                  </button>
+                                  <div className="flex gap-2">
+                                    <button
+                                      onClick={() => saveMilestone(g.id)}
+                                      disabled={savingMilestone || !milestoneText.trim()}
+                                      className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 text-white rounded-lg text-xs font-bold hover:bg-indigo-700 disabled:opacity-60 transition-colors"
+                                    >
+                                      {savingMilestone ? <Loader2 className="w-3 h-3 animate-spin" /> : <Flag className="w-3 h-3" />}
+                                      Save milestone
+                                    </button>
+                                    <button
+                                      onClick={() => setMilestonePanelGoalId(null)}
+                                      className="px-3 py-1.5 border border-gray-200 text-gray-500 rounded-lg text-xs font-bold hover:bg-gray-50 transition-colors"
+                                    >
+                                      Cancel
+                                    </button>
+                                  </div>
                                 </div>
                               ) : (
                                 <button
                                   onClick={() => { setMilestonePanelGoalId(g.id); setMilestoneText('') }}
-                                  className="mt-2 flex items-center gap-1 text-xs font-bold text-indigo-600 hover:text-indigo-700 transition-colors"
+                                  className="mt-2.5 flex items-center gap-1.5 px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-600 rounded-lg text-xs font-bold transition-colors"
                                 >
                                   <Flag className="w-3 h-3" />
                                   Mark milestone

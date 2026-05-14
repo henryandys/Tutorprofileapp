@@ -64,7 +64,7 @@
 //   );
 
 import { useState, useEffect, useRef } from "react"
-import { Link, useNavigate } from "react-router"
+import { Link, useNavigate, useSearchParams } from "react-router"
 import { Navbar } from "../components/Navbar"
 import { useAuth } from "../../context/AuthContext"
 import { supabase } from "../../lib/supabase"
@@ -72,7 +72,7 @@ import { toast } from "sonner"
 import {
   Calendar, BookOpen, StickyNote, GraduationCap, User,
   ChevronRight, Loader2, Users, Shield, Star, Target, CheckCircle,
-  MessageCircle, X, Send,
+  MessageCircle, X, Send, CreditCard,
 } from "lucide-react"
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -85,12 +85,14 @@ interface Child {
 }
 
 interface ChildLesson {
-  id:           string
-  subject:      string
-  scheduled_at: string
-  tutor_name:   string
-  tutor_id:     string
-  tutor_avatar: string | null
+  id:             string
+  subject:        string
+  scheduled_at:   string
+  tutor_name:     string
+  tutor_id:       string
+  tutor_avatar:   string | null
+  price_cents:    number | null
+  payment_status: 'pending' | 'paid' | 'refunded' | null
 }
 
 interface ChildNote {
@@ -153,6 +155,14 @@ interface CompletedLesson {
   tutor_name:   string
 }
 
+interface PendingPayment {
+  id:           string
+  subject:      string
+  scheduled_at: string | null
+  tutor_name:   string
+  price_cents:  number
+}
+
 interface ChildData {
   lessons:          ChildLesson[]
   completedLessons: CompletedLesson[]
@@ -161,6 +171,7 @@ interface ChildData {
   stats:            ChildStats
   goals:            ChildGoal[]
   conversations:    ChildConversation[]
+  pendingPayments:  PendingPayment[]
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -198,6 +209,7 @@ function timeAgo(iso: string) {
 export function GuardianDashboard() {
   const { user, profile, loading } = useAuth()
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
 
   const [children,     setChildren]     = useState<Child[]>([])
   const [childData,    setChildData]    = useState<Record<string, ChildData>>({})
@@ -214,6 +226,9 @@ export function GuardianDashboard() {
   const [noteText,       setNoteText]       = useState('')
   const [savingNote,     setSavingNote]     = useState(false)
 
+  // Payment
+  const [payingId, setPayingId] = useState<string | null>(null)
+
   // Conversation modal
   const [viewConv,     setViewConv]     = useState<{ bookingId: string; subject: string; tutorName: string; studentId: string; studentName: string } | null>(null)
   const [convMessages, setConvMessages] = useState<{ id: string; sender_id: string; body: string; created_at: string }[]>([])
@@ -226,6 +241,50 @@ export function GuardianDashboard() {
     if (!user) return
     loadData()
   }, [user])
+
+  // Handle Stripe redirect back
+  useEffect(() => {
+    const result = searchParams.get('payment')
+    if (!result) return
+    if (result === 'success') {
+      toast.success('Payment successful! The session is confirmed.')
+      loadData()
+    }
+    if (result === 'cancelled') toast.info('Payment cancelled.')
+    setSearchParams({}, { replace: true })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  async function handlePay(lesson: { id: string; subject: string; price_cents: number | null; tutor_name: string }, childName: string) {
+    if (!user) return
+    setPayingId(lesson.id)
+    const { data: { session } } = await supabase.auth.getSession()
+    if (!session?.access_token) { toast.error('Please sign in to pay.'); setPayingId(null); return }
+    try {
+      const res = await fetch('/api/create-checkout-session', {
+        method:  'POST',
+        headers: {
+          'Content-Type':  'application/json',
+          'Authorization': `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          bookingId:   lesson.id,
+          amountCents: lesson.price_cents,
+          subject:     lesson.subject,
+          studentName: childName,
+          tutorName:   lesson.tutor_name,
+          successUrl:  `${window.location.origin}/guardian-dashboard?payment=success`,
+          cancelUrl:   `${window.location.origin}/guardian-dashboard?payment=cancelled`,
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok || !data.url) { toast.error(data.error ?? 'Could not start checkout.'); setPayingId(null); return }
+      window.location.href = data.url
+    } catch {
+      toast.error('Network error starting checkout.')
+      setPayingId(null)
+    }
+  }
 
   // Realtime subscription for the open conversation
   useEffect(() => {
@@ -276,7 +335,7 @@ export function GuardianDashboard() {
     const [upcomingRes, allRes] = await Promise.all([
       supabase
         .from('bookings')
-        .select('id, subject, scheduled_at, student_id, tutor:tutor_id(id, full_name, avatar_url)')
+        .select('id, subject, scheduled_at, student_id, price_cents, payment_status, tutor:tutor_id(id, full_name, avatar_url)')
         .in('student_id', childIds)
         .eq('status', 'accepted')
         .gte('scheduled_at', now)
@@ -285,7 +344,7 @@ export function GuardianDashboard() {
 
       supabase
         .from('bookings')
-        .select('id, subject, scheduled_at, status, student_id, tutor:tutor_id(id, full_name, avatar_url)')
+        .select('id, subject, scheduled_at, status, student_id, price_cents, payment_status, tutor:tutor_id(id, full_name, avatar_url)')
         .in('student_id', childIds)
         .in('status', ['accepted', 'completed'])
         .order('scheduled_at', { ascending: false })
@@ -396,10 +455,14 @@ export function GuardianDashboard() {
 
       dataMap[kid.id] = {
         lessons: kidUpcoming.slice(0, 6).map((b: any) => ({
-          id: b.id, subject: b.subject, scheduled_at: b.scheduled_at,
-          tutor_name: b.tutor?.full_name ?? 'Instructor',
-          tutor_id:   b.tutor?.id ?? '',
-          tutor_avatar: b.tutor?.avatar_url ?? null,
+          id:             b.id,
+          subject:        b.subject,
+          scheduled_at:   b.scheduled_at,
+          tutor_name:     b.tutor?.full_name  ?? 'Instructor',
+          tutor_id:       b.tutor?.id         ?? '',
+          tutor_avatar:   b.tutor?.avatar_url ?? null,
+          price_cents:    b.price_cents    ?? null,
+          payment_status: b.payment_status ?? null,
         })),
         completedLessons: [
           ...kidAccepted.slice(0, 10).map((b: any) => ({
@@ -448,7 +511,17 @@ export function GuardianDashboard() {
             }
           })
           .sort((a, b) => b.last_at.localeCompare(a.last_at)),
+        pendingPayments: kidAll
+          .filter((b: any) => (b.price_cents ?? 0) > 0 && b.payment_status !== 'paid')
+          .map((b: any) => ({
+            id:           b.id,
+            subject:      b.subject ?? '',
+            scheduled_at: b.scheduled_at ?? null,
+            tutor_name:   b.tutor?.full_name ?? 'Instructor',
+            price_cents:  b.price_cents as number,
+          })),
       }
+
     }
 
     setChildData(dataMap)
@@ -678,6 +751,49 @@ export function GuardianDashboard() {
               {/* Left 2/3 */}
               <div className="lg:col-span-2 flex flex-col gap-6">
 
+                {/* Pending Payments alert */}
+                {data.pendingPayments.length > 0 && (() => {
+                  const total = data.pendingPayments.reduce((sum, p) => sum + p.price_cents, 0)
+                  return (
+                    <div className="bg-amber-50 border border-amber-200 rounded-2xl p-5 flex items-start gap-4">
+                      <div className="w-10 h-10 rounded-xl bg-amber-100 flex items-center justify-center shrink-0">
+                        <CreditCard className="w-5 h-5 text-amber-600" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="font-black text-gray-900 text-sm">
+                          {data.pendingPayments.length} session{data.pendingPayments.length !== 1 ? 's' : ''} awaiting payment
+                        </p>
+                        <p className="text-xs text-gray-500 font-medium mt-0.5">
+                          Total due: <span className="font-black text-amber-700">${(total / 100).toFixed(2)}</span>
+                        </p>
+                        <div className="flex flex-col gap-2 mt-3">
+                          {data.pendingPayments.map(p => (
+                            <div key={p.id} className="flex items-center justify-between gap-3 bg-white rounded-xl px-3 py-2.5 border border-amber-100">
+                              <div className="flex-1 min-w-0">
+                                <p className="text-sm font-bold text-gray-900 truncate">{p.subject}</p>
+                                <p className="text-xs text-gray-500 font-medium">
+                                  with {p.tutor_name}
+                                  {p.scheduled_at && ` · ${new Date(p.scheduled_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`}
+                                </p>
+                              </div>
+                              <button
+                                onClick={() => handlePay(p, child.name)}
+                                disabled={payingId === p.id}
+                                className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold transition-colors disabled:opacity-60 shrink-0"
+                              >
+                                {payingId === p.id
+                                  ? <Loader2 className="w-3 h-3 animate-spin" />
+                                  : <CreditCard className="w-3 h-3" />}
+                                Pay ${(p.price_cents / 100).toFixed(2)}
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })()}
+
                 {/* Upcoming Lessons */}
                 <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
                   <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
@@ -694,8 +810,11 @@ export function GuardianDashboard() {
                   ) : (
                     <div className="divide-y divide-gray-50">
                       {data.lessons.map(l => {
-                        const myNote    = data.notes.find(n => n.booking_id === l.id && n.user_id === user?.id)
-                        const isWriting = writingNoteFor === l.id
+                        const myNote      = data.notes.find(n => n.booking_id === l.id && n.user_id === user?.id)
+                        const isWriting   = writingNoteFor === l.id
+                        const needsPay    = (l.price_cents ?? 0) > 0 && l.payment_status !== 'paid'
+                        const isPaid      = l.payment_status === 'paid'
+                        const isPaying    = payingId === l.id
                         return (
                           <div key={l.id} className="px-6 py-4">
                             <div className="flex items-center gap-4">
@@ -706,8 +825,25 @@ export function GuardianDashboard() {
                                 <p className="font-bold text-gray-900 truncate">{l.subject}</p>
                                 <p className="text-sm text-gray-500 font-medium">with {l.tutor_name}</p>
                               </div>
-                              <div className="flex items-center gap-3 shrink-0">
+                              <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
                                 <p className="text-sm font-bold text-blue-600 whitespace-nowrap hidden sm:block">{formatDate(l.scheduled_at)}</p>
+                                {isPaid && (
+                                  <span className="flex items-center gap-1 px-2 py-1 bg-green-100 text-green-700 rounded-lg text-xs font-bold">
+                                    <CheckCircle className="w-3 h-3" /> Paid
+                                  </span>
+                                )}
+                                {needsPay && !isWriting && (
+                                  <button
+                                    onClick={() => handlePay(l, child.name)}
+                                    disabled={isPaying}
+                                    className="flex items-center gap-1 px-2.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold transition-colors disabled:opacity-60"
+                                  >
+                                    {isPaying
+                                      ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                      : <CreditCard className="w-3.5 h-3.5" />}
+                                    Pay ${((l.price_cents ?? 0) / 100).toFixed(2)}
+                                  </button>
+                                )}
                                 {!isWriting && (
                                   <button
                                     onClick={() => { setNoteText(myNote?.content ?? ''); setWritingNoteFor(l.id) }}

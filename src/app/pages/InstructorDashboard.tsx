@@ -7,8 +7,8 @@ import { sendNotificationEmail } from "../../lib/notify"
 import {
   Calendar, Clock, BookOpen, Heart, Search, ChevronRight, Star,
   User, CheckCircle, XCircle, Loader2, TrendingUp, Lightbulb, Ban,
-  Users, GraduationCap, MessageCircle, LayoutDashboard, Check, StickyNote, PenLine,
-  Target, Flag,
+  Users, GraduationCap, MessageCircle, LayoutDashboard, Check, StickyNote,
+  Target, Flag, Plus, X,
 } from "lucide-react"
 import { toast } from "sonner"
 
@@ -43,23 +43,6 @@ interface TeachingStats {
   pending:   number
   students:  number
   rating:    number | null
-}
-
-interface RecentNote {
-  booking_id:   string
-  content:      string
-  updated_at:   string
-  subject:      string
-  student_name: string
-  scheduled_at: string | null
-}
-
-interface NeedsNoteBooking {
-  id:           string
-  subject:      string
-  student_name: string
-  scheduled_at: string | null
-  isUpcoming?:  boolean
 }
 
 interface TutorStudent {
@@ -122,6 +105,23 @@ interface StudentStats {
   upcoming:  number
   pending:   number
   completed: number
+}
+
+interface LearningGoal {
+  id:              string
+  title:           string
+  subject:         string | null
+  target_date:     string | null
+  status:          'active' | 'completed' | 'paused'
+  created_at:      string
+  milestone_count: number
+}
+
+interface GoalMilestone {
+  id:          string
+  title:       string
+  created_at:  string
+  marker_name: string | null
 }
 
 // ── Shared helpers ────────────────────────────────────────────────────────────
@@ -200,12 +200,21 @@ export function InstructorDashboard() {
   const [learningLoaded,   setLearningLoaded]   = useState(false)
 
   // Notes state
-  const [recentNotes,      setRecentNotes]      = useState<RecentNote[]>([])
-  const [needsNote,        setNeedsNote]        = useState<NeedsNoteBooking[]>([])
   const [upcomingNoteMap,  setUpcomingNoteMap]  = useState<Record<string, string>>({})
   const [writingNoteFor,   setWritingNoteFor]   = useState<string | null>(null)
   const [noteContent,      setNoteContent]      = useState('')
   const [savingNote,       setSavingNote]       = useState(false)
+
+  // Learning goals state (instructor as student)
+  const [learningGoals,           setLearningGoals]           = useState<LearningGoal[]>([])
+  const [addingLearningGoal,      setAddingLearningGoal]      = useState(false)
+  const [learningGoalTitle,       setLearningGoalTitle]       = useState('')
+  const [learningGoalSubject,     setLearningGoalSubject]     = useState('')
+  const [learningGoalDate,        setLearningGoalDate]        = useState('')
+  const [savingLearningGoal,      setSavingLearningGoal]      = useState(false)
+  const [expandedLearningGoal,    setExpandedLearningGoal]    = useState<string | null>(null)
+  const [learningGoalMilestones,  setLearningGoalMilestones]  = useState<Record<string, GoalMilestone[]>>({})
+  const [loadingLearningMs,       setLoadingLearningMs]       = useState<string | null>(null)
 
   // Students state
   const [students, setStudents] = useState<TutorStudent[]>([])
@@ -288,29 +297,12 @@ export function InstructorDashboard() {
     }
     const studentIds = Object.keys(studentMap)
 
-    // Fetch notes I've written + completed sessions missing notes + student avatars + student goals
-    const completedIds  = all.filter(b => b.status === 'completed').map(b => (b as any).id ?? '')
-    const upcomingIds   = (sessRes.data ?? []).map((s: any) => s.id as string)
-    const [notesRes, completedBookingsRes, studentProfilesRes, goalsRes, upcomingNotesRes] = await Promise.all([
-      supabase
-        .from('session_notes')
-        .select('booking_id, content, updated_at, booking:booking_id(subject, scheduled_at, student_name)')
-        .eq('user_id', user.id)
-        .order('updated_at', { ascending: false })
-        .limit(3),
-      completedIds.length > 0
-        ? supabase
-            .from('bookings')
-            .select('id, subject, student_name, scheduled_at')
-            .eq('tutor_id', user.id)
-            .eq('status', 'completed')
-            .order('scheduled_at', { ascending: false })
-            .limit(20)
-        : Promise.resolve({ data: [] }),
+    // Fetch student avatars, goals, and notes for upcoming sessions
+    const upcomingIds = (sessRes.data ?? []).map((s: any) => s.id as string)
+    const [studentProfilesRes, goalsRes, upcomingNotesRes] = await Promise.all([
       studentIds.length > 0
         ? supabase.from('profiles').select('id, avatar_url').in('id', studentIds)
         : Promise.resolve({ data: [] }),
-
       studentIds.length > 0
         ? supabase
             .from('learning_goals')
@@ -328,31 +320,9 @@ export function InstructorDashboard() {
         : Promise.resolve({ data: [] }),
     ])
 
-    setRecentNotes(
-      (notesRes.data ?? []).map((n: any) => ({
-        booking_id:   n.booking_id,
-        content:      n.content,
-        updated_at:   n.updated_at,
-        subject:      (n.booking as any)?.subject      ?? '',
-        student_name: (n.booking as any)?.student_name ?? 'Student',
-        scheduled_at: (n.booking as any)?.scheduled_at ?? null,
-      }))
-    )
-
     const unMap: Record<string, string> = {}
     for (const n of (upcomingNotesRes.data ?? []) as any[]) unMap[n.booking_id] = n.content
     setUpcomingNoteMap(unMap)
-
-    const notedIds = new Set([
-      ...(notesRes.data ?? []).map((n: any) => n.booking_id),
-      ...Object.keys(unMap),
-    ])
-    const upcomingNeedsNote: NeedsNoteBooking[] = (sessRes.data ?? [])
-      .filter((s: any) => !notedIds.has(s.id))
-      .map((s: any) => ({ id: s.id, subject: s.subject, student_name: s.student_name, scheduled_at: s.scheduled_at, isUpcoming: true }))
-    const completedNeedsNote: NeedsNoteBooking[] = ((completedBookingsRes.data ?? []) as NeedsNoteBooking[])
-      .filter(b => !notedIds.has(b.id))
-    setNeedsNote([...upcomingNeedsNote, ...completedNeedsNote].slice(0, 6))
 
     const avatarMap: Record<string, string | null> = {}
     for (const p of (studentProfilesRes.data ?? []) as any[]) avatarMap[p.id] = p.avatar_url ?? null
@@ -386,7 +356,7 @@ export function InstructorDashboard() {
     setFetchingLearning(true)
     const now = new Date().toISOString()
 
-    const [upRes, pendRes, allRes, actRes, savedRes] = await Promise.all([
+    const [upRes, pendRes, allRes, actRes, savedRes, goalsRes] = await Promise.all([
       supabase
         .from('bookings')
         .select('id, subject, scheduled_at, tutor:tutor_id(id, full_name, avatar_url)')
@@ -423,6 +393,14 @@ export function InstructorDashboard() {
         .eq('student_id', user.id)
         .order('created_at', { ascending: false })
         .limit(6),
+
+      supabase
+        .from('learning_goals')
+        .select('id, title, subject, target_date, status, created_at')
+        .eq('student_id', user.id)
+        .eq('status', 'active')
+        .order('created_at', { ascending: false })
+        .limit(10),
     ])
 
     setUpcomingLessons(
@@ -508,12 +486,68 @@ export function InstructorDashboard() {
       })))
     }
 
+    const goalsList = (goalsRes.data ?? []) as any[]
+    if (goalsList.length > 0) {
+      const goalIds = goalsList.map((g: any) => g.id)
+      const { data: mData } = await supabase
+        .from('goal_milestones')
+        .select('goal_id')
+        .in('goal_id', goalIds)
+      const cMap: Record<string, number> = {}
+      for (const m of mData ?? []) cMap[(m as any).goal_id] = (cMap[(m as any).goal_id] ?? 0) + 1
+      setLearningGoals(goalsList.map((g: any) => ({ ...g, milestone_count: cMap[g.id] ?? 0 })))
+    } else {
+      setLearningGoals([])
+    }
+
     setFetchingLearning(false)
     setLearningLoaded(true)
   }, [user, learningLoaded])
 
   useEffect(() => { if (user) loadTeaching() }, [user, loadTeaching])
   useEffect(() => { if (tab === 'learning') loadLearning() }, [tab, loadLearning])
+
+  async function handleAddLearningGoal() {
+    if (!learningGoalTitle.trim() || !user) return
+    setSavingLearningGoal(true)
+    const { data, error } = await supabase
+      .from('learning_goals')
+      .insert({ student_id: user.id, title: learningGoalTitle.trim(), subject: learningGoalSubject.trim() || null, target_date: learningGoalDate || null })
+      .select('id, title, subject, target_date, status, created_at')
+      .single()
+    if (error || !data) { toast.error(error?.message ?? 'Failed to add goal.'); setSavingLearningGoal(false); return }
+    setLearningGoals(prev => [{ ...data, milestone_count: 0 }, ...prev])
+    setLearningGoalTitle(''); setLearningGoalSubject(''); setLearningGoalDate('')
+    setAddingLearningGoal(false)
+    setSavingLearningGoal(false)
+    toast.success('Goal added!')
+  }
+
+  async function handleCompleteLearningGoal(id: string) {
+    await supabase.from('learning_goals').update({ status: 'completed' }).eq('id', id).eq('student_id', user!.id)
+    setLearningGoals(prev => prev.filter(g => g.id !== id))
+    toast.success('Goal marked complete!')
+  }
+
+  async function handleExpandLearningGoal(id: string) {
+    if (expandedLearningGoal === id) { setExpandedLearningGoal(null); return }
+    setExpandedLearningGoal(id)
+    if (learningGoalMilestones[id]) return
+    setLoadingLearningMs(id)
+    const { data } = await supabase
+      .from('goal_milestones')
+      .select('id, title, created_at, marker:marked_by(full_name)')
+      .eq('goal_id', id)
+      .order('created_at', { ascending: true })
+    setLearningGoalMilestones(prev => ({
+      ...prev,
+      [id]: (data ?? []).map((m: any) => ({
+        id: m.id, title: m.title, created_at: m.created_at,
+        marker_name: (m.marker as any)?.full_name ?? null,
+      })),
+    }))
+    setLoadingLearningMs(null)
+  }
 
   async function handleSaveNote(bookingId: string) {
     if (!noteContent.trim()) { toast.error('Note cannot be empty.'); return }
@@ -526,25 +560,10 @@ export function InstructorDashboard() {
       )
     if (error) { toast.error('Failed to save note.'); setSavingNote(false); return }
     setUpcomingNoteMap(prev => ({ ...prev, [bookingId]: noteContent.trim() }))
-
-    const booking = needsNote.find(b => b.id === bookingId)
-    if (booking) {
-      if (!booking.isUpcoming) {
-        setRecentNotes(prev => [{
-          booking_id:   bookingId,
-          content:      noteContent.trim(),
-          updated_at:   new Date().toISOString(),
-          subject:      booking.subject,
-          student_name: booking.student_name,
-          scheduled_at: booking.scheduled_at,
-        }, ...prev].slice(0, 3))
-      }
-      setNeedsNote(prev => prev.filter(b => b.id !== bookingId))
-    }
     setWritingNoteFor(null)
     setNoteContent('')
     setSavingNote(false)
-    toast.success(booking?.isUpcoming ? 'Note saved!' : 'Note saved and shared with your student!')
+    toast.success('Note saved!')
   }
 
   async function handleAccept(booking: PendingBooking) {
@@ -1007,159 +1026,6 @@ export function InstructorDashboard() {
                   )}
                 </div>
 
-                {/* Session Notes */}
-                <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-                  <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
-                    <div className="flex items-center gap-2">
-                      <StickyNote className="w-4 h-4 text-blue-500" />
-                      <h2 className="font-black text-gray-900 text-sm">Session Notes</h2>
-                    </div>
-                    <Link to="/lessons" className="text-xs font-bold text-blue-600 hover:text-blue-700">All →</Link>
-                  </div>
-
-                  {fetchingTeaching ? (
-                    <div className="px-5 py-8 flex justify-center"><Loader2 className="w-5 h-5 animate-spin text-gray-300" /></div>
-                  ) : (
-                    <>
-                      {/* Sessions needing a note */}
-                      {needsNote.length > 0 && (
-                        <div className="border-b border-gray-50">
-                          {needsNote.some(b => b.isUpcoming) && (
-                            <p className="text-[10px] font-black text-blue-600 uppercase tracking-widest px-5 pt-3 pb-1">Prepare notes</p>
-                          )}
-                          {needsNote.filter(b => b.isUpcoming).map(b => (
-                            <div key={b.id} className="px-5 py-2">
-                              {writingNoteFor === b.id ? (
-                                <div className="flex flex-col gap-2">
-                                  <p className="text-xs font-bold text-gray-700">{b.subject} · {b.student_name}</p>
-                                  <textarea
-                                    value={noteContent}
-                                    onChange={e => setNoteContent(e.target.value)}
-                                    placeholder="Pre-session notes, topics to cover, materials to bring…"
-                                    rows={3}
-                                    autoFocus
-                                    className="w-full px-3 py-2 border border-blue-200 rounded-lg text-xs font-medium text-gray-800 bg-blue-50 focus:outline-none focus:ring-2 focus:ring-blue-400 resize-none"
-                                  />
-                                  <div className="flex gap-2">
-                                    <button
-                                      onClick={() => { setWritingNoteFor(null); setNoteContent('') }}
-                                      disabled={savingNote}
-                                      className="flex-1 py-1.5 border border-gray-200 text-gray-500 rounded-lg text-xs font-bold hover:bg-gray-50 transition-colors"
-                                    >
-                                      Cancel
-                                    </button>
-                                    <button
-                                      onClick={() => handleSaveNote(b.id)}
-                                      disabled={savingNote}
-                                      className="flex-1 py-1.5 bg-blue-600 text-white rounded-lg text-xs font-bold hover:bg-blue-700 transition-colors disabled:opacity-60 flex items-center justify-center gap-1"
-                                    >
-                                      {savingNote && <Loader2 className="w-3 h-3 animate-spin" />}
-                                      Save
-                                    </button>
-                                  </div>
-                                </div>
-                              ) : (
-                                <button
-                                  onClick={() => { setWritingNoteFor(b.id); setNoteContent('') }}
-                                  className="w-full flex items-center gap-2 text-left py-1.5 group"
-                                >
-                                  <div className="w-7 h-7 rounded-lg bg-blue-100 flex items-center justify-center shrink-0">
-                                    <PenLine className="w-3.5 h-3.5 text-blue-600" />
-                                  </div>
-                                  <div className="flex-1 min-w-0">
-                                    <p className="text-xs font-bold text-gray-800 truncate">{b.subject}</p>
-                                    <p className="text-[10px] text-gray-400 truncate">{b.student_name}</p>
-                                  </div>
-                                  <span className="text-[10px] font-bold text-blue-500 group-hover:text-blue-700 shrink-0">Prepare →</span>
-                                </button>
-                              )}
-                            </div>
-                          ))}
-                          {needsNote.some(b => !b.isUpcoming) && (
-                            <p className="text-[10px] font-black text-amber-600 uppercase tracking-widest px-5 pt-3 pb-1">Needs a note</p>
-                          )}
-                          {needsNote.filter(b => !b.isUpcoming).map(b => (
-                            <div key={b.id} className="px-5 py-2">
-                              {writingNoteFor === b.id ? (
-                                <div className="flex flex-col gap-2">
-                                  <p className="text-xs font-bold text-gray-700">{b.subject} · {b.student_name}</p>
-                                  <textarea
-                                    value={noteContent}
-                                    onChange={e => setNoteContent(e.target.value)}
-                                    placeholder="What was covered? Homework assigned? Topics for next session…"
-                                    rows={3}
-                                    autoFocus
-                                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-xs font-medium text-gray-800 bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-400 resize-none"
-                                  />
-                                  <div className="flex gap-2">
-                                    <button
-                                      onClick={() => { setWritingNoteFor(null); setNoteContent('') }}
-                                      disabled={savingNote}
-                                      className="flex-1 py-1.5 border border-gray-200 text-gray-500 rounded-lg text-xs font-bold hover:bg-gray-50 transition-colors"
-                                    >
-                                      Cancel
-                                    </button>
-                                    <button
-                                      onClick={() => handleSaveNote(b.id)}
-                                      disabled={savingNote}
-                                      className="flex-1 py-1.5 bg-blue-600 text-white rounded-lg text-xs font-bold hover:bg-blue-700 transition-colors disabled:opacity-60 flex items-center justify-center gap-1"
-                                    >
-                                      {savingNote && <Loader2 className="w-3 h-3 animate-spin" />}
-                                      Save
-                                    </button>
-                                  </div>
-                                </div>
-                              ) : (
-                                <button
-                                  onClick={() => { setWritingNoteFor(b.id); setNoteContent('') }}
-                                  className="w-full flex items-center gap-2 text-left py-1.5 group"
-                                >
-                                  <div className="w-7 h-7 rounded-lg bg-amber-100 flex items-center justify-center shrink-0">
-                                    <PenLine className="w-3.5 h-3.5 text-amber-600" />
-                                  </div>
-                                  <div className="flex-1 min-w-0">
-                                    <p className="text-xs font-bold text-gray-800 truncate">{b.subject}</p>
-                                    <p className="text-[10px] text-gray-400 truncate">{b.student_name}</p>
-                                  </div>
-                                  <span className="text-[10px] font-bold text-blue-500 group-hover:text-blue-700 shrink-0">Write →</span>
-                                </button>
-                              )}
-                            </div>
-                          ))}
-                        </div>
-                      )}
-
-                      {/* Recently written notes */}
-                      {recentNotes.length > 0 && (
-                        <div>
-                          {needsNote.length > 0 && (
-                            <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-5 pt-3 pb-1">Recent notes</p>
-                          )}
-                          {recentNotes.map(n => (
-                            <div key={n.booking_id} className="px-5 py-3 border-t border-gray-50 first:border-t-0">
-                              <div className="flex items-center justify-between mb-1">
-                                <p className="text-xs font-bold text-gray-800">{n.subject} · {n.student_name}</p>
-                                {n.scheduled_at && (
-                                  <p className="text-[10px] text-gray-400 shrink-0 ml-2">
-                                    {new Date(n.scheduled_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                                  </p>
-                                )}
-                              </div>
-                              <p className="text-xs text-gray-500 font-medium line-clamp-2 leading-relaxed">{n.content}</p>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-
-                      {needsNote.length === 0 && recentNotes.length === 0 && (
-                        <div className="px-5 py-8 text-center">
-                          <p className="text-gray-400 font-medium text-xs">Notes appear here for upcoming and completed sessions.</p>
-                        </div>
-                      )}
-                    </>
-                  )}
-                </div>
-
                 {/* Quick actions */}
                 <div className="bg-gradient-to-br from-blue-600 to-purple-600 rounded-2xl p-5 text-white">
                   <p className="font-black text-xs mb-4 text-blue-200 uppercase tracking-widest">Quick Actions</p>
@@ -1420,6 +1286,134 @@ export function InstructorDashboard() {
                             </div>
                             <ChevronRight className="w-3.5 h-3.5 text-gray-300 group-hover:text-blue-500 shrink-0" />
                           </Link>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* My Learning Goals */}
+                  <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+                    <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+                      <div className="flex items-center gap-2">
+                        <Target className="w-4 h-4 text-indigo-600" />
+                        <h2 className="font-black text-gray-900 text-sm">My Goals</h2>
+                        {learningGoals.length > 0 && (
+                          <span className="px-1.5 py-0.5 bg-indigo-100 text-indigo-700 text-xs font-bold rounded-full">
+                            {learningGoals.length}
+                          </span>
+                        )}
+                      </div>
+                      <button
+                        onClick={() => setAddingLearningGoal(v => !v)}
+                        className="flex items-center gap-1 text-xs font-bold text-indigo-600 hover:text-indigo-700 transition-colors"
+                      >
+                        {addingLearningGoal ? <X className="w-3.5 h-3.5" /> : <Plus className="w-3.5 h-3.5" />}
+                        {addingLearningGoal ? 'Cancel' : 'Add'}
+                      </button>
+                    </div>
+
+                    {addingLearningGoal && (
+                      <div className="px-5 py-4 border-b border-gray-50 bg-indigo-50/40 flex flex-col gap-2">
+                        <input
+                          type="text"
+                          value={learningGoalTitle}
+                          onChange={e => setLearningGoalTitle(e.target.value)}
+                          placeholder="Goal (e.g. Pass SAT Math by May)"
+                          autoFocus
+                          className="w-full px-3 py-2 border border-gray-200 rounded-lg text-xs font-medium text-gray-800 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                        />
+                        <div className="flex gap-2">
+                          <input
+                            type="text"
+                            value={learningGoalSubject}
+                            onChange={e => setLearningGoalSubject(e.target.value)}
+                            placeholder="Subject (optional)"
+                            className="flex-1 px-3 py-2 border border-gray-200 rounded-lg text-xs font-medium text-gray-800 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                          />
+                          <input
+                            type="date"
+                            value={learningGoalDate}
+                            onChange={e => setLearningGoalDate(e.target.value)}
+                            className="flex-1 px-3 py-2 border border-gray-200 rounded-lg text-xs font-medium text-gray-800 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                          />
+                        </div>
+                        <button
+                          onClick={handleAddLearningGoal}
+                          disabled={savingLearningGoal || !learningGoalTitle.trim()}
+                          className="w-full py-2 bg-indigo-600 text-white rounded-lg text-xs font-bold hover:bg-indigo-700 transition-colors disabled:opacity-60 flex items-center justify-center gap-1.5"
+                        >
+                          {savingLearningGoal && <Loader2 className="w-3 h-3 animate-spin" />}
+                          Save Goal
+                        </button>
+                      </div>
+                    )}
+
+                    {learningGoals.length === 0 ? (
+                      <div className="px-5 py-8 text-center">
+                        <p className="text-gray-400 font-medium text-sm">No active goals yet.</p>
+                        <p className="text-gray-400 text-xs mt-1">Set a goal and your instructor can mark progress.</p>
+                      </div>
+                    ) : (
+                      <div>
+                        {learningGoals.map(g => (
+                          <div key={g.id} className="border-b border-gray-50 last:border-b-0">
+                            <button
+                              onClick={() => handleExpandLearningGoal(g.id)}
+                              className="w-full flex items-center gap-3 px-5 py-3.5 hover:bg-gray-50 transition-colors text-left group"
+                            >
+                              <div className="w-7 h-7 rounded-lg bg-indigo-100 flex items-center justify-center shrink-0">
+                                <Target className="w-3.5 h-3.5 text-indigo-600" />
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <p className="font-bold text-gray-900 text-sm truncate">{g.title}</p>
+                                <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                                  {g.subject && <span className="text-[10px] font-bold text-gray-400">{g.subject}</span>}
+                                  {g.target_date && (
+                                    <span className="text-[10px] font-bold text-indigo-500">
+                                      by {new Date(g.target_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                                    </span>
+                                  )}
+                                  {g.milestone_count > 0 && (
+                                    <span className="text-[10px] font-bold text-green-600">
+                                      {g.milestone_count} milestone{g.milestone_count !== 1 ? 's' : ''}
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                              <button
+                                onClick={e => { e.stopPropagation(); handleCompleteLearningGoal(g.id) }}
+                                className="opacity-0 group-hover:opacity-100 w-6 h-6 rounded-full bg-green-100 flex items-center justify-center shrink-0 hover:bg-green-200 transition-all"
+                                title="Mark complete"
+                              >
+                                <CheckCircle className="w-3.5 h-3.5 text-green-600" />
+                              </button>
+                            </button>
+                            {expandedLearningGoal === g.id && (
+                              <div className="px-5 pb-3 bg-gray-50/50">
+                                {loadingLearningMs === g.id ? (
+                                  <div className="py-3 flex justify-center"><Loader2 className="w-4 h-4 animate-spin text-gray-300" /></div>
+                                ) : (learningGoalMilestones[g.id] ?? []).length === 0 ? (
+                                  <p className="text-[11px] text-gray-400 font-medium py-2 italic">No milestones yet — your instructor can mark progress here.</p>
+                                ) : (
+                                  <div className="space-y-2 pt-2">
+                                    {(learningGoalMilestones[g.id] ?? []).map(m => (
+                                      <div key={m.id} className="flex items-start gap-2">
+                                        <div className="w-4 h-4 rounded-full bg-green-100 flex items-center justify-center shrink-0 mt-0.5">
+                                          <CheckCircle className="w-2.5 h-2.5 text-green-600" />
+                                        </div>
+                                        <div>
+                                          <p className="text-xs font-bold text-gray-800">{m.title}</p>
+                                          <p className="text-[10px] text-gray-400">
+                                            {m.marker_name ? `by ${m.marker_name} · ` : ''}{timeAgo(m.created_at)}
+                                          </p>
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </div>
                         ))}
                       </div>
                     )}

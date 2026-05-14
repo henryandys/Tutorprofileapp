@@ -44,7 +44,7 @@
 //   ));
 
 import { useState, useEffect } from "react"
-import { Link, Navigate } from "react-router"
+import { Link, Navigate, useSearchParams } from "react-router"
 import { Navbar } from "../components/Navbar"
 import { useAuth } from "../../context/AuthContext"
 import { supabase } from "../../lib/supabase"
@@ -52,16 +52,26 @@ import { toast } from "sonner"
 import {
   Calendar, Clock, BookOpen, Heart, Search, ChevronRight, Star,
   User, CheckCircle, XCircle, Loader2, TrendingUp, Lightbulb, Ban, StickyNote,
-  Target, Plus, X, Flag, PenLine, GraduationCap,
+  Target, Plus, X, Flag, PenLine, GraduationCap, CreditCard,
 } from "lucide-react"
 
 interface UpcomingLesson {
+  id:             string
+  subject:        string
+  scheduled_at:   string
+  tutor_name:     string
+  tutor_avatar:   string | null
+  tutor_id:       string
+  price_cents:    number | null
+  payment_status: 'pending' | 'paid' | 'refunded' | null
+}
+
+interface PendingPayment {
   id:           string
   subject:      string
-  scheduled_at: string
+  scheduled_at: string | null
   tutor_name:   string
-  tutor_avatar: string | null
-  tutor_id:     string
+  price_cents:  number
 }
 
 interface PendingRequest {
@@ -163,15 +173,18 @@ function timeAgo(iso: string) {
 
 export function StudentDashboard() {
   const { user, profile, role, loading } = useAuth()
+  const [searchParams, setSearchParams] = useSearchParams()
 
-  const [upcoming,     setUpcoming]     = useState<UpcomingLesson[]>([])
-  const [pending,      setPending]      = useState<PendingRequest[]>([])
-  const [activity,     setActivity]     = useState<RecentActivity[]>([])
-  const [saved,        setSaved]        = useState<SavedTutor[]>([])
-  const [notes,        setNotes]        = useState<NoteEntry[]>([])
-  const [instructors,  setInstructors]  = useState<MyInstructor[]>([])
-  const [stats,        setStats]        = useState({ upcoming: 0, pending: 0, completed: 0 })
-  const [fetching,     setFetching]     = useState(true)
+  const [upcoming,        setUpcoming]        = useState<UpcomingLesson[]>([])
+  const [pending,         setPending]         = useState<PendingRequest[]>([])
+  const [activity,        setActivity]        = useState<RecentActivity[]>([])
+  const [saved,           setSaved]           = useState<SavedTutor[]>([])
+  const [notes,           setNotes]           = useState<NoteEntry[]>([])
+  const [instructors,     setInstructors]     = useState<MyInstructor[]>([])
+  const [stats,           setStats]           = useState({ upcoming: 0, pending: 0, completed: 0 })
+  const [fetching,        setFetching]        = useState(true)
+  const [pendingPayments, setPendingPayments] = useState<PendingPayment[]>([])
+  const [payingId,        setPayingId]        = useState<string | null>(null)
 
   // Per-session notes (upcoming sessions)
   const [mySessionNotes,  setMySessionNotes]  = useState<Record<string, string>>({})
@@ -195,15 +208,53 @@ export function StudentDashboard() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user])
 
+  // Handle Stripe redirect back
+  useEffect(() => {
+    const result = searchParams.get('payment')
+    if (!result) return
+    if (result === 'success') { toast.success('Payment successful! Your session is confirmed.'); loadData() }
+    if (result === 'cancelled') toast.info('Payment cancelled.')
+    setSearchParams({}, { replace: true })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  async function handlePay(lesson: { id: string; subject: string; price_cents: number | null; tutor_name: string }) {
+    if (!user) return
+    setPayingId(lesson.id)
+    const { data: { session } } = await supabase.auth.getSession()
+    if (!session?.access_token) { toast.error('Please sign in to pay.'); setPayingId(null); return }
+    try {
+      const res = await fetch('/api/create-checkout-session', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session.access_token}` },
+        body: JSON.stringify({
+          bookingId:   lesson.id,
+          amountCents: lesson.price_cents,
+          subject:     lesson.subject,
+          studentName: profile?.full_name ?? 'Student',
+          tutorName:   lesson.tutor_name,
+          successUrl:  `${window.location.origin}/dashboard?payment=success`,
+          cancelUrl:   `${window.location.origin}/dashboard?payment=cancelled`,
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok || !data.url) { toast.error(data.error ?? 'Could not start checkout.'); setPayingId(null); return }
+      window.location.href = data.url
+    } catch {
+      toast.error('Network error starting checkout.')
+      setPayingId(null)
+    }
+  }
+
   async function loadData() {
     if (!user) return
     setFetching(true)
     const now = new Date().toISOString()
 
-    const [upcomingRes, pendingRes, allRes, activityRes, savedRes, notesRes, goalsRes] = await Promise.all([
+    const [upcomingRes, pendingRes, allRes, activityRes, savedRes, notesRes, goalsRes, unpaidRes] = await Promise.all([
       supabase
         .from('bookings')
-        .select('id, subject, scheduled_at, tutor:tutor_id(id, full_name, avatar_url)')
+        .select('id, subject, scheduled_at, price_cents, payment_status, tutor:tutor_id(id, full_name, avatar_url)')
         .eq('student_id', user.id)
         .eq('status', 'accepted')
         .gte('scheduled_at', now)
@@ -253,16 +304,38 @@ export function StudentDashboard() {
         .eq('status', 'active')
         .order('created_at', { ascending: false })
         .limit(10),
+
+      supabase
+        .from('bookings')
+        .select('id, subject, scheduled_at, price_cents, payment_status, tutor:tutor_id(full_name)')
+        .eq('student_id', user.id)
+        .in('status', ['accepted', 'completed'])
+        .gt('price_cents', 0)
+        .or('payment_status.is.null,payment_status.neq.paid')
+        .order('scheduled_at', { ascending: false })
+        .limit(20),
     ])
 
     setUpcoming(
       (upcomingRes.data ?? []).map((b: any) => ({
+        id:             b.id,
+        subject:        b.subject,
+        scheduled_at:   b.scheduled_at,
+        tutor_name:     b.tutor?.full_name  ?? 'Instructor',
+        tutor_avatar:   b.tutor?.avatar_url ?? null,
+        tutor_id:       b.tutor?.id         ?? '',
+        price_cents:    b.price_cents    ?? null,
+        payment_status: b.payment_status ?? null,
+      }))
+    )
+
+    setPendingPayments(
+      (unpaidRes.data ?? []).map((b: any) => ({
         id:           b.id,
-        subject:      b.subject,
-        scheduled_at: b.scheduled_at,
-        tutor_name:   b.tutor?.full_name  ?? 'Instructor',
-        tutor_avatar: b.tutor?.avatar_url ?? null,
-        tutor_id:     b.tutor?.id         ?? '',
+        subject:      b.subject ?? '',
+        scheduled_at: b.scheduled_at ?? null,
+        tutor_name:   b.tutor?.full_name ?? 'Instructor',
+        price_cents:  b.price_cents as number,
       }))
     )
 
@@ -531,6 +604,49 @@ export function StudentDashboard() {
           {/* ── Left column (2/3) ── */}
           <div className="lg:col-span-2 flex flex-col gap-6">
 
+            {/* Pending Payments alert */}
+            {pendingPayments.length > 0 && (() => {
+              const total = pendingPayments.reduce((sum, p) => sum + p.price_cents, 0)
+              return (
+                <div className="bg-amber-50 border border-amber-200 rounded-2xl p-5 flex items-start gap-4">
+                  <div className="w-10 h-10 rounded-xl bg-amber-100 flex items-center justify-center shrink-0">
+                    <CreditCard className="w-5 h-5 text-amber-600" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-black text-gray-900 text-sm">
+                      {pendingPayments.length} session{pendingPayments.length !== 1 ? 's' : ''} awaiting payment
+                    </p>
+                    <p className="text-xs text-gray-500 font-medium mt-0.5">
+                      Total due: <span className="font-black text-amber-700">${(total / 100).toFixed(2)}</span>
+                    </p>
+                    <div className="flex flex-col gap-2 mt-3">
+                      {pendingPayments.map(p => (
+                        <div key={p.id} className="flex items-center justify-between gap-3 bg-white rounded-xl px-3 py-2.5 border border-amber-100">
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-bold text-gray-900 truncate">{p.subject}</p>
+                            <p className="text-xs text-gray-500 font-medium">
+                              with {p.tutor_name}
+                              {p.scheduled_at && ` · ${new Date(p.scheduled_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`}
+                            </p>
+                          </div>
+                          <button
+                            onClick={() => handlePay(p)}
+                            disabled={payingId === p.id}
+                            className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold transition-colors disabled:opacity-60 shrink-0"
+                          >
+                            {payingId === p.id
+                              ? <Loader2 className="w-3 h-3 animate-spin" />
+                              : <CreditCard className="w-3 h-3" />}
+                            Pay ${(p.price_cents / 100).toFixed(2)}
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )
+            })()}
+
             {/* Upcoming lessons */}
             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
               <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
@@ -553,7 +669,11 @@ export function StudentDashboard() {
                 </div>
               ) : (
                 <div className="divide-y divide-gray-50">
-                  {upcoming.map(l => (
+                  {upcoming.map(l => {
+                    const needsPay = (l.price_cents ?? 0) > 0 && l.payment_status !== 'paid'
+                    const isPaid   = l.payment_status === 'paid'
+                    const isPaying = payingId === l.id
+                    return (
                     <div key={l.id} className="px-6 py-4">
                       <div className="flex items-center gap-4">
                         <Link to={`/tutor/${l.tutor_id}`} className="shrink-0">
@@ -563,8 +683,25 @@ export function StudentDashboard() {
                           <p className="font-bold text-gray-900 truncate">{l.subject}</p>
                           <p className="text-sm text-gray-500 font-medium">with {l.tutor_name}</p>
                         </div>
-                        <div className="flex items-center gap-3 shrink-0">
+                        <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
                           <p className="text-sm font-bold text-blue-600 whitespace-nowrap hidden sm:block">{formatDate(l.scheduled_at)}</p>
+                          {isPaid && (
+                            <span className="flex items-center gap-1 px-2 py-1 bg-green-100 text-green-700 rounded-lg text-xs font-bold">
+                              <CheckCircle className="w-3 h-3" /> Paid
+                            </span>
+                          )}
+                          {needsPay && writingNoteFor !== l.id && (
+                            <button
+                              onClick={() => handlePay(l)}
+                              disabled={isPaying}
+                              className="flex items-center gap-1 px-2.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold transition-colors disabled:opacity-60"
+                            >
+                              {isPaying
+                                ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                : <CreditCard className="w-3.5 h-3.5" />}
+                              Pay ${((l.price_cents ?? 0) / 100).toFixed(2)}
+                            </button>
+                          )}
                           {writingNoteFor !== l.id && (
                             <button
                               onClick={() => { setNoteText(mySessionNotes[l.id] ?? ''); setWritingNoteFor(l.id) }}
@@ -612,7 +749,8 @@ export function StudentDashboard() {
                         </div>
                       )}
                     </div>
-                  ))}
+                  )
+                  })}
                 </div>
               )}
             </div>
