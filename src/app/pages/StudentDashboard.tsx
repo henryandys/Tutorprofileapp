@@ -52,7 +52,7 @@ import { toast } from "sonner"
 import {
   Calendar, Clock, BookOpen, Heart, Search, ChevronRight, Star,
   User, CheckCircle, XCircle, Loader2, TrendingUp, Lightbulb, Ban, StickyNote,
-  Target, Plus, X, Flag,
+  Target, Plus, X, Flag, PenLine, GraduationCap,
 } from "lucide-react"
 
 interface UpcomingLesson {
@@ -97,6 +97,15 @@ interface SavedTutor {
   hourly_rate: number | null
   subject:     string | null
   rating:      number | null
+}
+
+interface MyInstructor {
+  id:            string
+  name:          string
+  avatar_url:    string | null
+  subjects:      string[]
+  session_count: number
+  last_session:  string | null
 }
 
 interface LearningGoal {
@@ -155,13 +164,20 @@ function timeAgo(iso: string) {
 export function StudentDashboard() {
   const { user, profile, role, loading } = useAuth()
 
-  const [upcoming, setUpcoming] = useState<UpcomingLesson[]>([])
-  const [pending,  setPending]  = useState<PendingRequest[]>([])
-  const [activity, setActivity] = useState<RecentActivity[]>([])
-  const [saved,    setSaved]    = useState<SavedTutor[]>([])
-  const [notes,    setNotes]    = useState<NoteEntry[]>([])
-  const [stats,    setStats]    = useState({ upcoming: 0, pending: 0, completed: 0 })
-  const [fetching, setFetching] = useState(true)
+  const [upcoming,     setUpcoming]     = useState<UpcomingLesson[]>([])
+  const [pending,      setPending]      = useState<PendingRequest[]>([])
+  const [activity,     setActivity]     = useState<RecentActivity[]>([])
+  const [saved,        setSaved]        = useState<SavedTutor[]>([])
+  const [notes,        setNotes]        = useState<NoteEntry[]>([])
+  const [instructors,  setInstructors]  = useState<MyInstructor[]>([])
+  const [stats,        setStats]        = useState({ upcoming: 0, pending: 0, completed: 0 })
+  const [fetching,     setFetching]     = useState(true)
+
+  // Per-session notes (upcoming sessions)
+  const [mySessionNotes,  setMySessionNotes]  = useState<Record<string, string>>({})
+  const [writingNoteFor,  setWritingNoteFor]  = useState<string | null>(null)
+  const [noteText,        setNoteText]        = useState('')
+  const [savingNote,      setSavingNote]      = useState(false)
 
   // Goal state
   const [goals,             setGoals]             = useState<LearningGoal[]>([])
@@ -330,6 +346,60 @@ export function StudentDashboard() {
       setGoals([])
     }
 
+    // Load my notes for upcoming sessions
+    const upcomingIds = (upcomingRes.data ?? []).map((b: any) => b.id as string)
+    if (upcomingIds.length > 0) {
+      const { data: snData } = await supabase
+        .from('session_notes')
+        .select('booking_id, content')
+        .eq('user_id', user.id)
+        .in('booking_id', upcomingIds)
+      const snMap: Record<string, string> = {}
+      for (const n of snData ?? []) snMap[(n as any).booking_id] = (n as any).content
+      setMySessionNotes(snMap)
+    }
+
+    // Load my instructors (distinct tutors from accepted/completed bookings)
+    const { data: instrBkData } = await supabase
+      .from('bookings')
+      .select('tutor_id, subject, scheduled_at')
+      .eq('student_id', user.id)
+      .in('status', ['accepted', 'completed'])
+      .order('scheduled_at', { ascending: false })
+
+    const bkRows = instrBkData ?? []
+    const tutorIds = [...new Set(bkRows.map((b: any) => b.tutor_id as string))]
+    if (tutorIds.length > 0) {
+      const [{ data: instrProfiles }, { data: instrTpData }] = await Promise.all([
+        supabase.from('profiles').select('id, full_name, avatar_url').in('id', tutorIds),
+        supabase.from('tutor_profiles').select('id, subjects').in('id', tutorIds),
+      ])
+      const pMap: Record<string, any>  = {}
+      for (const p of instrProfiles ?? []) pMap[(p as any).id] = p
+      const tpMap: Record<string, any> = {}
+      for (const tp of instrTpData ?? []) tpMap[(tp as any).id] = tp
+      const countMap: Record<string, number> = {}
+      const lastMap:  Record<string, string> = {}
+      for (const b of bkRows as any[]) {
+        countMap[b.tutor_id] = (countMap[b.tutor_id] ?? 0) + 1
+        if (b.scheduled_at && (!lastMap[b.tutor_id] || b.scheduled_at > lastMap[b.tutor_id])) {
+          lastMap[b.tutor_id] = b.scheduled_at
+        }
+      }
+      const rawSubjects = (tp: any) => {
+        const s = tpMap[tp]?.subjects
+        return Array.isArray(s) ? s : (s ? [s] : [])
+      }
+      setInstructors(tutorIds.map(id => ({
+        id,
+        name:          pMap[id]?.full_name  ?? 'Instructor',
+        avatar_url:    pMap[id]?.avatar_url ?? null,
+        subjects:      rawSubjects(id),
+        session_count: countMap[id] ?? 0,
+        last_session:  lastMap[id]  ?? null,
+      })))
+    }
+
     setFetching(false)
   }
 
@@ -377,6 +447,21 @@ export function StudentDashboard() {
       })),
     }))
     setLoadingMilestones(null)
+  }
+
+  async function handleSaveStudentNote(bookingId: string) {
+    if (!noteText.trim() || !user) return
+    setSavingNote(true)
+    const { error } = await supabase
+      .from('session_notes')
+      .upsert(
+        { booking_id: bookingId, user_id: user.id, content: noteText.trim(), updated_at: new Date().toISOString() },
+        { onConflict: 'booking_id,user_id' }
+      )
+    if (error) { toast.error('Failed to save note.'); setSavingNote(false); return }
+    setMySessionNotes(prev => ({ ...prev, [bookingId]: noteText.trim() }))
+    setWritingNoteFor(null); setNoteText(''); setSavingNote(false)
+    toast.success('Note saved!')
   }
 
   if (loading) return (
@@ -469,24 +554,119 @@ export function StudentDashboard() {
               ) : (
                 <div className="divide-y divide-gray-50">
                   {upcoming.map(l => (
-                    <Link
-                      key={l.id}
-                      to={`/tutor/${l.tutor_id}`}
-                      className="flex items-center gap-4 px-6 py-4 hover:bg-gray-50 transition-colors group"
-                    >
-                      <Avatar name={l.tutor_name} url={l.tutor_avatar} />
-                      <div className="flex-1 min-w-0">
-                        <p className="font-bold text-gray-900 truncate">{l.subject}</p>
-                        <p className="text-sm text-gray-500 font-medium">with {l.tutor_name}</p>
+                    <div key={l.id} className="px-6 py-4">
+                      <div className="flex items-center gap-4">
+                        <Link to={`/tutor/${l.tutor_id}`} className="shrink-0">
+                          <Avatar name={l.tutor_name} url={l.tutor_avatar} />
+                        </Link>
+                        <div className="flex-1 min-w-0">
+                          <p className="font-bold text-gray-900 truncate">{l.subject}</p>
+                          <p className="text-sm text-gray-500 font-medium">with {l.tutor_name}</p>
+                        </div>
+                        <div className="flex items-center gap-3 shrink-0">
+                          <p className="text-sm font-bold text-blue-600 whitespace-nowrap hidden sm:block">{formatDate(l.scheduled_at)}</p>
+                          {writingNoteFor !== l.id && (
+                            <button
+                              onClick={() => { setNoteText(mySessionNotes[l.id] ?? ''); setWritingNoteFor(l.id) }}
+                              className="flex items-center gap-1 px-2.5 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-600 rounded-lg text-xs font-bold transition-colors"
+                              title="Add a pre-session note"
+                            >
+                              <StickyNote className="w-3.5 h-3.5" />
+                              {mySessionNotes[l.id] ? 'Note' : 'Add note'}
+                            </button>
+                          )}
+                        </div>
                       </div>
-                      <div className="text-right shrink-0">
-                        <p className="text-sm font-bold text-blue-600 whitespace-nowrap">{formatDate(l.scheduled_at)}</p>
-                      </div>
-                    </Link>
+                      {mySessionNotes[l.id] && writingNoteFor !== l.id && (
+                        <div className="mt-2 ml-14 bg-blue-50 rounded-lg px-3 py-2">
+                          <p className="text-[10px] font-black text-blue-400 uppercase tracking-widest mb-0.5">Your note</p>
+                          <p className="text-xs text-gray-700 font-medium leading-relaxed">{mySessionNotes[l.id]}</p>
+                        </div>
+                      )}
+                      {writingNoteFor === l.id && (
+                        <div className="mt-2 ml-14 flex flex-col gap-2">
+                          <textarea
+                            value={noteText}
+                            onChange={e => setNoteText(e.target.value)}
+                            placeholder="Questions to ask, topics to prepare, goals for this session…"
+                            rows={2}
+                            autoFocus
+                            className="w-full px-3 py-2 border border-blue-200 rounded-lg text-xs font-medium text-gray-800 bg-blue-50 focus:outline-none focus:ring-2 focus:ring-blue-400 resize-none"
+                          />
+                          <div className="flex items-center gap-2 justify-end">
+                            <button
+                              onClick={() => { setWritingNoteFor(null); setNoteText('') }}
+                              className="text-xs font-bold text-gray-400 hover:text-gray-600 px-2 py-1 rounded transition-colors"
+                            >
+                              Cancel
+                            </button>
+                            <button
+                              onClick={() => handleSaveStudentNote(l.id)}
+                              disabled={savingNote || !noteText.trim()}
+                              className="flex items-center gap-1 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50"
+                            >
+                              {savingNote && <Loader2 className="w-3 h-3 animate-spin" />}
+                              Save
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
                   ))}
                 </div>
               )}
             </div>
+
+            {/* My Instructors */}
+            {(fetching || instructors.length > 0) && (
+              <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+                <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+                  <div className="flex items-center gap-2">
+                    <GraduationCap className="w-4 h-4 text-blue-600" />
+                    <h2 className="font-black text-gray-900">My Instructors</h2>
+                    {instructors.length > 0 && (
+                      <span className="px-1.5 py-0.5 bg-blue-100 text-blue-700 text-xs font-bold rounded-full">{instructors.length}</span>
+                    )}
+                  </div>
+                  <Link to="/search" className="text-sm font-bold text-blue-600 hover:text-blue-700">Find more →</Link>
+                </div>
+                {fetching ? (
+                  <div className="px-6 py-10 flex justify-center">
+                    <Loader2 className="w-6 h-6 animate-spin text-gray-300" />
+                  </div>
+                ) : (
+                  <div className="divide-y divide-gray-50">
+                    {instructors.map(t => (
+                      <Link
+                        key={t.id}
+                        to={`/my-instructors/${t.id}`}
+                        className="flex items-center gap-4 px-6 py-4 hover:bg-gray-50 transition-colors group"
+                      >
+                        <Avatar name={t.name} url={t.avatar_url} sm />
+                        <div className="flex-1 min-w-0">
+                          <p className="font-bold text-gray-900 truncate">{t.name}</p>
+                          {t.subjects.length > 0 && (
+                            <p className="text-xs text-gray-500 font-medium truncate">{t.subjects.join(', ')}</p>
+                          )}
+                          {t.last_session && (
+                            <p className="text-[10px] text-gray-400 font-medium mt-0.5">
+                              Last session {timeAgo(t.last_session)}
+                            </p>
+                          )}
+                        </div>
+                        <div className="shrink-0 flex items-center gap-3">
+                          <div className="text-center hidden sm:block">
+                            <p className="text-sm font-black text-blue-600">{t.session_count}</p>
+                            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Sessions</p>
+                          </div>
+                          <ChevronRight className="w-4 h-4 text-gray-300 group-hover:text-blue-500 transition-colors" />
+                        </div>
+                      </Link>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Recent activity */}
             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">

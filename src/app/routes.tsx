@@ -18,6 +18,8 @@ import { StudentDashboard } from "./pages/StudentDashboard"
 import { InstructorDashboard } from "./pages/InstructorDashboard"
 import { GuardianDashboard } from "./pages/GuardianDashboard"
 import { JoinFamily } from "./pages/JoinFamily"
+import { StudentDetail } from "./pages/StudentDetail"
+import { InstructorDetail } from "./pages/InstructorDetail"
 
 export const router = createBrowserRouter([
   {
@@ -117,7 +119,25 @@ export const router = createBrowserRouter([
     ),
   },
 
+  // ── Requires student role ────────────────────────────────
+  {
+    path: "/my-instructors/:id",
+    element: (
+      <ProtectedRoute>
+        <InstructorDetail />
+      </ProtectedRoute>
+    ),
+  },
+
   // ── Requires tutor role ──────────────────────────────────
+  {
+    path: "/my-students/:id",
+    element: (
+      <ProtectedRoute requiredRole="tutor">
+        <StudentDetail />
+      </ProtectedRoute>
+    ),
+  },
   {
     path: "/my-profile",
     element: (

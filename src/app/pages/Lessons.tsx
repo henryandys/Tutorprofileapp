@@ -169,6 +169,7 @@ export function Lessons() {
   const [markingPaidId, setMarkingPaidId]   = useState<string | null>(null)
   const [searchParams, setSearchParams]     = useSearchParams()
   const [notes, setNotes]                   = useState<Record<string, string>>({})
+  const [noteEntries, setNoteEntries]       = useState<Record<string, { user_id: string; content: string; author_name: string }[]>>({})
   const [noteLesson, setNoteLesson]         = useState<Lesson | null>(null)
   const [waitlistedGroups, setWaitlistedGroups] = useState<GroupEntry[]>([])
   const [leavingWaitlistId, setLeavingWaitlistId] = useState<string | null>(null)
@@ -569,24 +570,38 @@ export function Lessons() {
       })
   }, [user, isTutor])
 
-  // Load session notes for completed lessons.
-  // Tutors see their own notes; students see the instructor's notes (RLS allows this).
+  // Load all session notes for accepted (upcoming) and completed lessons.
   useEffect(() => {
     if (!user || lessons.length === 0) return
-    const completedIds = lessons.filter(l => l.status === 'completed').map(l => l.id)
+    const completedIds = lessons.filter(l => l.status === 'completed' || l.status === 'accepted').map(l => l.id)
     if (completedIds.length === 0) return
-    let q = supabase
+    supabase
       .from('session_notes')
-      .select('booking_id, content')
+      .select('booking_id, user_id, content')
       .in('booking_id', completedIds)
-    if (isTutor) q = q.eq('user_id', user.id)          // own notes
-    // else: no user_id filter — RLS returns the tutor's note for each booking
-    q.then(({ data }) => {
-      const map: Record<string, string> = {}
-      for (const n of data ?? []) map[n.booking_id] = n.content
-      setNotes(map)
-    })
-  }, [user, lessons, isTutor])
+      .then(async ({ data }) => {
+        const rows = (data ?? []) as { booking_id: string; user_id: string; content: string }[]
+        // My own note per booking (for card previews)
+        const myMap: Record<string, string> = {}
+        for (const n of rows) {
+          if (n.user_id === user.id) myMap[n.booking_id] = n.content
+        }
+        setNotes(myMap)
+        // Author names for all note writers
+        const authorIds = [...new Set(rows.map(n => n.user_id))]
+        const { data: profiles } = authorIds.length > 0
+          ? await supabase.from('profiles').select('id, full_name').in('id', authorIds)
+          : { data: [] }
+        const nameMap: Record<string, string> = {}
+        for (const p of profiles ?? []) nameMap[(p as any).id] = (p as any).full_name ?? 'Unknown'
+        // All notes per booking with author labels
+        const entriesMap: Record<string, { user_id: string; content: string; author_name: string }[]> = {}
+        for (const n of rows) {
+          (entriesMap[n.booking_id] ??= []).push({ user_id: n.user_id, content: n.content, author_name: nameMap[n.user_id] ?? 'Unknown' })
+        }
+        setNoteEntries(entriesMap)
+      })
+  }, [user, lessons])
 
   function handleDismiss(id: string) {
     const next = new Set([...dismissedIds, id])
@@ -758,6 +773,14 @@ export function Lessons() {
       )
     if (error) { toast.error('Failed to save note.'); return }
     setNotes(prev => ({ ...prev, [bookingId]: content }))
+    const authorName = profile?.full_name ?? 'You'
+    setNoteEntries(prev => {
+      const existing = prev[bookingId] ?? []
+      const updated = existing.some(e => e.user_id === user.id)
+        ? existing.map(e => e.user_id === user.id ? { ...e, content } : e)
+        : [...existing, { user_id: user.id, content, author_name: authorName }]
+      return { ...prev, [bookingId]: updated }
+    })
     setNoteLesson(null)
     toast.success('Note saved!')
   }
@@ -1052,7 +1075,7 @@ export function Lessons() {
                       paying={payingId === l.id}
                       onMarkPaid={l.perspective === 'tutor' && l.status === 'accepted' && (l.price_cents ?? 0) > 0 && l.payment_status !== 'paid' ? () => handleMarkPaid(l) : undefined}
                       markingPaid={markingPaidId === l.id}
-                      onNote={l.status === 'completed' && (isTutor || notes[l.id]) ? () => setNoteLesson(l) : undefined}
+                      onNote={l.status === 'completed' || l.status === 'accepted' ? () => setNoteLesson(l) : undefined}
                       notePreview={notes[l.id]}
                     />
                   ))}
@@ -1078,7 +1101,7 @@ export function Lessons() {
                         onDismiss={() => handleDismiss(l.id)}
                         onMarkPaid={l.perspective === 'tutor' && l.status === 'accepted' && (l.price_cents ?? 0) > 0 && l.payment_status !== 'paid' ? () => handleMarkPaid(l) : undefined}
                         markingPaid={markingPaidId === l.id}
-                        onNote={l.status === 'completed' ? () => setNoteLesson(l) : undefined}
+                        onNote={l.status === 'completed' || l.status === 'accepted' ? () => setNoteLesson(l) : undefined}
                         notePreview={notes[l.id]}
                       />
                     ))}
@@ -1136,21 +1159,21 @@ export function Lessons() {
                         {new Date(l.scheduled_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                       </span>
                     )}
-                    {notes[l.id] && (
+                    {(noteEntries[l.id]?.length ?? 0) > 0 && (
                       <span className="text-xs text-gray-400 italic line-clamp-1 flex items-center gap-1 mt-0.5">
-                        <StickyNote className="w-3 h-3 shrink-0 text-gray-300" /> {notes[l.id]}
+                        <StickyNote className="w-3 h-3 shrink-0 text-gray-300" />
+                        {notes[l.id] || noteEntries[l.id]?.[0]?.content}
                       </span>
                     )}
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
-                    {notes[l.id] && (
-                      <button
-                        onClick={() => setNoteLesson(l)}
-                        className="flex items-center gap-1.5 px-3 py-2 bg-blue-50 text-blue-600 rounded-xl font-bold text-sm hover:bg-blue-100 transition-colors"
-                      >
-                        <StickyNote className="w-4 h-4" /> View Note
-                      </button>
-                    )}
+                    <button
+                      onClick={() => setNoteLesson(l)}
+                      className="flex items-center gap-1.5 px-3 py-2 bg-blue-50 text-blue-600 rounded-xl font-bold text-sm hover:bg-blue-100 transition-colors"
+                    >
+                      <StickyNote className="w-4 h-4" />
+                      {(noteEntries[l.id]?.length ?? 0) > 0 ? 'Notes' : 'Add Note'}
+                    </button>
                     <button
                       onClick={() => setReviewLesson(l)}
                       className="flex items-center gap-1.5 px-4 py-2 bg-yellow-400 text-yellow-900 rounded-xl font-bold text-sm hover:bg-yellow-500 transition-colors"
@@ -1215,16 +1238,16 @@ export function Lessons() {
           </div>
         )}
 
-        {/* ── Session Notes Log (students only) ── */}
-        {!loading && !isTutor && Object.keys(notes).length > 0 && (
+        {/* ── Session Notes Log ── */}
+        {!loading && Object.keys(noteEntries).length > 0 && (
           <div className="mt-8">
             <h2 className="text-lg font-black text-gray-900 mb-4 flex items-center gap-2">
               <StickyNote className="w-5 h-5 text-blue-500" />
-              Notes from Your Instructors
+              Session Notes
             </h2>
             <div className="flex flex-col gap-3">
               {lessons
-                .filter(l => notes[l.id])
+                .filter(l => (noteEntries[l.id]?.length ?? 0) > 0)
                 .sort((a, b) => new Date(b.scheduled_at ?? b.created_at).getTime() - new Date(a.scheduled_at ?? a.created_at).getTime())
                 .map(l => (
                   <div key={l.id} className="bg-white rounded-2xl border border-blue-100 shadow-sm p-5">
@@ -1233,13 +1256,30 @@ export function Lessons() {
                         <p className="font-bold text-gray-900">{l.subject}</p>
                         <p className="text-sm text-gray-500 font-medium">with {l.other_name}</p>
                       </div>
-                      {l.scheduled_at && (
-                        <p className="text-xs text-gray-400 font-medium shrink-0">
-                          {new Date(l.scheduled_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-                        </p>
-                      )}
+                      <div className="flex items-center gap-2 shrink-0">
+                        {l.scheduled_at && (
+                          <p className="text-xs text-gray-400 font-medium">
+                            {new Date(l.scheduled_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                          </p>
+                        )}
+                        <button
+                          onClick={() => setNoteLesson(l)}
+                          className="text-xs font-bold text-blue-600 hover:text-blue-700"
+                        >
+                          {notes[l.id] ? 'Edit' : 'Add note'} →
+                        </button>
+                      </div>
                     </div>
-                    <p className="text-sm text-gray-700 font-medium leading-relaxed whitespace-pre-wrap">{notes[l.id]}</p>
+                    <div className="flex flex-col gap-3">
+                      {noteEntries[l.id].map(entry => (
+                        <div key={entry.user_id}>
+                          <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">
+                            {entry.user_id === user?.id ? 'Your note' : entry.author_name}
+                          </p>
+                          <p className="text-sm text-gray-700 font-medium leading-relaxed whitespace-pre-wrap">{entry.content}</p>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 ))}
             </div>
@@ -1275,7 +1315,7 @@ export function Lessons() {
                     onDecline={() => {}}
                     onCancel={() => {}}
                     onDismiss={() => handleDismiss(l.id)}
-                    onNote={isTutor || notes[l.id] ? () => setNoteLesson(l) : undefined}
+                    onNote={l.status === 'completed' || l.status === 'accepted' ? () => setNoteLesson(l) : undefined}
                     notePreview={notes[l.id]}
                   />
                 ))}
@@ -1390,9 +1430,10 @@ export function Lessons() {
         <SessionNoteModal
           lesson={noteLesson}
           initialContent={notes[noteLesson.id] ?? ''}
+          entries={noteEntries[noteLesson.id] ?? []}
+          currentUserId={user!.id}
           onSave={handleSaveNote}
           onClose={() => setNoteLesson(null)}
-          readOnly={!isTutor}
         />
       )}
     </div>
@@ -1659,7 +1700,7 @@ function LessonCard({ lesson: l, isTutor, onChat, onAccept, onDecline, onCancel,
               className="flex items-center gap-1.5 px-3 py-2 bg-gray-100 text-gray-600 rounded-xl font-bold text-sm hover:bg-blue-50 hover:text-blue-600 transition-colors"
             >
               <StickyNote className="w-4 h-4" />
-              {isTutor ? (notePreview ? 'Edit Note' : 'Add Note') : 'View Note'}
+              {notePreview ? 'Notes' : 'Add Note'}
             </button>
           )}
         </div>
@@ -2125,15 +2166,17 @@ function ReviewModal({ lesson, onSubmit, onClose }: {
   )
 }
 
-function SessionNoteModal({ lesson, initialContent, onSave, onClose, readOnly = false }: {
+function SessionNoteModal({ lesson, initialContent, entries, currentUserId, onSave, onClose }: {
   lesson:         Lesson
   initialContent: string
+  entries:        { user_id: string; content: string; author_name: string }[]
+  currentUserId:  string
   onSave:         (bookingId: string, content: string) => Promise<void>
   onClose:        () => void
-  readOnly?:      boolean
 }) {
   const [content, setContent] = useState(initialContent)
   const [saving, setSaving]   = useState(false)
+  const otherEntries = entries.filter(e => e.user_id !== currentUserId)
 
   async function handleSave() {
     setSaving(true)
@@ -2147,7 +2190,7 @@ function SessionNoteModal({ lesson, initialContent, onSave, onClose, readOnly = 
         <div className="flex items-start justify-between gap-3">
           <div>
             <h3 className="font-black text-gray-900 text-lg flex items-center gap-2">
-              <StickyNote className="w-5 h-5 text-blue-500" /> Session Note
+              <StickyNote className="w-5 h-5 text-blue-500" /> Session Notes
             </h3>
             <p className="text-sm text-gray-500 font-medium mt-0.5">{lesson.subject} · {lesson.other_name}</p>
           </div>
@@ -2156,46 +2199,46 @@ function SessionNoteModal({ lesson, initialContent, onSave, onClose, readOnly = 
           </button>
         </div>
 
-        {readOnly ? (
-          <>
-            <p className="text-xs text-blue-600 font-bold -mt-1">Note from your instructor</p>
-            <div className="bg-blue-50 rounded-xl px-4 py-3 text-sm text-gray-700 font-medium leading-relaxed whitespace-pre-wrap min-h-[80px]">
-              {initialContent || <span className="text-gray-400 italic">No note written yet.</span>}
-            </div>
-            <button onClick={onClose} className="h-11 border-2 border-gray-200 text-gray-600 rounded-xl font-bold hover:bg-gray-50 transition-colors">
-              Close
-            </button>
-          </>
-        ) : (
-          <>
-            <p className="text-xs text-blue-600 font-bold -mt-1">Your student can see this note.</p>
-            <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Session Summary</label>
-              <textarea
-                value={content}
-                onChange={e => setContent(e.target.value)}
-                placeholder="What did you cover? Homework assigned? Topics to review next session…"
-                rows={5}
-                disabled={saving}
-                autoFocus
-                className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm font-medium text-gray-800 bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-400 resize-none disabled:opacity-60"
-              />
-            </div>
-            <div className="flex gap-3">
-              <button onClick={onClose} disabled={saving} className="flex-1 h-11 border-2 border-gray-200 text-gray-600 rounded-xl font-bold hover:bg-gray-50 transition-colors disabled:opacity-50">
-                Cancel
-              </button>
-              <button
-                onClick={handleSave}
-                disabled={saving}
-                className="flex-1 h-11 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
-              >
-                {saving && <Loader2 className="w-4 h-4 animate-spin" />}
-                Save Note
-              </button>
-            </div>
-          </>
+        {/* Other participants' notes */}
+        {otherEntries.length > 0 && (
+          <div className="flex flex-col gap-3">
+            {otherEntries.map(e => (
+              <div key={e.user_id} className="bg-gray-50 rounded-xl px-4 py-3">
+                <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5">{e.author_name}</p>
+                <p className="text-sm text-gray-700 font-medium leading-relaxed whitespace-pre-wrap">{e.content}</p>
+              </div>
+            ))}
+          </div>
         )}
+
+        {/* Own note editor */}
+        <>
+          <div className="flex flex-col gap-1.5">
+            <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Your Note</label>
+            <textarea
+              value={content}
+              onChange={e => setContent(e.target.value)}
+              placeholder="Add your note for this session…"
+              rows={4}
+              disabled={saving}
+              autoFocus
+              className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm font-medium text-gray-800 bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-400 resize-none disabled:opacity-60"
+            />
+          </div>
+          <div className="flex gap-3">
+            <button onClick={onClose} disabled={saving} className="flex-1 h-11 border-2 border-gray-200 text-gray-600 rounded-xl font-bold hover:bg-gray-50 transition-colors disabled:opacity-50">
+              Cancel
+            </button>
+            <button
+              onClick={handleSave}
+              disabled={saving}
+              className="flex-1 h-11 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+            >
+              {saving && <Loader2 className="w-4 h-4 animate-spin" />}
+              Save Note
+            </button>
+          </div>
+        </>
       </div>
     </div>
   )

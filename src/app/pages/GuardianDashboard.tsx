@@ -94,7 +94,10 @@ interface ChildLesson {
 }
 
 interface ChildNote {
+  key:          string
   booking_id:   string
+  user_id:      string
+  author_name:  string
   subject:      string
   tutor_name:   string
   content:      string
@@ -143,13 +146,21 @@ interface ChildConversation {
   message_count: number
 }
 
+interface CompletedLesson {
+  id:           string
+  subject:      string
+  scheduled_at: string
+  tutor_name:   string
+}
+
 interface ChildData {
-  lessons:       ChildLesson[]
-  notes:         ChildNote[]
-  instructors:   ChildInstructor[]
-  stats:         ChildStats
-  goals:         ChildGoal[]
-  conversations: ChildConversation[]
+  lessons:          ChildLesson[]
+  completedLessons: CompletedLesson[]
+  notes:            ChildNote[]
+  instructors:      ChildInstructor[]
+  stats:            ChildStats
+  goals:            ChildGoal[]
+  conversations:    ChildConversation[]
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -197,6 +208,11 @@ export function GuardianDashboard() {
   const [inviteInput,   setInviteInput]   = useState('')
   const [connecting,    setConnecting]    = useState(false)
   const [connectError,  setConnectError]  = useState<string | null>(null)
+
+  // Note writing
+  const [writingNoteFor, setWritingNoteFor] = useState<string | null>(null)
+  const [noteText,       setNoteText]       = useState('')
+  const [savingNote,     setSavingNote]     = useState(false)
 
   // Conversation modal
   const [viewConv,     setViewConv]     = useState<{ bookingId: string; subject: string; tutorName: string; studentId: string; studentName: string } | null>(null)
@@ -279,17 +295,23 @@ export function GuardianDashboard() {
     const allBookings = (allRes.data ?? []) as any[]
     const upcoming    = (upcomingRes.data ?? []) as any[]
 
-    // 3. Session notes for completed lessons
-    const completedIds = allBookings.filter(b => b.status === 'completed').map(b => b.id)
-    const notesData = completedIds.length > 0
+    // 3. Session notes for accepted (upcoming) and completed lessons (all authors)
+    const notedBookingIds = allBookings.filter(b => b.status === 'completed' || b.status === 'accepted').map(b => b.id)
+    const notesData = notedBookingIds.length > 0
       ? (await supabase
           .from('session_notes')
-          .select('booking_id, content, updated_at')
-          .in('booking_id', completedIds)
+          .select('booking_id, user_id, content, updated_at')
+          .in('booking_id', notedBookingIds)
           .order('updated_at', { ascending: false })
-          .limit(50)
+          .limit(100)
         ).data ?? []
       : []
+    const noteAuthorIds = [...new Set((notesData as any[]).map(n => n.user_id))]
+    const noteAuthorMap: Record<string, string> = {}
+    if (noteAuthorIds.length > 0) {
+      const { data: nap } = await supabase.from('profiles').select('id, full_name').in('id', noteAuthorIds)
+      for (const p of nap ?? []) noteAuthorMap[(p as any).id] = (p as any).full_name ?? 'Unknown'
+    }
 
     // 4. Fetch goals for all children
     const allGoalsRes = await supabase
@@ -341,6 +363,8 @@ export function GuardianDashboard() {
       const kidAll       = allBookings.filter(b => b.student_id === kid.id)
       const kidCompleted = kidAll.filter(b => b.status === 'completed')
       const completedSet = new Set(kidCompleted.map(b => b.id))
+      const kidAccepted  = kidAll.filter(b => b.status === 'accepted')
+      const acceptedSet  = new Set(kidAccepted.map(b => b.id))
 
       // Instructors map
       const instrMap: Record<string, { name: string; avatar: string | null; subjects: Set<string>; sessions: number }> = {}
@@ -351,14 +375,17 @@ export function GuardianDashboard() {
         if (b.subject) instrMap[b.tutor.id].subjects.add(b.subject)
       }
 
-      // Notes with booking context
-      const kidNotes: ChildNote[] = notesData
-        .filter(n => completedSet.has(n.booking_id))
-        .slice(0, 5)
-        .map((n: any) => {
-          const booking = kidCompleted.find(b => b.id === n.booking_id)
+      // Notes with booking context (all authors) — includes upcoming (accepted) + completed
+      const kidNotes: ChildNote[] = (notesData as any[])
+        .filter(n => completedSet.has(n.booking_id) || acceptedSet.has(n.booking_id))
+        .slice(0, 20)
+        .map(n => {
+          const booking = kidCompleted.find(b => b.id === n.booking_id) ?? kidAccepted.find(b => b.id === n.booking_id)
           return {
+            key:          `${n.booking_id}-${n.user_id}`,
             booking_id:   n.booking_id,
+            user_id:      n.user_id,
+            author_name:  noteAuthorMap[n.user_id] ?? 'Unknown',
             subject:      booking?.subject ?? '',
             tutor_name:   booking?.tutor?.full_name ?? 'Instructor',
             content:      n.content,
@@ -374,6 +401,20 @@ export function GuardianDashboard() {
           tutor_id:   b.tutor?.id ?? '',
           tutor_avatar: b.tutor?.avatar_url ?? null,
         })),
+        completedLessons: [
+          ...kidAccepted.slice(0, 10).map((b: any) => ({
+            id:           b.id,
+            subject:      b.subject ?? '',
+            scheduled_at: b.scheduled_at,
+            tutor_name:   b.tutor?.full_name ?? 'Instructor',
+          })),
+          ...kidCompleted.slice(0, 15).map((b: any) => ({
+            id:           b.id,
+            subject:      b.subject ?? '',
+            scheduled_at: b.scheduled_at,
+            tutor_name:   b.tutor?.full_name ?? 'Instructor',
+          })),
+        ],
         notes: kidNotes,
         instructors: Object.entries(instrMap)
           .map(([id, v]) => ({ id, name: v.name, avatar_url: v.avatar, subjects: Array.from(v.subjects), sessions: v.sessions }))
@@ -450,6 +491,48 @@ export function GuardianDashboard() {
     setConvMessages(data ?? [])
     setLoadingConv(false)
     setTimeout(() => convBottomRef.current?.scrollIntoView({ behavior: 'smooth' }), 50)
+  }
+
+  async function saveNote(bookingId: string) {
+    if (!noteText.trim() || !user) return
+    setSavingNote(true)
+    const { error } = await supabase
+      .from('session_notes')
+      .upsert(
+        { booking_id: bookingId, user_id: user.id, content: noteText.trim(), updated_at: new Date().toISOString() },
+        { onConflict: 'booking_id,user_id' }
+      )
+    if (error) { toast.error('Failed to save note.'); setSavingNote(false); return }
+    const authorName = profile?.full_name ?? 'Guardian'
+    const newNote: ChildNote = {
+      key:          `${bookingId}-${user.id}`,
+      booking_id:   bookingId,
+      user_id:      user.id,
+      author_name:  authorName,
+      subject:      '',
+      tutor_name:   '',
+      content:      noteText.trim(),
+      updated_at:   new Date().toISOString(),
+      scheduled_at: null,
+    }
+    setChildData(prev => {
+      const updated = { ...prev }
+      for (const kidId of Object.keys(updated)) {
+        const kidData = updated[kidId]
+        const exists = kidData.notes.some(n => n.booking_id === bookingId && n.user_id === user.id)
+        updated[kidId] = {
+          ...kidData,
+          notes: exists
+            ? kidData.notes.map(n => n.booking_id === bookingId && n.user_id === user.id ? { ...n, content: noteText.trim() } : n)
+            : [...kidData.notes, newNote],
+        }
+      }
+      return updated
+    })
+    setWritingNoteFor(null)
+    setNoteText('')
+    setSavingNote(false)
+    toast.success('Note saved!')
   }
 
   async function sendConvMessage(e: React.FormEvent) {
@@ -610,16 +693,69 @@ export function GuardianDashboard() {
                     </div>
                   ) : (
                     <div className="divide-y divide-gray-50">
-                      {data.lessons.map(l => (
-                        <Link key={l.id} to={`/tutor/${l.tutor_id}`} className="flex items-center gap-4 px-6 py-4 hover:bg-gray-50 transition-colors group">
-                          <Avatar name={l.tutor_name} url={l.tutor_avatar} />
-                          <div className="flex-1 min-w-0">
-                            <p className="font-bold text-gray-900 truncate">{l.subject}</p>
-                            <p className="text-sm text-gray-500 font-medium">with {l.tutor_name}</p>
+                      {data.lessons.map(l => {
+                        const myNote    = data.notes.find(n => n.booking_id === l.id && n.user_id === user?.id)
+                        const isWriting = writingNoteFor === l.id
+                        return (
+                          <div key={l.id} className="px-6 py-4">
+                            <div className="flex items-center gap-4">
+                              <Link to={`/tutor/${l.tutor_id}`} className="shrink-0">
+                                <Avatar name={l.tutor_name} url={l.tutor_avatar} />
+                              </Link>
+                              <div className="flex-1 min-w-0">
+                                <p className="font-bold text-gray-900 truncate">{l.subject}</p>
+                                <p className="text-sm text-gray-500 font-medium">with {l.tutor_name}</p>
+                              </div>
+                              <div className="flex items-center gap-3 shrink-0">
+                                <p className="text-sm font-bold text-blue-600 whitespace-nowrap hidden sm:block">{formatDate(l.scheduled_at)}</p>
+                                {!isWriting && (
+                                  <button
+                                    onClick={() => { setNoteText(myNote?.content ?? ''); setWritingNoteFor(l.id) }}
+                                    className="flex items-center gap-1 px-2.5 py-1.5 bg-green-50 hover:bg-green-100 text-green-700 rounded-lg text-xs font-bold transition-colors"
+                                  >
+                                    <StickyNote className="w-3.5 h-3.5" />
+                                    {myNote ? 'Note' : 'Add note'}
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                            {myNote && !isWriting && (
+                              <div className="mt-2 ml-14 bg-green-50 rounded-lg px-3 py-2">
+                                <p className="text-[10px] font-black text-green-600 uppercase tracking-widest mb-0.5">Your note</p>
+                                <p className="text-xs text-gray-700 font-medium leading-relaxed">{myNote.content}</p>
+                              </div>
+                            )}
+                            {isWriting && (
+                              <div className="mt-2 ml-14 flex flex-col gap-2">
+                                <textarea
+                                  value={noteText}
+                                  onChange={e => setNoteText(e.target.value)}
+                                  placeholder="Questions to ask, topics to prepare, goals for this session…"
+                                  rows={2}
+                                  autoFocus
+                                  className="w-full px-3 py-2 border border-green-200 rounded-lg text-xs font-medium text-gray-800 bg-green-50 focus:outline-none focus:ring-2 focus:ring-green-400 resize-none"
+                                />
+                                <div className="flex items-center gap-2 justify-end">
+                                  <button
+                                    onClick={() => { setWritingNoteFor(null); setNoteText('') }}
+                                    className="text-xs font-bold text-gray-400 hover:text-gray-600 px-2 py-1 rounded transition-colors"
+                                  >
+                                    Cancel
+                                  </button>
+                                  <button
+                                    onClick={() => saveNote(l.id)}
+                                    disabled={savingNote || !noteText.trim()}
+                                    className="flex items-center gap-1 text-xs font-bold text-white bg-green-600 hover:bg-green-700 px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50"
+                                  >
+                                    {savingNote && <Loader2 className="w-3 h-3 animate-spin" />}
+                                    Save
+                                  </button>
+                                </div>
+                              </div>
+                            )}
                           </div>
-                          <p className="text-sm font-bold text-blue-600 whitespace-nowrap shrink-0">{formatDate(l.scheduled_at)}</p>
-                        </Link>
-                      ))}
+                        )
+                      })}
                     </div>
                   )}
                 </div>
@@ -682,38 +818,94 @@ export function GuardianDashboard() {
                 )}
 
                 {/* Session Notes */}
-                {data.notes.length > 0 && (
+                {(data.completedLessons.length > 0 || data.lessons.length > 0) && (
                   <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
                     <div className="flex items-center gap-2 px-6 py-4 border-b border-gray-100">
                       <StickyNote className="w-4 h-4 text-amber-500" />
-                      <h2 className="font-black text-gray-900">Session Notes from Instructors</h2>
+                      <h2 className="font-black text-gray-900">Session Notes</h2>
                     </div>
                     <div className="divide-y divide-gray-50">
-                      {data.notes.map(n => (
-                        <div key={n.booking_id} className="px-6 py-4">
-                          <div className="flex items-center justify-between mb-1.5">
-                            <p className="text-sm font-bold text-gray-900">{n.subject} · {n.tutor_name}</p>
-                            {n.scheduled_at && (
-                              <p className="text-xs text-gray-400 shrink-0 ml-2">{timeAgo(n.updated_at)}</p>
+                      {data.completedLessons.map(lesson => {
+                        const lessonNotes  = data.notes.filter(n => n.booking_id === lesson.id)
+                        const myNote       = lessonNotes.find(n => n.user_id === user?.id)
+                        const isWriting    = writingNoteFor === lesson.id
+                        const isFuture     = lesson.scheduled_at ? new Date(lesson.scheduled_at) > new Date() : false
+                        return (
+                          <div key={lesson.id} className="px-6 py-4">
+                            {/* Session header */}
+                            <div className="flex items-center justify-between mb-2">
+                              <div>
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <p className="text-sm font-bold text-gray-900">{lesson.subject}</p>
+                                  {isFuture && (
+                                    <span className="text-[10px] font-bold text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded-full">Upcoming</span>
+                                  )}
+                                </div>
+                                <p className="text-xs text-gray-500 font-medium">with {lesson.tutor_name} · {timeAgo(lesson.scheduled_at)}</p>
+                              </div>
+                              {!isWriting && (
+                                <button
+                                  onClick={() => { setNoteText(myNote?.content ?? ''); setWritingNoteFor(lesson.id) }}
+                                  className="ml-2 shrink-0 text-xs font-bold text-amber-600 hover:text-amber-700 bg-amber-50 hover:bg-amber-100 px-3 py-1.5 rounded-lg transition-colors"
+                                >
+                                  {myNote ? 'Edit Note' : 'Add Note'}
+                                </button>
+                              )}
+                            </div>
+
+                            {/* Notes from others */}
+                            {lessonNotes.filter(n => n.user_id !== user?.id).map(n => (
+                              <div key={n.key} className="bg-gray-50 rounded-xl p-3 mb-2">
+                                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wide mb-1">{n.author_name}</p>
+                                <p className="text-sm text-gray-700 font-medium leading-relaxed">{n.content}</p>
+                              </div>
+                            ))}
+
+                            {/* My note (read view) */}
+                            {myNote && !isWriting && (
+                              <div className="bg-amber-50 rounded-xl p-3 border border-amber-100 mb-2">
+                                <p className="text-[10px] font-bold text-amber-600 uppercase tracking-wide mb-1">Your note</p>
+                                <p className="text-sm text-gray-700 font-medium leading-relaxed">{myNote.content}</p>
+                              </div>
+                            )}
+
+                            {/* No notes yet */}
+                            {lessonNotes.length === 0 && !isWriting && (
+                              <p className="text-xs text-gray-400 italic">No notes for this session yet.</p>
+                            )}
+
+                            {/* Inline editor */}
+                            {isWriting && (
+                              <div className="space-y-2 mt-1">
+                                <textarea
+                                  value={noteText}
+                                  onChange={e => setNoteText(e.target.value)}
+                                  placeholder="Write your note about this session…"
+                                  rows={3}
+                                  autoFocus
+                                  className="w-full px-4 py-3 border border-amber-200 rounded-xl text-sm font-medium text-gray-800 bg-amber-50 focus:outline-none focus:ring-2 focus:ring-amber-400 resize-none"
+                                />
+                                <div className="flex items-center justify-end gap-2">
+                                  <button
+                                    onClick={() => { setWritingNoteFor(null); setNoteText('') }}
+                                    className="text-xs font-bold text-gray-400 hover:text-gray-600 px-3 py-1.5 rounded-lg transition-colors"
+                                  >
+                                    Cancel
+                                  </button>
+                                  <button
+                                    onClick={() => saveNote(lesson.id)}
+                                    disabled={savingNote || !noteText.trim()}
+                                    className="flex items-center gap-1.5 text-xs font-bold text-white bg-amber-500 hover:bg-amber-600 px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50"
+                                  >
+                                    {savingNote && <Loader2 className="w-3 h-3 animate-spin" />}
+                                    Save Note
+                                  </button>
+                                </div>
+                              </div>
                             )}
                           </div>
-                          <p className="text-sm text-gray-600 font-medium leading-relaxed">{n.content}</p>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {/* Empty notes state */}
-                {data.notes.length === 0 && data.stats.completed > 0 && (
-                  <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-                    <div className="flex items-center gap-2 px-6 py-4 border-b border-gray-100">
-                      <StickyNote className="w-4 h-4 text-amber-500" />
-                      <h2 className="font-black text-gray-900">Session Notes from Instructors</h2>
-                    </div>
-                    <div className="px-6 py-10 text-center">
-                      <p className="text-gray-400 font-medium text-sm">No notes written yet.</p>
-                      <p className="text-gray-400 text-xs mt-1">Instructors write notes after completed sessions.</p>
+                        )
+                      })}
                     </div>
                   </div>
                 )}

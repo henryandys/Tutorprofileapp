@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react"
-import { Link, Navigate } from "react-router"
+import { Link, Navigate, useNavigate } from "react-router"
 import { Navbar } from "../components/Navbar"
 import { useAuth } from "../../context/AuthContext"
 import { supabase } from "../../lib/supabase"
@@ -59,6 +59,7 @@ interface NeedsNoteBooking {
   subject:      string
   student_name: string
   scheduled_at: string | null
+  isUpcoming?:  boolean
 }
 
 interface TutorStudent {
@@ -177,6 +178,7 @@ type Tab = 'teaching' | 'learning'
 
 export function InstructorDashboard() {
   const { user, profile, role, loading } = useAuth()
+  const navigate = useNavigate()
   const [tab, setTab] = useState<Tab>('teaching')
 
   // Teaching state
@@ -198,11 +200,12 @@ export function InstructorDashboard() {
   const [learningLoaded,   setLearningLoaded]   = useState(false)
 
   // Notes state
-  const [recentNotes,    setRecentNotes]    = useState<RecentNote[]>([])
-  const [needsNote,      setNeedsNote]      = useState<NeedsNoteBooking[]>([])
-  const [writingNoteFor, setWritingNoteFor] = useState<string | null>(null)
-  const [noteContent,    setNoteContent]    = useState('')
-  const [savingNote,     setSavingNote]     = useState(false)
+  const [recentNotes,      setRecentNotes]      = useState<RecentNote[]>([])
+  const [needsNote,        setNeedsNote]        = useState<NeedsNoteBooking[]>([])
+  const [upcomingNoteMap,  setUpcomingNoteMap]  = useState<Record<string, string>>({})
+  const [writingNoteFor,   setWritingNoteFor]   = useState<string | null>(null)
+  const [noteContent,      setNoteContent]      = useState('')
+  const [savingNote,       setSavingNote]       = useState(false)
 
   // Students state
   const [students, setStudents] = useState<TutorStudent[]>([])
@@ -286,8 +289,9 @@ export function InstructorDashboard() {
     const studentIds = Object.keys(studentMap)
 
     // Fetch notes I've written + completed sessions missing notes + student avatars + student goals
-    const completedIds = all.filter(b => b.status === 'completed').map(b => (b as any).id ?? '')
-    const [notesRes, completedBookingsRes, studentProfilesRes, goalsRes] = await Promise.all([
+    const completedIds  = all.filter(b => b.status === 'completed').map(b => (b as any).id ?? '')
+    const upcomingIds   = (sessRes.data ?? []).map((s: any) => s.id as string)
+    const [notesRes, completedBookingsRes, studentProfilesRes, goalsRes, upcomingNotesRes] = await Promise.all([
       supabase
         .from('session_notes')
         .select('booking_id, content, updated_at, booking:booking_id(subject, scheduled_at, student_name)')
@@ -315,6 +319,13 @@ export function InstructorDashboard() {
             .eq('status', 'active')
             .order('created_at', { ascending: false })
         : Promise.resolve({ data: [] }),
+      upcomingIds.length > 0
+        ? supabase
+            .from('session_notes')
+            .select('booking_id, content')
+            .eq('user_id', user.id)
+            .in('booking_id', upcomingIds)
+        : Promise.resolve({ data: [] }),
     ])
 
     setRecentNotes(
@@ -328,12 +339,20 @@ export function InstructorDashboard() {
       }))
     )
 
-    const notedIds = new Set((notesRes.data ?? []).map((n: any) => n.booking_id))
-    setNeedsNote(
-      ((completedBookingsRes.data ?? []) as NeedsNoteBooking[])
-        .filter(b => !notedIds.has(b.id))
-        .slice(0, 3)
-    )
+    const unMap: Record<string, string> = {}
+    for (const n of (upcomingNotesRes.data ?? []) as any[]) unMap[n.booking_id] = n.content
+    setUpcomingNoteMap(unMap)
+
+    const notedIds = new Set([
+      ...(notesRes.data ?? []).map((n: any) => n.booking_id),
+      ...Object.keys(unMap),
+    ])
+    const upcomingNeedsNote: NeedsNoteBooking[] = (sessRes.data ?? [])
+      .filter((s: any) => !notedIds.has(s.id))
+      .map((s: any) => ({ id: s.id, subject: s.subject, student_name: s.student_name, scheduled_at: s.scheduled_at, isUpcoming: true }))
+    const completedNeedsNote: NeedsNoteBooking[] = ((completedBookingsRes.data ?? []) as NeedsNoteBooking[])
+      .filter(b => !notedIds.has(b.id))
+    setNeedsNote([...upcomingNeedsNote, ...completedNeedsNote].slice(0, 6))
 
     const avatarMap: Record<string, string | null> = {}
     for (const p of (studentProfilesRes.data ?? []) as any[]) avatarMap[p.id] = p.avatar_url ?? null
@@ -506,22 +525,26 @@ export function InstructorDashboard() {
         { onConflict: 'booking_id,user_id' }
       )
     if (error) { toast.error('Failed to save note.'); setSavingNote(false); return }
+    setUpcomingNoteMap(prev => ({ ...prev, [bookingId]: noteContent.trim() }))
+
     const booking = needsNote.find(b => b.id === bookingId)
     if (booking) {
-      setRecentNotes(prev => [{
-        booking_id:   bookingId,
-        content:      noteContent.trim(),
-        updated_at:   new Date().toISOString(),
-        subject:      booking.subject,
-        student_name: booking.student_name,
-        scheduled_at: booking.scheduled_at,
-      }, ...prev].slice(0, 3))
+      if (!booking.isUpcoming) {
+        setRecentNotes(prev => [{
+          booking_id:   bookingId,
+          content:      noteContent.trim(),
+          updated_at:   new Date().toISOString(),
+          subject:      booking.subject,
+          student_name: booking.student_name,
+          scheduled_at: booking.scheduled_at,
+        }, ...prev].slice(0, 3))
+      }
       setNeedsNote(prev => prev.filter(b => b.id !== bookingId))
     }
     setWritingNoteFor(null)
     setNoteContent('')
     setSavingNote(false)
-    toast.success('Note saved and shared with your student!')
+    toast.success(booking?.isUpcoming ? 'Note saved!' : 'Note saved and shared with your student!')
   }
 
   async function handleAccept(booking: PendingBooking) {
@@ -699,15 +722,62 @@ export function InstructorDashboard() {
                   ) : (
                     <div className="divide-y divide-gray-50">
                       {upcomingSessions.map(s => (
-                        <div key={s.id} className="flex items-center gap-4 px-6 py-4">
-                          <div className="w-10 h-10 rounded-xl bg-blue-100 flex items-center justify-center shrink-0">
-                            <User className="w-5 h-5 text-blue-600" />
+                        <div key={s.id} className="px-6 py-4">
+                          <div className="flex items-center gap-4">
+                            <div className="w-10 h-10 rounded-xl bg-blue-100 flex items-center justify-center shrink-0">
+                              <User className="w-5 h-5 text-blue-600" />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="font-bold text-gray-900 truncate">{s.subject}</p>
+                              <p className="text-sm text-gray-500 font-medium">with {s.student_name}</p>
+                            </div>
+                            <div className="flex items-center gap-3 shrink-0">
+                              <p className="text-sm font-bold text-blue-600 whitespace-nowrap hidden sm:block">{formatDate(s.scheduled_at)}</p>
+                              {writingNoteFor !== s.id && (
+                                <button
+                                  onClick={() => { setNoteContent(upcomingNoteMap[s.id] ?? ''); setWritingNoteFor(s.id) }}
+                                  className="flex items-center gap-1 px-2.5 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-600 rounded-lg text-xs font-bold transition-colors"
+                                >
+                                  <StickyNote className="w-3.5 h-3.5" />
+                                  {upcomingNoteMap[s.id] ? 'Note' : 'Add note'}
+                                </button>
+                              )}
+                            </div>
                           </div>
-                          <div className="flex-1 min-w-0">
-                            <p className="font-bold text-gray-900 truncate">{s.subject}</p>
-                            <p className="text-sm text-gray-500 font-medium">with {s.student_name}</p>
-                          </div>
-                          <p className="text-sm font-bold text-blue-600 whitespace-nowrap shrink-0">{formatDate(s.scheduled_at)}</p>
+                          {upcomingNoteMap[s.id] && writingNoteFor !== s.id && (
+                            <div className="mt-2 ml-14 bg-blue-50 rounded-lg px-3 py-2">
+                              <p className="text-[10px] font-black text-blue-400 uppercase tracking-widest mb-0.5">Your note</p>
+                              <p className="text-xs text-gray-700 font-medium leading-relaxed">{upcomingNoteMap[s.id]}</p>
+                            </div>
+                          )}
+                          {writingNoteFor === s.id && (
+                            <div className="mt-2 ml-14 flex flex-col gap-2">
+                              <textarea
+                                value={noteContent}
+                                onChange={e => setNoteContent(e.target.value)}
+                                placeholder="Pre-session notes, topics to cover, materials to prepare…"
+                                rows={2}
+                                autoFocus
+                                className="w-full px-3 py-2 border border-blue-200 rounded-lg text-sm font-medium text-gray-800 bg-blue-50 focus:outline-none focus:ring-2 focus:ring-blue-400 resize-none"
+                              />
+                              <div className="flex items-center gap-2 justify-end">
+                                <button
+                                  onClick={() => { setWritingNoteFor(null); setNoteContent('') }}
+                                  className="text-xs font-bold text-gray-400 hover:text-gray-600 px-2 py-1 rounded transition-colors"
+                                >
+                                  Cancel
+                                </button>
+                                <button
+                                  onClick={() => handleSaveNote(s.id)}
+                                  disabled={savingNote || !noteContent.trim()}
+                                  className="flex items-center gap-1 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50"
+                                >
+                                  {savingNote && <Loader2 className="w-3 h-3 animate-spin" />}
+                                  Save
+                                </button>
+                              </div>
+                            </div>
+                          )}
                         </div>
                       ))}
                     </div>
@@ -801,26 +871,32 @@ export function InstructorDashboard() {
                       {students.map(s => (
                         <div key={s.id} className="border-b border-gray-50 last:border-b-0">
                           <div className="flex items-center gap-4 px-6 py-3.5">
-                            <Avatar name={s.name} url={s.avatar_url} />
-                            <div className="flex-1 min-w-0">
-                              <p className="font-bold text-gray-900 truncate">{s.name}</p>
-                              {s.subjects.length > 0 && (
-                                <p className="text-sm text-gray-500 font-medium truncate">{s.subjects.join(', ')}</p>
-                              )}
-                              {s.last_session && (
-                                <p className="text-xs text-gray-400 font-medium mt-0.5">Last: {timeAgo(s.last_session)}</p>
-                              )}
-                              {s.goals.length > 0 && (
-                                <div className="flex items-center gap-1 mt-1 flex-wrap">
-                                  <Target className="w-3 h-3 text-indigo-400 shrink-0" />
-                                  {s.goals.map(g => (
-                                    <span key={g.id} className="text-[10px] font-bold text-indigo-700 bg-indigo-50 px-1.5 py-0.5 rounded-full truncate max-w-[160px]">
-                                      {g.title}
-                                    </span>
-                                  ))}
-                                </div>
-                              )}
-                            </div>
+                            <button
+                              type="button"
+                              onClick={() => navigate(`/my-students/${s.id}`)}
+                              className="flex items-center gap-4 flex-1 min-w-0 text-left hover:opacity-80 transition-opacity"
+                            >
+                              <Avatar name={s.name} url={s.avatar_url} />
+                              <div className="flex-1 min-w-0">
+                                <p className="font-bold text-gray-900 truncate hover:text-blue-600 transition-colors">{s.name}</p>
+                                {s.subjects.length > 0 && (
+                                  <p className="text-sm text-gray-500 font-medium truncate">{s.subjects.join(', ')}</p>
+                                )}
+                                {s.last_session && (
+                                  <p className="text-xs text-gray-400 font-medium mt-0.5">Last: {timeAgo(s.last_session)}</p>
+                                )}
+                                {s.goals.length > 0 && (
+                                  <div className="flex items-center gap-1 mt-1 flex-wrap">
+                                    <Target className="w-3 h-3 text-indigo-400 shrink-0" />
+                                    {s.goals.map(g => (
+                                      <span key={g.id} className="text-[10px] font-bold text-indigo-700 bg-indigo-50 px-1.5 py-0.5 rounded-full truncate max-w-[160px]">
+                                        {g.title}
+                                      </span>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            </button>
                             <div className="flex items-center gap-3 shrink-0">
                               {s.goals.length > 0 && (
                                 <button
@@ -948,8 +1024,61 @@ export function InstructorDashboard() {
                       {/* Sessions needing a note */}
                       {needsNote.length > 0 && (
                         <div className="border-b border-gray-50">
-                          <p className="text-[10px] font-black text-amber-600 uppercase tracking-widest px-5 pt-3 pb-1">Needs a note</p>
-                          {needsNote.map(b => (
+                          {needsNote.some(b => b.isUpcoming) && (
+                            <p className="text-[10px] font-black text-blue-600 uppercase tracking-widest px-5 pt-3 pb-1">Prepare notes</p>
+                          )}
+                          {needsNote.filter(b => b.isUpcoming).map(b => (
+                            <div key={b.id} className="px-5 py-2">
+                              {writingNoteFor === b.id ? (
+                                <div className="flex flex-col gap-2">
+                                  <p className="text-xs font-bold text-gray-700">{b.subject} · {b.student_name}</p>
+                                  <textarea
+                                    value={noteContent}
+                                    onChange={e => setNoteContent(e.target.value)}
+                                    placeholder="Pre-session notes, topics to cover, materials to bring…"
+                                    rows={3}
+                                    autoFocus
+                                    className="w-full px-3 py-2 border border-blue-200 rounded-lg text-xs font-medium text-gray-800 bg-blue-50 focus:outline-none focus:ring-2 focus:ring-blue-400 resize-none"
+                                  />
+                                  <div className="flex gap-2">
+                                    <button
+                                      onClick={() => { setWritingNoteFor(null); setNoteContent('') }}
+                                      disabled={savingNote}
+                                      className="flex-1 py-1.5 border border-gray-200 text-gray-500 rounded-lg text-xs font-bold hover:bg-gray-50 transition-colors"
+                                    >
+                                      Cancel
+                                    </button>
+                                    <button
+                                      onClick={() => handleSaveNote(b.id)}
+                                      disabled={savingNote}
+                                      className="flex-1 py-1.5 bg-blue-600 text-white rounded-lg text-xs font-bold hover:bg-blue-700 transition-colors disabled:opacity-60 flex items-center justify-center gap-1"
+                                    >
+                                      {savingNote && <Loader2 className="w-3 h-3 animate-spin" />}
+                                      Save
+                                    </button>
+                                  </div>
+                                </div>
+                              ) : (
+                                <button
+                                  onClick={() => { setWritingNoteFor(b.id); setNoteContent('') }}
+                                  className="w-full flex items-center gap-2 text-left py-1.5 group"
+                                >
+                                  <div className="w-7 h-7 rounded-lg bg-blue-100 flex items-center justify-center shrink-0">
+                                    <PenLine className="w-3.5 h-3.5 text-blue-600" />
+                                  </div>
+                                  <div className="flex-1 min-w-0">
+                                    <p className="text-xs font-bold text-gray-800 truncate">{b.subject}</p>
+                                    <p className="text-[10px] text-gray-400 truncate">{b.student_name}</p>
+                                  </div>
+                                  <span className="text-[10px] font-bold text-blue-500 group-hover:text-blue-700 shrink-0">Prepare →</span>
+                                </button>
+                              )}
+                            </div>
+                          ))}
+                          {needsNote.some(b => !b.isUpcoming) && (
+                            <p className="text-[10px] font-black text-amber-600 uppercase tracking-widest px-5 pt-3 pb-1">Needs a note</p>
+                          )}
+                          {needsNote.filter(b => !b.isUpcoming).map(b => (
                             <div key={b.id} className="px-5 py-2">
                               {writingNoteFor === b.id ? (
                                 <div className="flex flex-col gap-2">
@@ -1024,7 +1153,7 @@ export function InstructorDashboard() {
 
                       {needsNote.length === 0 && recentNotes.length === 0 && (
                         <div className="px-5 py-8 text-center">
-                          <p className="text-gray-400 font-medium text-xs">No completed sessions yet.</p>
+                          <p className="text-gray-400 font-medium text-xs">Notes appear here for upcoming and completed sessions.</p>
                         </div>
                       )}
                     </>
