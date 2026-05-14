@@ -191,26 +191,14 @@ export function Lessons() {
       setOpeningGroupChat(null)
       return
     }
-    const { data: created, error } = await supabase
-      .from('bookings')
-      .insert({
-        tutor_id:     g.tutor_id,
-        student_id:   user.id,
-        student_name: profile?.full_name ?? user.email?.split('@')[0] ?? 'Student',
-        subject:      g.subject,
-        message:      '',
-        status:       'pending',
-      })
-      .select('id')
-      .single()
-    if (error || !created) { toast.error('Could not open chat.') }
-    else { setGroupChat({ bookingId: created.id, tutorName: g.tutor_name ?? 'Tutor', tutorId: g.tutor_id, subject: g.subject }) }
+    toast.info(`No direct booking with ${g.tutor_name ?? 'this tutor'} — book a private session to message them directly.`)
     setOpeningGroupChat(null)
   }
 
   async function handleCancelBooking(lesson: Lesson, message: string) {
     setCancellingId(lesson.id)
-    const { error } = await supabase.from('bookings').update({ status: 'cancelled' }).eq('id', lesson.id)
+    const ownerField = lesson.perspective === 'tutor' ? 'tutor_id' : 'student_id'
+    const { error } = await supabase.from('bookings').update({ status: 'cancelled' }).eq('id', lesson.id).eq(ownerField, user!.id)
     if (error) { toast.error('Could not cancel session.'); setCancellingId(null); return }
     if (message.trim()) {
       await supabase.from('messages').insert({ booking_id: lesson.id, sender_id: user!.id, body: message.trim() })
@@ -252,25 +240,11 @@ export function Lessons() {
         })
       })
     if (message.trim() && g.tutor_id) {
-      let bookingId: string | null = null
       const { data: existing } = await supabase.from('bookings').select('id')
         .eq('tutor_id', g.tutor_id).eq('student_id', user.id)
         .order('created_at', { ascending: false }).limit(1).single()
       if (existing) {
-        bookingId = existing.id
-      } else {
-        const { data: created } = await supabase.from('bookings').insert({
-          tutor_id:     g.tutor_id,
-          student_id:   user.id,
-          student_name: profile?.full_name ?? user.email?.split('@')[0] ?? 'Student',
-          subject:      g.subject,
-          message:      '',
-          status:       'pending',
-        }).select('id').single()
-        bookingId = created?.id ?? null
-      }
-      if (bookingId) {
-        await supabase.from('messages').insert({ booking_id: bookingId, sender_id: user.id, body: message.trim() })
+        await supabase.from('messages').insert({ booking_id: existing.id, sender_id: user.id, body: message.trim() })
       }
     }
     setGroupEntries(prev => prev.filter(ge => ge.id !== g.id))
@@ -282,31 +256,28 @@ export function Lessons() {
   async function handleCancelGroupLesson(g: GroupEntry, message: string) {
     if (!user) return
     setCancellingId(g.id)
-    const { error } = await supabase.from('group_lessons').update({ status: 'cancelled' }).eq('id', g.id)
+    const { error } = await supabase.from('group_lessons').update({ status: 'cancelled' }).eq('id', g.id).eq('tutor_id', user!.id)
     if (error) { toast.error('Could not cancel session.'); setCancellingId(null); return }
     if (message.trim()) {
       const { data: enrollments } = await supabase.from('group_lesson_enrollments')
-        .select('student_id, student_name').eq('group_lesson_id', g.id)
-      for (const e of enrollments ?? []) {
-        let bookingId: string | null = null
-        const { data: existing } = await supabase.from('bookings').select('id')
-          .eq('tutor_id', user.id).eq('student_id', e.student_id)
-          .order('created_at', { ascending: false }).limit(1).single()
-        if (existing) {
-          bookingId = existing.id
-        } else {
-          const { data: created } = await supabase.from('bookings').insert({
-            tutor_id:     user.id,
-            student_id:   e.student_id,
-            student_name: e.student_name,
-            subject:      g.subject,
-            message:      '',
-            status:       'pending',
-          }).select('id').single()
-          bookingId = created?.id ?? null
+        .select('student_id').eq('group_lesson_id', g.id)
+      const studentIds = (enrollments ?? []).map(e => e.student_id as string)
+      if (studentIds.length > 0) {
+        const { data: bookings } = await supabase.from('bookings').select('id, student_id')
+          .eq('tutor_id', user.id).in('student_id', studentIds)
+          .order('created_at', { ascending: false })
+        // Keep only the most-recent booking per student
+        const bookingByStudent = new Map<string, string>()
+        for (const b of bookings ?? []) {
+          if (!bookingByStudent.has(b.student_id)) bookingByStudent.set(b.student_id, b.id)
         }
-        if (bookingId) {
-          await supabase.from('messages').insert({ booking_id: bookingId, sender_id: user.id, body: message.trim() })
+        const messageRows = [...bookingByStudent.values()].map(bookingId => ({
+          booking_id: bookingId,
+          sender_id:  user.id,
+          body:       message.trim(),
+        }))
+        if (messageRows.length > 0) {
+          await supabase.from('messages').insert(messageRows)
         }
       }
     }
@@ -318,7 +289,7 @@ export function Lessons() {
 
   async function handleMarkComplete(lesson: Lesson) {
     setCompletingId(lesson.id)
-    const { error } = await supabase.from('bookings').update({ status: 'completed' }).eq('id', lesson.id)
+    const { error } = await supabase.from('bookings').update({ status: 'completed' }).eq('id', lesson.id).eq('tutor_id', user!.id)
     if (error) { toast.error('Failed to mark complete.') }
     else {
       setLessons(prev => prev.map(l => l.id === lesson.id ? { ...l, status: 'completed' } : l))

@@ -23,7 +23,7 @@ interface Props {
 }
 
 export function ConversationModal({ bookingId, otherName, otherUserId, subject, onClose }: Props) {
-  const { user } = useAuth()
+  const { user, profile } = useAuth()
   const [messages, setMessages]   = useState<Message[]>([])
   const [loading, setLoading]     = useState(true)
   const [body, setBody]           = useState('')
@@ -188,7 +188,7 @@ export function ConversationModal({ bookingId, otherName, otherUserId, subject, 
       sendNotificationEmail({
         type:        'new_message',
         recipientId: otherUserId,
-        data:        { senderName: user.email ?? 'Someone', subject },
+        data:        { senderName: profile?.full_name ?? user.email?.split('@')[0] ?? 'Someone', subject },
       })
     }
     setSending(false)

@@ -43,7 +43,7 @@
 //     )
 //   ));
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { Link, Navigate, useSearchParams } from "react-router"
 import { Navbar } from "../components/Navbar"
 import { useAuth } from "../../context/AuthContext"
@@ -202,6 +202,8 @@ export function StudentDashboard() {
   const [expandedGoal,      setExpandedGoal]      = useState<string | null>(null)
   const [goalMilestones,    setGoalMilestones]    = useState<Record<string, GoalMilestone[]>>({})
   const [loadingMilestones, setLoadingMilestones] = useState<string | null>(null)
+  const [confirmGoalId,     setConfirmGoalId]     = useState<string | null>(null)
+  const loadingRef = useRef(false)
 
   useEffect(() => {
     if (user) loadData()
@@ -247,7 +249,8 @@ export function StudentDashboard() {
   }
 
   async function loadData() {
-    if (!user) return
+    if (!user || loadingRef.current) return
+    loadingRef.current = true
     setFetching(true)
     const now = new Date().toISOString()
 
@@ -474,6 +477,7 @@ export function StudentDashboard() {
     }
 
     setFetching(false)
+    loadingRef.current = false
   }
 
   async function handleAddGoal() {
@@ -497,7 +501,8 @@ export function StudentDashboard() {
   }
 
   async function handleCompleteGoal(id: string) {
-    await supabase.from('learning_goals').update({ status: 'completed' }).eq('id', id).eq('student_id', user!.id)
+    const { error } = await supabase.from('learning_goals').update({ status: 'completed' }).eq('id', id).eq('student_id', user!.id)
+    if (error) { toast.error('Failed to complete goal.'); return }
     setGoals(prev => prev.filter(g => g.id !== id))
     toast.success('Goal marked complete!')
   }
@@ -1075,13 +1080,33 @@ export function StudentDashboard() {
                             )}
                           </div>
                         </div>
-                        <button
-                          onClick={e => { e.stopPropagation(); handleCompleteGoal(g.id) }}
-                          className="opacity-0 group-hover:opacity-100 w-6 h-6 rounded-full bg-green-100 flex items-center justify-center shrink-0 hover:bg-green-200 transition-all"
-                          title="Mark complete"
-                        >
-                          <CheckCircle className="w-3.5 h-3.5 text-green-600" />
-                        </button>
+                        {confirmGoalId === g.id ? (
+                          <div className="flex items-center gap-1 shrink-0" onClick={e => e.stopPropagation()}>
+                            <span className="text-[10px] font-semibold text-gray-500 whitespace-nowrap">Done?</span>
+                            <button
+                              onClick={() => { handleCompleteGoal(g.id); setConfirmGoalId(null) }}
+                              className="w-6 h-6 rounded-full bg-green-500 flex items-center justify-center hover:bg-green-600 transition-colors"
+                              title="Confirm complete"
+                            >
+                              <CheckCircle className="w-3.5 h-3.5 text-white" />
+                            </button>
+                            <button
+                              onClick={() => setConfirmGoalId(null)}
+                              className="w-6 h-6 rounded-full bg-gray-200 flex items-center justify-center hover:bg-gray-300 transition-colors"
+                              title="Cancel"
+                            >
+                              <X className="w-3.5 h-3.5 text-gray-500" />
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            onClick={e => { e.stopPropagation(); setConfirmGoalId(g.id) }}
+                            className="w-6 h-6 rounded-full bg-green-100 flex items-center justify-center shrink-0 hover:bg-green-200 transition-colors"
+                            title="Mark complete"
+                          >
+                            <CheckCircle className="w-3.5 h-3.5 text-green-600" />
+                          </button>
+                        )}
                       </button>
                       {expandedGoal === g.id && (
                         <div className="px-5 pb-3 bg-gray-50/50">

@@ -123,7 +123,7 @@ export const router = createBrowserRouter([
   {
     path: "/my-instructors/:id",
     element: (
-      <ProtectedRoute>
+      <ProtectedRoute requiredRole="student">
         <InstructorDetail />
       </ProtectedRoute>
     ),

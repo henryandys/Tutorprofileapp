@@ -216,6 +216,7 @@ export function InstructorDashboard() {
   const [expandedLearningGoal,    setExpandedLearningGoal]    = useState<string | null>(null)
   const [learningGoalMilestones,  setLearningGoalMilestones]  = useState<Record<string, GoalMilestone[]>>({})
   const [loadingLearningMs,       setLoadingLearningMs]       = useState<string | null>(null)
+  const [confirmLearningGoalId,   setConfirmLearningGoalId]   = useState<string | null>(null)
 
   // Students state
   const [students, setStudents] = useState<TutorStudent[]>([])
@@ -525,7 +526,8 @@ export function InstructorDashboard() {
   }
 
   async function handleCompleteLearningGoal(id: string) {
-    await supabase.from('learning_goals').update({ status: 'completed' }).eq('id', id).eq('student_id', user!.id)
+    const { error } = await supabase.from('learning_goals').update({ status: 'completed' }).eq('id', id).eq('student_id', user!.id)
+    if (error) { toast.error('Failed to complete goal.'); return }
     setLearningGoals(prev => prev.filter(g => g.id !== id))
     toast.success('Goal marked complete!')
   }
@@ -1409,13 +1411,33 @@ export function InstructorDashboard() {
                                   )}
                                 </div>
                               </div>
-                              <button
-                                onClick={e => { e.stopPropagation(); handleCompleteLearningGoal(g.id) }}
-                                className="opacity-0 group-hover:opacity-100 w-6 h-6 rounded-full bg-green-100 flex items-center justify-center shrink-0 hover:bg-green-200 transition-all"
-                                title="Mark complete"
-                              >
-                                <CheckCircle className="w-3.5 h-3.5 text-green-600" />
-                              </button>
+                              {confirmLearningGoalId === g.id ? (
+                                <div className="flex items-center gap-1 shrink-0" onClick={e => e.stopPropagation()}>
+                                  <span className="text-[10px] font-semibold text-gray-500 whitespace-nowrap">Done?</span>
+                                  <button
+                                    onClick={() => { handleCompleteLearningGoal(g.id); setConfirmLearningGoalId(null) }}
+                                    className="w-6 h-6 rounded-full bg-green-500 flex items-center justify-center hover:bg-green-600 transition-colors"
+                                    title="Confirm complete"
+                                  >
+                                    <CheckCircle className="w-3.5 h-3.5 text-white" />
+                                  </button>
+                                  <button
+                                    onClick={() => setConfirmLearningGoalId(null)}
+                                    className="w-6 h-6 rounded-full bg-gray-200 flex items-center justify-center hover:bg-gray-300 transition-colors"
+                                    title="Cancel"
+                                  >
+                                    <X className="w-3.5 h-3.5 text-gray-500" />
+                                  </button>
+                                </div>
+                              ) : (
+                                <button
+                                  onClick={e => { e.stopPropagation(); setConfirmLearningGoalId(g.id) }}
+                                  className="w-6 h-6 rounded-full bg-green-100 flex items-center justify-center shrink-0 hover:bg-green-200 transition-colors"
+                                  title="Mark complete"
+                                >
+                                  <CheckCircle className="w-3.5 h-3.5 text-green-600" />
+                                </button>
+                              )}
                             </button>
                             {expandedLearningGoal === g.id && (
                               <div className="px-5 pb-3 bg-gray-50/50">

@@ -237,6 +237,7 @@ export function GuardianDashboard() {
   const [convBody,     setConvBody]     = useState('')
   const [sendingConv,  setSendingConv]  = useState(false)
   const convBottomRef = useRef<HTMLDivElement>(null)
+  const loadingRef    = useRef(false)
 
   useEffect(() => {
     if (!user) return
@@ -306,7 +307,8 @@ export function GuardianDashboard() {
   }, [viewConv?.bookingId])
 
   async function loadData() {
-    if (!user) return
+    if (!user || loadingRef.current) return
+    loadingRef.current = true
     setFetching(true)
     const now = new Date().toISOString()
 
@@ -325,7 +327,7 @@ export function GuardianDashboard() {
     }))
 
     setChildren(kids)
-    if (kids.length === 0) { setFetching(false); return }
+    if (kids.length === 0) { setFetching(false); loadingRef.current = false; return }
 
     const defaultId = kids[0].id
     setSelectedId(defaultId)
@@ -527,6 +529,7 @@ export function GuardianDashboard() {
 
     setChildData(dataMap)
     setFetching(false)
+    loadingRef.current = false
   }
 
   function extractToken(raw: string): string {
