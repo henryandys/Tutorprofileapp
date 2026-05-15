@@ -203,6 +203,15 @@ export function Lessons() {
     if (message.trim()) {
       await supabase.from('messages').insert({ booking_id: lesson.id, sender_id: user!.id, body: message.trim() })
     }
+    sendNotificationEmail({
+      type: 'booking_cancelled',
+      recipientId: lesson.other_user_id,
+      data: {
+        cancellerName: profile?.full_name ?? user!.email?.split('@')[0] ?? 'Someone',
+        otherName: lesson.other_name,
+        subject: lesson.subject,
+      },
+    })
     setLessons(prev => prev.map(l => l.id === lesson.id ? { ...l, status: 'cancelled' as const } : l))
     setCancelBooking(null)
     setCancellingId(null)
@@ -374,8 +383,8 @@ export function Lessons() {
   useEffect(() => {
     if (!user) return
 
-    const asTutorQ   = supabase.from('bookings').select('*').eq('tutor_id', user.id)
-    const asStudentQ = supabase.from('bookings').select('*, tutor:tutor_id(full_name)').eq('student_id', user.id)
+    const asTutorQ   = supabase.from('bookings').select('*').eq('tutor_id', user.id).order('created_at', { ascending: false }).limit(500)
+    const asStudentQ = supabase.from('bookings').select('*, tutor:tutor_id(full_name)').eq('student_id', user.id).order('created_at', { ascending: false }).limit(500)
 
     // Tutors see both sets; students see only their own bookings
     const queries = isTutor
@@ -383,12 +392,13 @@ export function Lessons() {
       : Promise.all([asStudentQ]).then(([r]) => [null, r])
 
     const groupTutorQ   = isTutor
-      ? supabase.from('group_lessons').select('*, group_lesson_enrollments(count)').eq('tutor_id', user.id)
+      ? supabase.from('group_lessons').select('*, group_lesson_enrollments(count)').eq('tutor_id', user.id).limit(100)
       : Promise.resolve({ data: [] })
     const groupStudentQ = supabase
       .from('group_lesson_enrollments')
       .select('group_lesson_id, group_lessons(*)')
       .eq('student_id', user.id)
+      .limit(100)
 
     async function load() {
       try {
@@ -492,7 +502,7 @@ export function Lessons() {
   // Load which tutors this student has already reviewed so we can hide the prompt.
   useEffect(() => {
     if (!user || isTutor) return
-    supabase.from('reviews').select('tutor_id').eq('student_id', user.id)
+    supabase.from('reviews').select('tutor_id').eq('student_id', user.id).limit(200)
       .then(({ data }) => {
         setReviewedTutors(new Set((data ?? []).map((r: any) => r.tutor_id as string)))
       })
@@ -512,6 +522,7 @@ export function Lessons() {
       .from('group_lesson_waitlist')
       .select('group_lesson_id, group_lessons(id, title, subject, scheduled_at, duration_minutes, max_students, price, tutor_id, group_lesson_enrollments(count))')
       .eq('student_id', user.id)
+      .limit(50)
       .then(async ({ data }) => {
         if (!data || data.length === 0) return
         const rows = data as any[]

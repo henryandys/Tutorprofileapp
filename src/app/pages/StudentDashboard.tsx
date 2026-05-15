@@ -53,6 +53,7 @@ import { Link, Navigate, useSearchParams } from "react-router"
 import { Navbar } from "../components/Navbar"
 import { useAuth } from "../../context/AuthContext"
 import { supabase } from "../../lib/supabase"
+import { sendNotificationEmail } from "../../lib/notify"
 import { toast } from "sonner"
 import {
   Calendar, Clock, BookOpen, Heart, Search, ChevronRight, Star,
@@ -211,6 +212,8 @@ export function StudentDashboard() {
   const [addingMilestoneGoalId,  setAddingMilestoneGoalId]  = useState<string | null>(null)
   const [newMilestoneText,       setNewMilestoneText]       = useState('')
   const [savingMilestone,        setSavingMilestone]        = useState(false)
+  const [confirmCancelId,        setConfirmCancelId]        = useState<string | null>(null)
+  const [cancellingId,           setCancellingId]           = useState<string | null>(null)
   const loadingRef = useRef(false)
 
   useEffect(() => {
@@ -256,6 +259,38 @@ export function StudentDashboard() {
     }
   }
 
+  async function handleCancelBooking(bookingId: string, subject: string, tutorId: string, tutorName: string) {
+    if (!user) return
+    const wasUpcoming = upcoming.some(l => l.id === bookingId)
+    const wasPending  = pending.some(p => p.id === bookingId)
+    setCancellingId(bookingId)
+    const { error } = await supabase
+      .from('bookings')
+      .update({ status: 'cancelled' })
+      .eq('id', bookingId)
+      .eq('student_id', user.id)
+    if (error) { toast.error('Could not cancel session.'); setCancellingId(null); return }
+    sendNotificationEmail({
+      type: 'booking_cancelled',
+      recipientId: tutorId,
+      data: {
+        cancellerName: profile?.full_name ?? user.email?.split('@')[0] ?? 'Your student',
+        otherName: tutorName,
+        subject,
+      },
+    })
+    setUpcoming(prev => prev.filter(l => l.id !== bookingId))
+    setPending(prev => prev.filter(p => p.id !== bookingId))
+    setStats(prev => ({
+      ...prev,
+      upcoming: wasUpcoming ? Math.max(0, prev.upcoming - 1) : prev.upcoming,
+      pending:  wasPending  ? Math.max(0, prev.pending - 1)  : prev.pending,
+    }))
+    setConfirmCancelId(null)
+    setCancellingId(null)
+    toast.success('Session cancelled.')
+  }
+
   async function loadData() {
     if (!user || loadingRef.current) return
     loadingRef.current = true
@@ -283,7 +318,9 @@ export function StudentDashboard() {
       supabase
         .from('bookings')
         .select('status, scheduled_at')
-        .eq('student_id', user.id),
+        .eq('student_id', user.id)
+        .order('created_at', { ascending: false })
+        .limit(500),
 
       supabase
         .from('bookings')
@@ -450,6 +487,7 @@ export function StudentDashboard() {
       .eq('student_id', user.id)
       .in('status', ['accepted', 'completed'])
       .order('scheduled_at', { ascending: false })
+      .limit(500)
 
     const bkRows = instrBkData ?? []
     const tutorIds = [...new Set(bkRows.map((b: any) => b.tutor_id as string))]
@@ -746,6 +784,38 @@ export function StudentDashboard() {
                               {mySessionNotes[l.id] ? 'Note' : 'Add note'}
                             </button>
                           )}
+                          {writingNoteFor !== l.id && confirmCancelId !== l.id && (
+                            <button
+                              onClick={() => setConfirmCancelId(l.id)}
+                              className="flex items-center gap-1 px-2.5 py-1.5 bg-gray-100 hover:bg-red-50 text-gray-400 hover:text-red-600 rounded-lg text-xs font-bold transition-colors"
+                              title="Cancel session"
+                            >
+                              <XCircle className="w-3.5 h-3.5" />
+                              Cancel
+                            </button>
+                          )}
+                          {confirmCancelId === l.id && (
+                            <div className="flex items-center gap-1 shrink-0" onClick={e => e.stopPropagation()}>
+                              <span className="text-[10px] font-semibold text-gray-500 whitespace-nowrap">Cancel?</span>
+                              <button
+                                onClick={() => handleCancelBooking(l.id, l.subject, l.tutor_id, l.tutor_name)}
+                                disabled={cancellingId === l.id}
+                                className="w-6 h-6 rounded-full bg-red-500 flex items-center justify-center hover:bg-red-600 transition-colors disabled:opacity-60"
+                                title="Confirm cancel"
+                              >
+                                {cancellingId === l.id
+                                  ? <Loader2 className="w-3.5 h-3.5 text-white animate-spin" />
+                                  : <CheckCircle className="w-3.5 h-3.5 text-white" />}
+                              </button>
+                              <button
+                                onClick={() => setConfirmCancelId(null)}
+                                className="w-6 h-6 rounded-full bg-gray-200 flex items-center justify-center hover:bg-gray-300 transition-colors"
+                                title="Keep session"
+                              >
+                                <X className="w-3.5 h-3.5 text-gray-500" />
+                              </button>
+                            </div>
+                          )}
                         </div>
                       </div>
                       {mySessionNotes[l.id] && writingNoteFor !== l.id && (
@@ -952,18 +1022,46 @@ export function StudentDashboard() {
               ) : (
                 <div className="divide-y divide-gray-50">
                   {pending.map(p => (
-                    <Link
-                      key={p.id}
-                      to={`/tutor/${p.tutor_id}`}
-                      className="flex items-center gap-3 px-5 py-3.5 hover:bg-gray-50 transition-colors group"
-                    >
-                      <Avatar name={p.tutor_name} url={p.tutor_avatar} sm />
+                    <div key={p.id} className="flex items-center gap-3 px-5 py-3.5 hover:bg-gray-50 transition-colors">
+                      <Link to={`/tutor/${p.tutor_id}`} className="shrink-0">
+                        <Avatar name={p.tutor_name} url={p.tutor_avatar} sm />
+                      </Link>
                       <div className="flex-1 min-w-0">
                         <p className="font-bold text-gray-900 text-sm truncate">{p.subject}</p>
                         <p className="text-xs text-gray-500 truncate">with {p.tutor_name}</p>
                         <p className="text-[10px] text-amber-600 font-bold mt-0.5">Awaiting response</p>
                       </div>
-                    </Link>
+                      {confirmCancelId === p.id ? (
+                        <div className="flex items-center gap-1 shrink-0">
+                          <span className="text-[10px] font-semibold text-gray-500 whitespace-nowrap">Withdraw?</span>
+                          <button
+                            onClick={() => handleCancelBooking(p.id, p.subject, p.tutor_id, p.tutor_name)}
+                            disabled={cancellingId === p.id}
+                            className="w-6 h-6 rounded-full bg-red-500 flex items-center justify-center hover:bg-red-600 transition-colors disabled:opacity-60"
+                            title="Confirm withdraw"
+                          >
+                            {cancellingId === p.id
+                              ? <Loader2 className="w-3.5 h-3.5 text-white animate-spin" />
+                              : <CheckCircle className="w-3.5 h-3.5 text-white" />}
+                          </button>
+                          <button
+                            onClick={() => setConfirmCancelId(null)}
+                            className="w-6 h-6 rounded-full bg-gray-200 flex items-center justify-center hover:bg-gray-300 transition-colors"
+                            title="Keep"
+                          >
+                            <X className="w-3.5 h-3.5 text-gray-500" />
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => setConfirmCancelId(p.id)}
+                          className="shrink-0 text-[10px] font-bold text-gray-400 hover:text-red-500 px-2 py-1 rounded-lg hover:bg-red-50 transition-colors"
+                          title="Withdraw request"
+                        >
+                          Withdraw
+                        </button>
+                      )}
+                    </div>
                   ))}
                 </div>
               )}

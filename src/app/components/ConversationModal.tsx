@@ -51,9 +51,10 @@ export function ConversationModal({ bookingId, otherName, otherUserId, subject, 
       .from('messages')
       .select('*')
       .eq('booking_id', bookingId)
-      .order('created_at', { ascending: true })
+      .order('created_at', { ascending: false })
+      .limit(200)
       .then(({ data }) => {
-        const msgs = data ?? []
+        const msgs = (data ?? []).reverse()
         setMessages(msgs)
         setLoading(false)
         const thirdPartyIds = [...new Set(msgs.map(m => m.sender_id))]

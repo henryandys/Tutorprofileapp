@@ -12,6 +12,7 @@ type NotifyPayload =
   | { type: 'reschedule_requested';  recipientId: string; data: { requesterName: string; subject: string; proposedAt: string } }
   | { type: 'reschedule_accepted';   recipientId: string; data: { responderName: string; subject: string } }
   | { type: 'reschedule_declined';   recipientId: string; data: { responderName: string; subject: string } }
+  | { type: 'booking_cancelled';     recipientId: string; data: { cancellerName: string; otherName: string; subject: string } }
 
 export function sendNotificationEmail(payload: NotifyPayload): void {
   supabase.auth.getSession().then(({ data: { session } }) => {

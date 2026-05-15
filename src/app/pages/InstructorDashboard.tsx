@@ -255,7 +255,9 @@ export function InstructorDashboard() {
       supabase
         .from('bookings')
         .select('id, status, scheduled_at, student_id, student_name, subject')
-        .eq('tutor_id', user.id),
+        .eq('tutor_id', user.id)
+        .order('created_at', { ascending: false })
+        .limit(500),
 
       supabase
         .from('reviews')
@@ -312,6 +314,7 @@ export function InstructorDashboard() {
             .in('student_id', studentIds)
             .eq('status', 'active')
             .order('created_at', { ascending: false })
+            .limit(50)
         : Promise.resolve({ data: [] }),
       upcomingIds.length > 0
         ? supabase
@@ -379,7 +382,9 @@ export function InstructorDashboard() {
       supabase
         .from('bookings')
         .select('status, scheduled_at, tutor_id, subject, tutor:tutor_id(full_name, avatar_url)')
-        .eq('student_id', user.id),
+        .eq('student_id', user.id)
+        .order('created_at', { ascending: false })
+        .limit(500),
 
       supabase
         .from('bookings')

@@ -34,6 +34,7 @@ export function TutorReviews() {
       .select('*')
       .eq('tutor_id', user.id)
       .order('created_at', { ascending: false })
+      .limit(100)
       .then(({ data }) => {
         setReviews(data ?? [])
         setLoading(false)
