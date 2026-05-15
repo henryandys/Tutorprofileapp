@@ -39,6 +39,7 @@ export function ConversationModal({ bookingId, otherName, otherUserId, subject, 
   const [blockedByThem, setBlockedByThem] = useState(false)
   const [blockLoading, setBlockLoading] = useState(false)
   const [menuOpen, setMenuOpen]       = useState(false)
+  const [confirmBlock, setConfirmBlock] = useState(false)
   const menuRef                       = useRef<HTMLDivElement>(null)
   // Refs so the realtime callback always reads current block state without
   // needing to be in the subscription's dep array (which would tear down the channel).
@@ -130,6 +131,7 @@ export function ConversationModal({ bookingId, otherName, otherUserId, subject, 
     function handler(e: MouseEvent) {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
         setMenuOpen(false)
+        setConfirmBlock(false)
       }
     }
     document.addEventListener('mousedown', handler)
@@ -140,6 +142,7 @@ export function ConversationModal({ bookingId, otherName, otherUserId, subject, 
     if (!user) return
     setBlockLoading(true)
     setMenuOpen(false)
+    setConfirmBlock(false)
     const { error } = await supabase.from('blocked_users').insert({
       blocker_id: user.id,
       blocked_id: otherUserId,
@@ -158,6 +161,7 @@ export function ConversationModal({ bookingId, otherName, otherUserId, subject, 
     if (!user) return
     setBlockLoading(true)
     setMenuOpen(false)
+    setConfirmBlock(false)
     const { error } = await supabase
       .from('blocked_users')
       .delete()
@@ -221,7 +225,7 @@ export function ConversationModal({ bookingId, otherName, otherUserId, subject, 
                   : <MoreVertical className="w-5 h-5" />}
               </button>
               {menuOpen && (
-                <div className="absolute right-0 mt-1 w-48 bg-white border border-gray-100 rounded-2xl shadow-xl overflow-hidden z-10">
+                <div className="absolute right-0 mt-1 w-52 bg-white border border-gray-100 rounded-2xl shadow-xl overflow-hidden z-10">
                   {blocked ? (
                     <button
                       onClick={handleUnblock}
@@ -230,9 +234,29 @@ export function ConversationModal({ bookingId, otherName, otherUserId, subject, 
                       <MessageCircleOff className="w-4 h-4 text-gray-400" />
                       Unblock {otherName}
                     </button>
+                  ) : confirmBlock ? (
+                    <div className="px-4 py-3 flex flex-col gap-2">
+                      <p className="text-xs font-bold text-gray-500 leading-snug">
+                        Block {otherName}? They won't be able to message you.
+                      </p>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={handleBlock}
+                          className="flex-1 py-1.5 bg-red-600 hover:bg-red-700 text-white text-xs font-bold rounded-lg transition-colors"
+                        >
+                          Yes, block
+                        </button>
+                        <button
+                          onClick={() => setConfirmBlock(false)}
+                          className="flex-1 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-600 text-xs font-bold rounded-lg transition-colors"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
                   ) : (
                     <button
-                      onClick={handleBlock}
+                      onClick={() => setConfirmBlock(true)}
                       className="w-full flex items-center gap-3 px-4 py-3 text-sm font-semibold text-red-600 hover:bg-red-50 transition-colors"
                     >
                       <Ban className="w-4 h-4" />

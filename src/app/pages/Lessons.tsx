@@ -28,7 +28,7 @@
 //
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { useState, useEffect, useMemo } from "react"
+import { useState, useEffect, useMemo, useRef } from "react"
 import { Link, useSearchParams } from "react-router"
 import { Navbar } from "../components/Navbar"
 import { ChevronLeft, ChevronRight, Calendar, Clock, Loader2, User, CheckCircle, XCircle, Users, MessageCircle, XOctagon, MapPin, Star, RefreshCw, Square, CheckSquare, CreditCard, Timer, StickyNote } from "lucide-react"
@@ -174,6 +174,8 @@ export function Lessons() {
   const [waitlistedGroups, setWaitlistedGroups] = useState<GroupEntry[]>([])
   const [leavingWaitlistId, setLeavingWaitlistId] = useState<string | null>(null)
   const [showPastSessions, setShowPastSessions] = useState(false)
+  const [reviewsLoaded, setReviewsLoaded] = useState(false)
+  const reviewToastFiredRef = useRef(false)
 
   async function handleGroupMessage(g: GroupEntry) {
     if (!user || !g.tutor_id) return
@@ -302,6 +304,15 @@ export function Lessons() {
     if (error) { toast.error('Failed to mark complete.') }
     else {
       setLessons(prev => prev.map(l => l.id === lesson.id ? { ...l, status: 'completed' } : l))
+      sendNotificationEmail({
+        type: 'session_completed',
+        recipientId: lesson.other_user_id,
+        data: {
+          tutorName:   profile?.full_name ?? 'Your tutor',
+          studentName: lesson.other_name,
+          subject:     lesson.subject,
+        },
+      })
       toast.success('Session marked complete!')
     }
     setCompletingId(null)
@@ -505,6 +516,7 @@ export function Lessons() {
     supabase.from('reviews').select('tutor_id').eq('student_id', user.id).limit(200)
       .then(({ data }) => {
         setReviewedTutors(new Set((data ?? []).map((r: any) => r.tutor_id as string)))
+        setReviewsLoaded(true)
       })
   }, [user, isTutor])
 
@@ -852,6 +864,24 @@ export function Lessons() {
       .filter(g => new Date(g.scheduled_at) >= today)
       .sort((a, b) => new Date(a.scheduled_at).getTime() - new Date(b.scheduled_at).getTime())
   }, [selectedDay, groupByDate, groupEntries, today])
+
+  // One-shot toast prompting students to review sessions marked complete since last visit.
+  // Gated on reviewsLoaded so we don't fire before already-reviewed tutors are known.
+  useEffect(() => {
+    if (isTutor || !reviewsLoaded || reviewToastFiredRef.current || needsReview.length === 0) return
+    reviewToastFiredRef.current = true
+    const count = needsReview.length
+    const first = needsReview[0]
+    toast.info(
+      count === 1
+        ? `Your session with ${first.other_name} is complete — leave a review!`
+        : `${count} sessions are ready for your review`,
+      {
+        action:   { label: 'Rate now →', onClick: () => setReviewLesson(first) },
+        duration: 10000,
+      }
+    )
+  }, [reviewsLoaded, needsReview, isTutor])
 
   return (
     <div className="min-h-screen bg-gray-50">
