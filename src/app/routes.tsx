@@ -106,7 +106,11 @@ export const router = createBrowserRouter([
   },
   {
     path: "/join-family/:token",
-    Component: JoinFamily,
+    element: (
+      <ProtectedRoute>
+        <JoinFamily />
+      </ProtectedRoute>
+    ),
   },
 
   // ── Requires any logged-in user ─────────────────────────

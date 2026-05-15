@@ -7,7 +7,7 @@ import {
   User, BookOpen, DollarSign, MapPin, GraduationCap, Briefcase,
   Plus, X, Save, Camera, Award, Star, FileText, Calendar,
   ChevronRight, Loader2, Clock, Shield, CreditCard, Users, RefreshCw, Bell, Lightbulb,
-  BadgeCheck, ShieldCheck, Upload
+  BadgeCheck, ShieldCheck, Upload, AlertCircle, CheckCircle2,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Link } from "react-router";
@@ -145,6 +145,9 @@ export function TutorMyProfile() {
   const [cancelMenuId, setCancelMenuId]       = useState<string | null>(null)
   const notifSectionRef = useRef<HTMLDivElement>(null)
 
+  const [tutorDataLoaded, setTutorDataLoaded] = useState(false)
+  const [nudgeDismissed, setNudgeDismissed]   = useState(false)
+
   const [isVerified, setIsVerified]           = useState(false)
   const [verifRequested, setVerifRequested]   = useState(false)
   const [verifDocUrl, setVerifDocUrl]         = useState<string | null>(null)
@@ -216,6 +219,7 @@ export function TutorMyProfile() {
           policy:           data?.policy ?? '',
           specialties:      (data?.subjects ?? []).map((s: string) => ({ value: s })),
         })
+        setTutorDataLoaded(true)
       })
 
     // Fetch incoming bookings
@@ -344,6 +348,22 @@ export function TutorMyProfile() {
 
   const pendingCount = bookings.filter(b => b.status === 'pending').length
 
+  const completenessItems = useMemo(() => {
+    if (!tutorDataLoaded) return []
+    const items: { key: string; label: string; done: boolean }[] = [
+      { key: 'avatar',   label: 'Upload a profile photo',     done: !!profile?.avatar_url },
+      { key: 'bio',      label: 'Write a bio',                done: !!(profile?.bio?.trim()) },
+      { key: 'rate',     label: 'Set your hourly rate',       done: !!(tutorData?.hourly_rate > 0) },
+      { key: 'subjects', label: 'Add at least one subject',   done: !!(tutorData?.subjects?.length > 0) },
+      { key: 'location', label: 'Add your location',          done: !!(profile?.location?.trim()) },
+    ]
+    return items
+  }, [tutorDataLoaded, tutorData, profile])
+
+  const missingItems  = completenessItems.filter(i => !i.done)
+  const completedCount = completenessItems.filter(i => i.done).length
+  const showNudge = tutorDataLoaded && !nudgeDismissed && missingItems.length > 0
+
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
       <Navbar />
@@ -378,6 +398,57 @@ export function TutorMyProfile() {
             </div>
           )}
         </div>
+
+        {/* Profile completeness nudge */}
+        {showNudge && (
+          <div className="mb-8 bg-amber-50 border border-amber-200 rounded-2xl p-5">
+            <div className="flex items-start justify-between gap-4">
+              <div className="flex items-start gap-3 min-w-0">
+                <AlertCircle className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
+                <div className="min-w-0">
+                  <div className="flex items-center gap-3 flex-wrap">
+                    <p className="font-black text-gray-900 text-sm">
+                      Complete your profile to appear in search results
+                    </p>
+                    <span className="text-xs font-bold text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full">
+                      {completedCount} / {completenessItems.length} complete
+                    </span>
+                  </div>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {completenessItems.map(item => (
+                      <span
+                        key={item.key}
+                        className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold border ${
+                          item.done
+                            ? 'bg-green-50 border-green-200 text-green-700'
+                            : 'bg-white border-amber-200 text-amber-700'
+                        }`}
+                      >
+                        <CheckCircle2 className={`w-3 h-3 ${item.done ? 'text-green-500' : 'text-amber-300'}`} />
+                        {item.label}
+                      </span>
+                    ))}
+                  </div>
+                  {!isEditing && (
+                    <button
+                      onClick={() => setIsEditing(true)}
+                      className="mt-3 text-xs font-bold text-amber-700 hover:text-amber-900 underline underline-offset-2 transition-colors"
+                    >
+                      Edit profile to complete →
+                    </button>
+                  )}
+                </div>
+              </div>
+              <button
+                onClick={() => setNudgeDismissed(true)}
+                className="shrink-0 p-1 text-amber-400 hover:text-amber-600 transition-colors"
+                aria-label="Dismiss"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        )}
 
         <div className="flex flex-col lg:flex-row gap-8">
 
