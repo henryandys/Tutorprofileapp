@@ -604,10 +604,12 @@ export function Lessons() {
   }
 
   async function handleRescheduleRequest(lesson: Lesson, proposedAt: string) {
+    const userField = lesson.perspective === 'tutor' ? 'tutor_id' : 'student_id'
     const { error } = await supabase
       .from('bookings')
       .update({ reschedule_proposed_at: proposedAt, reschedule_status: 'pending', reschedule_proposed_by: user!.id })
       .eq('id', lesson.id)
+      .eq(userField, user!.id)
     if (error) { toast.error('Failed to send reschedule request.'); return }
     setLessons(prev => prev.map(l =>
       l.id === lesson.id

@@ -58,18 +58,21 @@ import { toast } from "sonner"
 import {
   Calendar, Clock, BookOpen, Heart, Search, ChevronRight, Star,
   User, CheckCircle, XCircle, Loader2, TrendingUp, Lightbulb, Ban, StickyNote,
-  Target, Plus, X, Flag, PenLine, GraduationCap, CreditCard,
+  Target, Plus, X, Flag, PenLine, GraduationCap, CreditCard, RefreshCw,
 } from "lucide-react"
 
 interface UpcomingLesson {
-  id:             string
-  subject:        string
-  scheduled_at:   string
-  tutor_name:     string
-  tutor_avatar:   string | null
-  tutor_id:       string
-  price_cents:    number | null
-  payment_status: 'pending' | 'paid' | 'refunded' | null
+  id:                    string
+  subject:               string
+  scheduled_at:          string
+  tutor_name:            string
+  tutor_avatar:          string | null
+  tutor_id:              string
+  price_cents:           number | null
+  payment_status:        'pending' | 'paid' | 'refunded' | null
+  reschedule_proposed_at: string | null
+  reschedule_status:      'pending' | 'accepted' | 'declined' | null
+  reschedule_proposed_by: string | null
 }
 
 interface PendingPayment {
@@ -212,8 +215,9 @@ export function StudentDashboard() {
   const [addingMilestoneGoalId,  setAddingMilestoneGoalId]  = useState<string | null>(null)
   const [newMilestoneText,       setNewMilestoneText]       = useState('')
   const [savingMilestone,        setSavingMilestone]        = useState(false)
-  const [confirmCancelId,        setConfirmCancelId]        = useState<string | null>(null)
-  const [cancellingId,           setCancellingId]           = useState<string | null>(null)
+  const [confirmCancelId,          setConfirmCancelId]          = useState<string | null>(null)
+  const [cancellingId,             setCancellingId]             = useState<string | null>(null)
+  const [rescheduleRespondingId,   setRescheduleRespondingId]   = useState<string | null>(null)
   const loadingRef = useRef(false)
 
   useEffect(() => {
@@ -291,6 +295,35 @@ export function StudentDashboard() {
     toast.success('Session cancelled.')
   }
 
+  async function handleRespondReschedule(lesson: UpcomingLesson, accept: boolean) {
+    if (!user) return
+    setRescheduleRespondingId(lesson.id)
+    const updates = accept
+      ? { scheduled_at: lesson.reschedule_proposed_at, reschedule_status: 'accepted' as const, reschedule_proposed_at: null as string | null }
+      : { reschedule_status: 'declined' as const, reschedule_proposed_at: null as string | null }
+    const { error } = await supabase
+      .from('bookings')
+      .update(updates)
+      .eq('id', lesson.id)
+      .eq('student_id', user.id)
+    if (error) { toast.error('Failed to update reschedule.'); setRescheduleRespondingId(null); return }
+    setUpcoming(prev => prev.map(l =>
+      l.id === lesson.id ? { ...l, ...updates } : l
+    ))
+    if (lesson.reschedule_proposed_by) {
+      sendNotificationEmail({
+        type:        accept ? 'reschedule_accepted' : 'reschedule_declined',
+        recipientId: lesson.reschedule_proposed_by,
+        data: {
+          responderName: profile?.full_name ?? user.email?.split('@')[0] ?? 'Your student',
+          subject:       lesson.subject,
+        },
+      })
+    }
+    toast.success(accept ? 'Reschedule accepted!' : 'Reschedule declined.')
+    setRescheduleRespondingId(null)
+  }
+
   async function loadData() {
     if (!user || loadingRef.current) return
     loadingRef.current = true
@@ -300,7 +333,7 @@ export function StudentDashboard() {
     const [upcomingRes, pendingRes, allRes, activityRes, savedRes, notesRes, goalsRes, unpaidRes] = await Promise.all([
       supabase
         .from('bookings')
-        .select('id, subject, scheduled_at, price_cents, payment_status, tutor:tutor_id(id, full_name, avatar_url)')
+        .select('id, subject, scheduled_at, price_cents, payment_status, reschedule_proposed_at, reschedule_status, reschedule_proposed_by, tutor:tutor_id(id, full_name, avatar_url)')
         .eq('student_id', user.id)
         .eq('status', 'accepted')
         .gte('scheduled_at', now)
@@ -366,14 +399,17 @@ export function StudentDashboard() {
 
     setUpcoming(
       (upcomingRes.data ?? []).map((b: any) => ({
-        id:             b.id,
-        subject:        b.subject,
-        scheduled_at:   b.scheduled_at,
-        tutor_name:     b.tutor?.full_name  ?? 'Instructor',
-        tutor_avatar:   b.tutor?.avatar_url ?? null,
-        tutor_id:       b.tutor?.id         ?? '',
-        price_cents:    b.price_cents    ?? null,
-        payment_status: b.payment_status ?? null,
+        id:                     b.id,
+        subject:                b.subject,
+        scheduled_at:           b.scheduled_at,
+        tutor_name:             b.tutor?.full_name  ?? 'Instructor',
+        tutor_avatar:           b.tutor?.avatar_url ?? null,
+        tutor_id:               b.tutor?.id         ?? '',
+        price_cents:            b.price_cents    ?? null,
+        payment_status:         b.payment_status ?? null,
+        reschedule_proposed_at: b.reschedule_proposed_at ?? null,
+        reschedule_status:      b.reschedule_status      ?? null,
+        reschedule_proposed_by: b.reschedule_proposed_by ?? null,
       }))
     )
 
@@ -818,6 +854,47 @@ export function StudentDashboard() {
                           )}
                         </div>
                       </div>
+                      {/* Reschedule banner */}
+                      {l.reschedule_status === 'pending' && l.reschedule_proposed_at && (
+                        l.reschedule_proposed_by !== user?.id ? (
+                          <div className="mt-2 ml-14 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2.5 flex items-center gap-3">
+                            <RefreshCw className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                            <div className="flex-1 min-w-0">
+                              <p className="text-[10px] font-black text-amber-600 uppercase tracking-widest">Reschedule proposed</p>
+                              <p className="text-xs font-bold text-gray-800">
+                                {new Date(l.reschedule_proposed_at).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}
+                                {' · '}
+                                {new Date(l.reschedule_proposed_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
+                              </p>
+                            </div>
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              <button
+                                onClick={() => handleRespondReschedule(l, true)}
+                                disabled={rescheduleRespondingId === l.id}
+                                className="flex items-center gap-1 px-2.5 py-1 bg-green-600 hover:bg-green-700 text-white rounded-lg text-xs font-bold transition-colors disabled:opacity-60"
+                              >
+                                {rescheduleRespondingId === l.id
+                                  ? <Loader2 className="w-3 h-3 animate-spin" />
+                                  : <CheckCircle className="w-3 h-3" />}
+                                Accept
+                              </button>
+                              <button
+                                onClick={() => handleRespondReschedule(l, false)}
+                                disabled={rescheduleRespondingId === l.id}
+                                className="flex items-center gap-1 px-2.5 py-1 bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-lg text-xs font-bold transition-colors disabled:opacity-60"
+                              >
+                                <XCircle className="w-3 h-3" />
+                                Decline
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="mt-2 ml-14 flex items-center gap-2 text-xs text-gray-400 font-medium">
+                            <RefreshCw className="w-3.5 h-3.5 shrink-0" />
+                            Reschedule request sent — awaiting instructor response
+                          </div>
+                        )
+                      )}
                       {mySessionNotes[l.id] && writingNoteFor !== l.id && (
                         <div className="mt-2 ml-14 bg-blue-50 rounded-lg px-3 py-2">
                           <p className="text-[10px] font-black text-blue-400 uppercase tracking-widest mb-0.5">Your note</p>
