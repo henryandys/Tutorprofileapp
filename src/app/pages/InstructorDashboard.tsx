@@ -702,35 +702,35 @@ export function InstructorDashboard() {
         {tab === 'teaching' && (
           <>
             {/* Stats */}
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-              <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 flex items-center gap-3">
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-8">
+              <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-3 sm:p-5 flex flex-col sm:flex-row items-center gap-1.5 sm:gap-3 text-center sm:text-left">
                 <div className="w-10 h-10 rounded-xl bg-blue-100 flex items-center justify-center shrink-0">
                   <Calendar className="w-5 h-5 text-blue-600" />
                 </div>
                 <div>
                   <p className="text-2xl font-black text-gray-900">{teachingStats.upcoming}</p>
-                  <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">Upcoming</p>
+                  <p className="text-[10px] sm:text-xs font-bold text-gray-400 uppercase tracking-wide">Upcoming</p>
                 </div>
               </div>
-              <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 flex items-center gap-3">
+              <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-3 sm:p-5 flex flex-col sm:flex-row items-center gap-1.5 sm:gap-3 text-center sm:text-left">
                 <div className="w-10 h-10 rounded-xl bg-amber-100 flex items-center justify-center shrink-0">
                   <Clock className="w-5 h-5 text-amber-600" />
                 </div>
                 <div>
                   <p className="text-2xl font-black text-gray-900">{teachingStats.pending}</p>
-                  <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">Requests</p>
+                  <p className="text-[10px] sm:text-xs font-bold text-gray-400 uppercase tracking-wide">Requests</p>
                 </div>
               </div>
-              <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 flex items-center gap-3">
+              <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-3 sm:p-5 flex flex-col sm:flex-row items-center gap-1.5 sm:gap-3 text-center sm:text-left">
                 <div className="w-10 h-10 rounded-xl bg-purple-100 flex items-center justify-center shrink-0">
                   <Users className="w-5 h-5 text-purple-600" />
                 </div>
                 <div>
                   <p className="text-2xl font-black text-gray-900">{teachingStats.students}</p>
-                  <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">Students</p>
+                  <p className="text-[10px] sm:text-xs font-bold text-gray-400 uppercase tracking-wide">Students</p>
                 </div>
               </div>
-              <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 flex items-center gap-3">
+              <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-3 sm:p-5 flex flex-col sm:flex-row items-center gap-1.5 sm:gap-3 text-center sm:text-left">
                 <div className="w-10 h-10 rounded-xl bg-amber-100 flex items-center justify-center shrink-0">
                   <Star className="w-5 h-5 text-amber-500" />
                 </div>
@@ -738,7 +738,7 @@ export function InstructorDashboard() {
                   <p className="text-2xl font-black text-gray-900">
                     {teachingStats.rating !== null ? teachingStats.rating : '—'}
                   </p>
-                  <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">Avg Rating</p>
+                  <p className="text-[10px] sm:text-xs font-bold text-gray-400 uppercase tracking-wide">Avg Rating</p>
                 </div>
               </div>
             </div>
@@ -1091,32 +1091,32 @@ export function InstructorDashboard() {
         {tab === 'learning' && (
           <>
             {/* Stats */}
-            <div className="grid grid-cols-3 gap-4 mb-8">
-              <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 flex items-center gap-4">
-                <div className="w-11 h-11 rounded-xl bg-blue-100 flex items-center justify-center shrink-0">
+            <div className="grid grid-cols-3 gap-3 sm:gap-4 mb-8">
+              <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-3 sm:p-5 flex flex-col sm:flex-row items-center gap-1.5 sm:gap-4 text-center sm:text-left">
+                <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-xl bg-blue-100 flex items-center justify-center shrink-0">
                   <Calendar className="w-5 h-5 text-blue-600" />
                 </div>
                 <div>
                   <p className="text-2xl font-black text-gray-900">{studentStats.upcoming}</p>
-                  <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">Upcoming</p>
+                  <p className="text-[10px] sm:text-xs font-bold text-gray-400 uppercase tracking-wide">Upcoming</p>
                 </div>
               </div>
-              <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 flex items-center gap-4">
-                <div className="w-11 h-11 rounded-xl bg-amber-100 flex items-center justify-center shrink-0">
+              <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-3 sm:p-5 flex flex-col sm:flex-row items-center gap-1.5 sm:gap-4 text-center sm:text-left">
+                <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-xl bg-amber-100 flex items-center justify-center shrink-0">
                   <Clock className="w-5 h-5 text-amber-600" />
                 </div>
                 <div>
                   <p className="text-2xl font-black text-gray-900">{studentStats.pending}</p>
-                  <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">Pending</p>
+                  <p className="text-[10px] sm:text-xs font-bold text-gray-400 uppercase tracking-wide">Pending</p>
                 </div>
               </div>
-              <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 flex items-center gap-4">
-                <div className="w-11 h-11 rounded-xl bg-green-100 flex items-center justify-center shrink-0">
+              <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-3 sm:p-5 flex flex-col sm:flex-row items-center gap-1.5 sm:gap-4 text-center sm:text-left">
+                <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-xl bg-green-100 flex items-center justify-center shrink-0">
                   <CheckCircle className="w-5 h-5 text-green-600" />
                 </div>
                 <div>
                   <p className="text-2xl font-black text-gray-900">{studentStats.completed}</p>
-                  <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">Completed</p>
+                  <p className="text-[10px] sm:text-xs font-bold text-gray-400 uppercase tracking-wide">Completed</p>
                 </div>
               </div>
             </div>

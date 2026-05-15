@@ -202,7 +202,8 @@ export function TutorMyProfile() {
           setAvailability(normalized)
         }
         if (data?.blackout_dates) {
-          setBlackoutDates(data.blackout_dates)
+          const today = new Date().toISOString().split('T')[0]
+          setBlackoutDates((data.blackout_dates as string[]).filter(d => d >= today))
         }
         reset({
           name:             profile?.full_name ?? '',
@@ -640,7 +641,7 @@ export function TutorMyProfile() {
           </div>
 
           {/* Availability */}
-          <div className="bg-white rounded-3xl shadow-lg border border-gray-100 p-8">
+          <div className="bg-white rounded-3xl shadow-lg border border-gray-100 p-4 sm:p-8">
             <h2 className="text-xl font-bold text-gray-900 mb-6 flex items-center gap-2">
               <Clock className="w-6 h-6 text-blue-600" />
               Weekly Availability
@@ -666,7 +667,7 @@ export function TutorMyProfile() {
                     </div>
 
                     {slot.available && (
-                      <div className="mt-2 ml-32 flex flex-col gap-2">
+                      <div className="mt-2 ml-0 sm:ml-28 flex flex-col gap-2">
                         {slot.blocks.map((block, idx) => (
                           <div key={idx} className="flex items-center gap-2">
                             <input
@@ -674,15 +675,15 @@ export function TutorMyProfile() {
                               value={block.start}
                               disabled={!isEditing}
                               onChange={e => updateBlock(day, idx, 'start', e.target.value)}
-                              className="h-9 px-3 border border-gray-200 rounded-lg text-sm font-bold text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-50 disabled:text-gray-500"
+                              className="h-9 px-2 sm:px-3 border border-gray-200 rounded-lg text-sm font-bold text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-50 disabled:text-gray-500 min-w-0 flex-1"
                             />
-                            <span className="text-gray-400 font-bold">–</span>
+                            <span className="text-gray-400 font-bold shrink-0">–</span>
                             <input
                               type="time"
                               value={block.end}
                               disabled={!isEditing}
                               onChange={e => updateBlock(day, idx, 'end', e.target.value)}
-                              className="h-9 px-3 border border-gray-200 rounded-lg text-sm font-bold text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-50 disabled:text-gray-500"
+                              className="h-9 px-2 sm:px-3 border border-gray-200 rounded-lg text-sm font-bold text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-50 disabled:text-gray-500 min-w-0 flex-1"
                             />
                             {isEditing && slot.blocks.length > 1 && (
                               <button

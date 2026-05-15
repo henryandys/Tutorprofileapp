@@ -391,7 +391,7 @@ export function StudentDetail() {
         ) : (
           <>
             {/* ── Hero ─────────────────────────────────────────────────────── */}
-            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 mb-6 flex items-start gap-5">
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 mb-6 flex flex-wrap items-start gap-4 sm:gap-5">
               <Avatar name={studentName} url={student.avatar_url} />
               <div className="flex-1 min-w-0">
                 <h1 className="text-2xl font-black text-gray-900">{studentName}</h1>
@@ -402,19 +402,19 @@ export function StudentDetail() {
                   <p className="text-xs text-gray-400 font-medium mt-1">Last session: {timeAgo(lastSession)}</p>
                 )}
               </div>
-              {/* Stats */}
-              <div className="flex items-center gap-4 shrink-0 flex-wrap justify-end">
+              {/* Stats — full-width row on mobile, inline on sm+ */}
+              <div className="w-full sm:w-auto flex items-center justify-around sm:justify-end gap-6 sm:gap-4 sm:shrink-0 border-t border-gray-100 pt-3 sm:border-t-0 sm:pt-0">
                 <div className="text-center">
                   <p className="text-2xl font-black text-blue-600">{upcoming.length}</p>
-                  <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Upcoming</p>
+                  <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wide">Upcoming</p>
                 </div>
                 <div className="text-center">
                   <p className="text-2xl font-black text-green-600">{completed.length}</p>
-                  <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Completed</p>
+                  <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wide">Completed</p>
                 </div>
                 <div className="text-center">
                   <p className="text-2xl font-black text-amber-500">{pending.length}</p>
-                  <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Pending</p>
+                  <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wide">Pending</p>
                 </div>
               </div>
             </div>

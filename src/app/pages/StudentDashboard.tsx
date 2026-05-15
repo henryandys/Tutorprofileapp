@@ -33,6 +33,11 @@
 //     SELECT 1 FROM learning_goals g JOIN bookings b ON b.student_id = g.student_id
 //     WHERE g.id = goal_id AND b.tutor_id = auth.uid() AND b.status IN ('accepted','completed')
 //   ));
+// -- Students can add their own progress notes to their goals
+// CREATE POLICY "milestones_student_insert" ON goal_milestones FOR INSERT TO authenticated
+//   WITH CHECK (marked_by = auth.uid() AND EXISTS (
+//     SELECT 1 FROM learning_goals WHERE id = goal_id AND student_id = auth.uid()
+//   ));
 // -- Anyone who can see the goal can see its milestones
 // CREATE POLICY "milestones_read" ON goal_milestones FOR SELECT TO authenticated
 //   USING (EXISTS (
@@ -201,8 +206,11 @@ export function StudentDashboard() {
   const [savingGoal,        setSavingGoal]        = useState(false)
   const [expandedGoal,      setExpandedGoal]      = useState<string | null>(null)
   const [goalMilestones,    setGoalMilestones]    = useState<Record<string, GoalMilestone[]>>({})
-  const [loadingMilestones, setLoadingMilestones] = useState<string | null>(null)
-  const [confirmGoalId,     setConfirmGoalId]     = useState<string | null>(null)
+  const [loadingMilestones,      setLoadingMilestones]      = useState<string | null>(null)
+  const [confirmGoalId,          setConfirmGoalId]          = useState<string | null>(null)
+  const [addingMilestoneGoalId,  setAddingMilestoneGoalId]  = useState<string | null>(null)
+  const [newMilestoneText,       setNewMilestoneText]       = useState('')
+  const [savingMilestone,        setSavingMilestone]        = useState(false)
   const loadingRef = useRef(false)
 
   useEffect(() => {
@@ -527,6 +535,27 @@ export function StudentDashboard() {
     setLoadingMilestones(null)
   }
 
+  async function handleAddStudentMilestone(goalId: string) {
+    if (!newMilestoneText.trim() || !user) return
+    setSavingMilestone(true)
+    const { data, error } = await supabase
+      .from('goal_milestones')
+      .insert({ goal_id: goalId, marked_by: user.id, title: newMilestoneText.trim() })
+      .select('id, title, created_at, marker:marked_by(full_name)')
+      .single()
+    if (error) { toast.error('Failed to add note.'); setSavingMilestone(false); return }
+    const entry: GoalMilestone = {
+      id: data.id, title: data.title, created_at: data.created_at,
+      marker_name: (data.marker as any)?.full_name ?? null,
+    }
+    setGoalMilestones(prev => ({ ...prev, [goalId]: [...(prev[goalId] ?? []), entry] }))
+    setGoals(prev => prev.map(g => g.id === goalId ? { ...g, milestone_count: g.milestone_count + 1 } : g))
+    setNewMilestoneText('')
+    setAddingMilestoneGoalId(null)
+    setSavingMilestone(false)
+    toast.success('Note added!')
+  }
+
   async function handleSaveStudentNote(bookingId: string) {
     if (!noteText.trim() || !user) return
     setSavingNote(true)
@@ -574,32 +603,32 @@ export function StudentDashboard() {
         </div>
 
         {/* Stats */}
-        <div className="grid grid-cols-3 gap-4 mb-8">
-          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 flex items-center gap-4">
-            <div className="w-11 h-11 rounded-xl bg-blue-100 flex items-center justify-center shrink-0">
+        <div className="grid grid-cols-3 gap-3 sm:gap-4 mb-8">
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-3 sm:p-5 flex flex-col sm:flex-row items-center gap-1.5 sm:gap-4 text-center sm:text-left">
+            <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-xl bg-blue-100 flex items-center justify-center shrink-0">
               <Calendar className="w-5 h-5 text-blue-600" />
             </div>
             <div>
               <p className="text-2xl font-black text-gray-900">{stats.upcoming}</p>
-              <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">Upcoming</p>
+              <p className="text-[10px] sm:text-xs font-bold text-gray-400 uppercase tracking-wide">Upcoming</p>
             </div>
           </div>
-          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 flex items-center gap-4">
-            <div className="w-11 h-11 rounded-xl bg-amber-100 flex items-center justify-center shrink-0">
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-3 sm:p-5 flex flex-col sm:flex-row items-center gap-1.5 sm:gap-4 text-center sm:text-left">
+            <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-xl bg-amber-100 flex items-center justify-center shrink-0">
               <Clock className="w-5 h-5 text-amber-600" />
             </div>
             <div>
               <p className="text-2xl font-black text-gray-900">{stats.pending}</p>
-              <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">Pending</p>
+              <p className="text-[10px] sm:text-xs font-bold text-gray-400 uppercase tracking-wide">Pending</p>
             </div>
           </div>
-          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 flex items-center gap-4">
-            <div className="w-11 h-11 rounded-xl bg-green-100 flex items-center justify-center shrink-0">
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-3 sm:p-5 flex flex-col sm:flex-row items-center gap-1.5 sm:gap-4 text-center sm:text-left">
+            <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-xl bg-green-100 flex items-center justify-center shrink-0">
               <CheckCircle className="w-5 h-5 text-green-600" />
             </div>
             <div>
               <p className="text-2xl font-black text-gray-900">{stats.completed}</p>
-              <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">Completed</p>
+              <p className="text-[10px] sm:text-xs font-bold text-gray-400 uppercase tracking-wide">Completed</p>
             </div>
           </div>
         </div>
@@ -1112,24 +1141,63 @@ export function StudentDashboard() {
                         <div className="px-5 pb-3 bg-gray-50/50">
                           {loadingMilestones === g.id ? (
                             <div className="py-3 flex justify-center"><Loader2 className="w-4 h-4 animate-spin text-gray-300" /></div>
-                          ) : (goalMilestones[g.id] ?? []).length === 0 ? (
-                            <p className="text-[11px] text-gray-400 font-medium py-2 italic">No milestones yet — your instructor can mark progress here.</p>
                           ) : (
-                            <div className="space-y-2 pt-2">
-                              {(goalMilestones[g.id] ?? []).map(m => (
-                                <div key={m.id} className="flex items-start gap-2">
-                                  <div className="w-4 h-4 rounded-full bg-green-100 flex items-center justify-center shrink-0 mt-0.5">
-                                    <CheckCircle className="w-2.5 h-2.5 text-green-600" />
-                                  </div>
-                                  <div>
-                                    <p className="text-xs font-bold text-gray-800">{m.title}</p>
-                                    <p className="text-[10px] text-gray-400">
-                                      {m.marker_name ? `by ${m.marker_name} · ` : ''}{timeAgo(m.created_at)}
-                                    </p>
-                                  </div>
+                            <>
+                              {(goalMilestones[g.id] ?? []).length === 0 ? (
+                                <p className="text-[11px] text-gray-400 font-medium pt-2 italic">No notes yet — add one below or wait for your instructor to mark progress.</p>
+                              ) : (
+                                <div className="space-y-2 pt-2">
+                                  {(goalMilestones[g.id] ?? []).map(m => (
+                                    <div key={m.id} className="flex items-start gap-2">
+                                      <div className="w-4 h-4 rounded-full bg-green-100 flex items-center justify-center shrink-0 mt-0.5">
+                                        <CheckCircle className="w-2.5 h-2.5 text-green-600" />
+                                      </div>
+                                      <div>
+                                        <p className="text-xs font-bold text-gray-800">{m.title}</p>
+                                        <p className="text-[10px] text-gray-400">
+                                          {m.marker_name ? `by ${m.marker_name} · ` : ''}{timeAgo(m.created_at)}
+                                        </p>
+                                      </div>
+                                    </div>
+                                  ))}
                                 </div>
-                              ))}
-                            </div>
+                              )}
+                              {/* Add student note */}
+                              {addingMilestoneGoalId === g.id ? (
+                                <div className="flex items-center gap-2 mt-2">
+                                  <input
+                                    autoFocus
+                                    value={newMilestoneText}
+                                    onChange={e => setNewMilestoneText(e.target.value)}
+                                    onKeyDown={e => { if (e.key === 'Enter') handleAddStudentMilestone(g.id) }}
+                                    placeholder="e.g. Practised for 30 min"
+                                    className="flex-1 min-w-0 h-8 px-3 border border-gray-200 rounded-lg text-xs bg-white focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                                  />
+                                  <button
+                                    onClick={() => handleAddStudentMilestone(g.id)}
+                                    disabled={!newMilestoneText.trim() || savingMilestone}
+                                    className="h-8 px-3 bg-indigo-600 text-white rounded-lg text-xs font-bold hover:bg-indigo-700 disabled:opacity-50 transition-colors flex items-center gap-1 shrink-0"
+                                  >
+                                    {savingMilestone ? <Loader2 className="w-3 h-3 animate-spin" /> : <Plus className="w-3 h-3" />}
+                                    Add
+                                  </button>
+                                  <button
+                                    onClick={() => { setAddingMilestoneGoalId(null); setNewMilestoneText('') }}
+                                    className="h-8 w-8 flex items-center justify-center rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors shrink-0"
+                                  >
+                                    <X className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+                              ) : (
+                                <button
+                                  onClick={() => { setAddingMilestoneGoalId(g.id); setNewMilestoneText('') }}
+                                  className="flex items-center gap-1 text-xs font-bold text-indigo-600 hover:text-indigo-700 mt-2"
+                                >
+                                  <Plus className="w-3 h-3" />
+                                  Add note
+                                </button>
+                              )}
+                            </>
                           )}
                         </div>
                       )}
