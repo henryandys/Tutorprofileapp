@@ -36,7 +36,7 @@ import { Link } from "react-router"
 import { Navbar } from "../components/Navbar"
 import { useAuth } from "../../context/AuthContext"
 import { supabase } from "../../lib/supabase"
-import { ShieldCheck, BadgeCheck, Clock, ExternalLink, FileText, Search, X } from "lucide-react"
+import { ShieldCheck, BadgeCheck, Clock, ExternalLink, FileText, Search, X, AlertTriangle } from "lucide-react"
 import { toast } from "sonner"
 
 interface TutorRow {
@@ -56,6 +56,7 @@ export function Admin() {
   const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState<'pending' | 'all'>('all')
   const [search, setSearch] = useState('')
+  const [rlsWarning, setRlsWarning] = useState(false)
 
   // Query is_admin directly — don't rely on the cached AuthContext profile
   useEffect(() => {
@@ -72,13 +73,25 @@ export function Admin() {
     if (isAdmin === null) return
     if (!isAdmin) { setLoading(false); return }
 
-    // tutors_view is public (no RLS), gives us name/avatar for all tutors.
-    // tutor_profiles may have RLS — we merge what we can get from it.
     Promise.all([
       supabase.from('tutors_view').select('id, full_name, avatar_url'),
       supabase.from('tutor_profiles').select('id, is_verified, verification_requested, verification_document_url'),
     ]).then(([viewRes, tpRes]) => {
-      if (viewRes.error) { toast.error('Failed to load instructor list'); setLoading(false); return }
+      console.log('tutors_view:', viewRes.data?.length, viewRes.error)
+      console.log('tutor_profiles:', tpRes.data?.length, tpRes.error)
+
+      if (viewRes.error) {
+        toast.error('Failed to load instructor list: ' + viewRes.error.message)
+        setLoading(false)
+        return
+      }
+
+      if (tpRes.error) {
+        console.error('tutor_profiles error:', tpRes.error)
+        setRlsWarning(true)
+      } else if ((viewRes.data ?? []).length > 0 && (tpRes.data ?? []).length === 0) {
+        setRlsWarning(true)
+      }
 
       const tpMap: Record<string, any> = {}
       for (const row of tpRes.data ?? []) tpMap[row.id] = row
@@ -133,10 +146,44 @@ export function Admin() {
       <Navbar />
       <div className="max-w-5xl mx-auto px-4 py-10">
 
-        <div className="flex items-center gap-3 mb-6">
-          <ShieldCheck className="w-7 h-7 text-blue-600 shrink-0" />
-          <h1 className="text-2xl font-bold text-gray-900">Admin — Instructor Verification</h1>
+        <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
+          <div className="flex items-center gap-3">
+            <ShieldCheck className="w-7 h-7 text-blue-600 shrink-0" />
+            <h1 className="text-2xl font-bold text-gray-900">Admin — Instructor Verification</h1>
+          </div>
+          {!loading && tutors.length > 0 && (
+            <div className="flex items-center gap-3 text-sm font-bold">
+              <span className="flex items-center gap-1.5 px-3 py-1.5 bg-green-100 text-green-700 rounded-full">
+                <BadgeCheck className="w-4 h-4" />
+                {tutors.filter(t => t.is_verified).length} verified
+              </span>
+              <span className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-100 text-gray-600 rounded-full">
+                {tutors.filter(t => !t.is_verified).length} not verified
+              </span>
+            </div>
+          )}
         </div>
+
+        {rlsWarning && (
+          <div className="mb-6 flex items-start gap-3 p-4 bg-red-50 border border-red-200 rounded-2xl">
+            <AlertTriangle className="w-5 h-5 text-red-500 shrink-0 mt-0.5" />
+            <div className="min-w-0">
+              <p className="font-bold text-red-700 text-sm">Verification columns missing — run this migration in the Supabase SQL editor, then reload:</p>
+              <pre className="mt-2 text-xs bg-red-100 text-red-800 rounded-lg px-3 py-2 overflow-x-auto whitespace-pre-wrap">{`ALTER TABLE tutor_profiles
+  ADD COLUMN IF NOT EXISTS is_verified               boolean DEFAULT false,
+  ADD COLUMN IF NOT EXISTS verification_requested    boolean DEFAULT false,
+  ADD COLUMN IF NOT EXISTS verification_document_url text;`}</pre>
+              <p className="font-bold text-red-700 text-sm mt-3">Then ensure the admin read policy exists:</p>
+              <pre className="mt-2 text-xs bg-red-100 text-red-800 rounded-lg px-3 py-2 overflow-x-auto whitespace-pre-wrap">{`DROP POLICY IF EXISTS "admins_read_tutor_profiles" ON tutor_profiles;
+CREATE POLICY "admins_read_tutor_profiles" ON tutor_profiles
+  FOR SELECT TO authenticated
+  USING (EXISTS (
+    SELECT 1 FROM profiles
+    WHERE profiles.id = auth.uid() AND profiles.is_admin = true
+  ));`}</pre>
+            </div>
+          </div>
+        )}
 
         <div className="flex flex-col sm:flex-row gap-3 mb-6">
           {/* Search */}
@@ -201,8 +248,12 @@ export function Admin() {
             {displayed.map(t => (
               <div
                 key={t.id}
-                className={`flex items-center gap-4 p-5 bg-white rounded-2xl border shadow-sm transition-shadow hover:shadow-md ${
-                  t.verification_requested && !t.is_verified ? 'border-yellow-200' : 'border-gray-100'
+                className={`flex items-center gap-4 p-5 rounded-2xl border shadow-sm transition-shadow hover:shadow-md ${
+                  t.is_verified
+                    ? 'bg-green-50 border-green-200'
+                    : t.verification_requested
+                    ? 'bg-yellow-50 border-yellow-200'
+                    : 'bg-white border-gray-100'
                 }`}
               >
                 {/* Avatar */}
@@ -223,14 +274,17 @@ export function Admin() {
                     >
                       {t.full_name}
                     </Link>
-                    {t.is_verified && (
-                      <span className="flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-bold bg-blue-100 text-blue-700">
+                    {t.is_verified ? (
+                      <span className="flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-bold bg-green-600 text-white">
                         <BadgeCheck className="w-3 h-3" /> Verified
                       </span>
-                    )}
-                    {t.verification_requested && !t.is_verified && (
+                    ) : t.verification_requested ? (
                       <span className="flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-bold bg-yellow-100 text-yellow-700">
                         <Clock className="w-3 h-3" /> Pending Review
+                      </span>
+                    ) : (
+                      <span className="flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-bold bg-gray-100 text-gray-500">
+                        Not verified
                       </span>
                     )}
                   </div>

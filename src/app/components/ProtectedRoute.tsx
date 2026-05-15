@@ -18,11 +18,11 @@ import type { UserRole } from '../lib/supabase'
 
 interface Props {
   children: React.ReactNode
-  requiredRole?: UserRole
+  requiredRole?: UserRole | 'admin'
 }
 
 export function ProtectedRoute({ children, requiredRole }: Props) {
-  const { user, role, loading } = useAuth()
+  const { user, role, profile, loading } = useAuth()
 
   if (loading) {
     return (
@@ -36,7 +36,11 @@ export function ProtectedRoute({ children, requiredRole }: Props) {
     return <Navigate to="/login" replace />
   }
 
-  if (requiredRole && role !== requiredRole) {
+  if (requiredRole === 'admin' && !profile?.is_admin) {
+    return <Navigate to="/" replace />
+  }
+
+  if (requiredRole && requiredRole !== 'admin' && role !== requiredRole) {
     return <Navigate to="/" replace />
   }
 
