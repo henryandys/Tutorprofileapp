@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useRef } from "react"
 import { Link, Navigate, useNavigate } from "react-router"
 import { Navbar } from "../components/Navbar"
 import { useAuth } from "../../context/AuthContext"
@@ -8,7 +8,7 @@ import {
   Calendar, Clock, BookOpen, Heart, Search, ChevronRight, Star,
   User, CheckCircle, XCircle, Loader2, TrendingUp, Lightbulb, Ban,
   Users, GraduationCap, MessageCircle, LayoutDashboard, Check, StickyNote,
-  Target, Flag, Plus, X,
+  Target, Flag, Plus, X, ChevronDown,
 } from "lucide-react"
 import { toast } from "sonner"
 
@@ -186,6 +186,14 @@ export function InstructorDashboard() {
   const [pendingBookings,  setPendingBookings]  = useState<PendingBooking[]>([])
   const [reviews,          setReviews]          = useState<RecentReview[]>([])
   const [teachingStats,    setTeachingStats]    = useState<TeachingStats>({ upcoming: 0, pending: 0, students: 0, rating: null })
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
+  const teachUpcomingRef = useRef<HTMLDivElement>(null)
+  const teachRequestsRef = useRef<HTMLDivElement>(null)
+  const teachStudentsRef = useRef<HTMLDivElement>(null)
+  const teachReviewsRef  = useRef<HTMLDivElement>(null)
+  const learnUpcomingRef = useRef<HTMLDivElement>(null)
+  const learnPendingRef  = useRef<HTMLDivElement>(null)
+  const learnActivityRef = useRef<HTMLDivElement>(null)
   const [fetchingTeaching, setFetchingTeaching] = useState(true)
   const [acceptingId,      setAcceptingId]      = useState<string | null>(null)
   const [decliningId,      setDecliningId]      = useState<string | null>(null)
@@ -708,7 +716,7 @@ export function InstructorDashboard() {
           <>
             {/* Stats */}
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-8">
-              <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-3 sm:p-5 flex flex-col sm:flex-row items-center gap-1.5 sm:gap-3 text-center sm:text-left">
+              <button onClick={() => teachUpcomingRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-3 sm:p-5 flex flex-col sm:flex-row items-center gap-1.5 sm:gap-3 text-center sm:text-left hover:shadow-md hover:border-blue-200 transition-all w-full">
                 <div className="w-10 h-10 rounded-xl bg-blue-100 flex items-center justify-center shrink-0">
                   <Calendar className="w-5 h-5 text-blue-600" />
                 </div>
@@ -716,8 +724,8 @@ export function InstructorDashboard() {
                   <p className="text-2xl font-black text-gray-900">{teachingStats.upcoming}</p>
                   <p className="text-[10px] sm:text-xs font-bold text-gray-400 uppercase tracking-wide">Upcoming</p>
                 </div>
-              </div>
-              <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-3 sm:p-5 flex flex-col sm:flex-row items-center gap-1.5 sm:gap-3 text-center sm:text-left">
+              </button>
+              <button onClick={() => teachRequestsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-3 sm:p-5 flex flex-col sm:flex-row items-center gap-1.5 sm:gap-3 text-center sm:text-left hover:shadow-md hover:border-amber-200 transition-all w-full">
                 <div className="w-10 h-10 rounded-xl bg-amber-100 flex items-center justify-center shrink-0">
                   <Clock className="w-5 h-5 text-amber-600" />
                 </div>
@@ -725,8 +733,8 @@ export function InstructorDashboard() {
                   <p className="text-2xl font-black text-gray-900">{teachingStats.pending}</p>
                   <p className="text-[10px] sm:text-xs font-bold text-gray-400 uppercase tracking-wide">Requests</p>
                 </div>
-              </div>
-              <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-3 sm:p-5 flex flex-col sm:flex-row items-center gap-1.5 sm:gap-3 text-center sm:text-left">
+              </button>
+              <button onClick={() => teachStudentsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-3 sm:p-5 flex flex-col sm:flex-row items-center gap-1.5 sm:gap-3 text-center sm:text-left hover:shadow-md hover:border-purple-200 transition-all w-full">
                 <div className="w-10 h-10 rounded-xl bg-purple-100 flex items-center justify-center shrink-0">
                   <Users className="w-5 h-5 text-purple-600" />
                 </div>
@@ -734,8 +742,8 @@ export function InstructorDashboard() {
                   <p className="text-2xl font-black text-gray-900">{teachingStats.students}</p>
                   <p className="text-[10px] sm:text-xs font-bold text-gray-400 uppercase tracking-wide">Students</p>
                 </div>
-              </div>
-              <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-3 sm:p-5 flex flex-col sm:flex-row items-center gap-1.5 sm:gap-3 text-center sm:text-left">
+              </button>
+              <button onClick={() => teachReviewsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-3 sm:p-5 flex flex-col sm:flex-row items-center gap-1.5 sm:gap-3 text-center sm:text-left hover:shadow-md hover:border-amber-200 transition-all w-full">
                 <div className="w-10 h-10 rounded-xl bg-amber-100 flex items-center justify-center shrink-0">
                   <Star className="w-5 h-5 text-amber-500" />
                 </div>
@@ -745,7 +753,7 @@ export function InstructorDashboard() {
                   </p>
                   <p className="text-[10px] sm:text-xs font-bold text-gray-400 uppercase tracking-wide">Avg Rating</p>
                 </div>
-              </div>
+              </button>
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -754,15 +762,22 @@ export function InstructorDashboard() {
               <div className="lg:col-span-2 flex flex-col gap-6">
 
                 {/* Upcoming sessions */}
-                <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+                <div ref={teachUpcomingRef} className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
                   <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-                    <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setCollapsed(c => ({ ...c, teachSessions: !c.teachSessions }))}
+                      className="flex items-center gap-2 flex-1 text-left"
+                    >
                       <Calendar className="w-4 h-4 text-blue-600" />
                       <h2 className="font-black text-gray-900">Upcoming Sessions</h2>
-                    </div>
-                    <Link to="/lessons" className="text-sm font-bold text-blue-600 hover:text-blue-700">View all →</Link>
+                      {upcomingSessions.length > 0 && (
+                        <span className="px-1.5 py-0.5 bg-blue-100 text-blue-700 text-xs font-bold rounded-full">{upcomingSessions.length}</span>
+                      )}
+                      <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform duration-200 ml-1 ${collapsed.teachSessions ? '-rotate-90' : ''}`} />
+                    </button>
+                    <Link to="/lessons" className="text-sm font-bold text-blue-600 hover:text-blue-700 ml-3" onClick={e => e.stopPropagation()}>View all →</Link>
                   </div>
-                  {fetchingTeaching ? (
+                  {!collapsed.teachSessions && (fetchingTeaching ? (
                     <div className="px-6 py-12 flex justify-center"><Loader2 className="w-6 h-6 animate-spin text-gray-300" /></div>
                   ) : upcomingSessions.length === 0 ? (
                     <div className="px-6 py-12 flex flex-col items-center gap-2 text-center">
@@ -832,11 +847,11 @@ export function InstructorDashboard() {
                         </div>
                       ))}
                     </div>
-                  )}
+                  ))}
                 </div>
 
                 {/* Pending requests */}
-                <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+                <div ref={teachRequestsRef} className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
                   <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
                     <div className="flex items-center gap-2">
                       <Clock className="w-4 h-4 text-amber-500" />
@@ -901,7 +916,7 @@ export function InstructorDashboard() {
                 </div>
 
                 {/* My Students */}
-                <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+                <div ref={teachStudentsRef} className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
                   <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
                     <div className="flex items-center gap-2">
                       <Users className="w-4 h-4 text-purple-600" />
@@ -1029,7 +1044,7 @@ export function InstructorDashboard() {
               <div className="flex flex-col gap-6">
 
                 {/* Recent reviews */}
-                <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+                <div ref={teachReviewsRef} className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
                   <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
                     <div className="flex items-center gap-2">
                       <Star className="w-4 h-4 text-amber-500" />
@@ -1097,7 +1112,7 @@ export function InstructorDashboard() {
           <>
             {/* Stats */}
             <div className="grid grid-cols-3 gap-3 sm:gap-4 mb-8">
-              <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-3 sm:p-5 flex flex-col sm:flex-row items-center gap-1.5 sm:gap-4 text-center sm:text-left">
+              <button onClick={() => learnUpcomingRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-3 sm:p-5 flex flex-col sm:flex-row items-center gap-1.5 sm:gap-4 text-center sm:text-left hover:shadow-md hover:border-blue-200 transition-all w-full">
                 <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-xl bg-blue-100 flex items-center justify-center shrink-0">
                   <Calendar className="w-5 h-5 text-blue-600" />
                 </div>
@@ -1105,8 +1120,8 @@ export function InstructorDashboard() {
                   <p className="text-2xl font-black text-gray-900">{studentStats.upcoming}</p>
                   <p className="text-[10px] sm:text-xs font-bold text-gray-400 uppercase tracking-wide">Upcoming</p>
                 </div>
-              </div>
-              <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-3 sm:p-5 flex flex-col sm:flex-row items-center gap-1.5 sm:gap-4 text-center sm:text-left">
+              </button>
+              <button onClick={() => learnPendingRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-3 sm:p-5 flex flex-col sm:flex-row items-center gap-1.5 sm:gap-4 text-center sm:text-left hover:shadow-md hover:border-amber-200 transition-all w-full">
                 <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-xl bg-amber-100 flex items-center justify-center shrink-0">
                   <Clock className="w-5 h-5 text-amber-600" />
                 </div>
@@ -1114,8 +1129,8 @@ export function InstructorDashboard() {
                   <p className="text-2xl font-black text-gray-900">{studentStats.pending}</p>
                   <p className="text-[10px] sm:text-xs font-bold text-gray-400 uppercase tracking-wide">Pending</p>
                 </div>
-              </div>
-              <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-3 sm:p-5 flex flex-col sm:flex-row items-center gap-1.5 sm:gap-4 text-center sm:text-left">
+              </button>
+              <button onClick={() => learnActivityRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-3 sm:p-5 flex flex-col sm:flex-row items-center gap-1.5 sm:gap-4 text-center sm:text-left hover:shadow-md hover:border-green-200 transition-all w-full">
                 <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-xl bg-green-100 flex items-center justify-center shrink-0">
                   <CheckCircle className="w-5 h-5 text-green-600" />
                 </div>
@@ -1123,7 +1138,7 @@ export function InstructorDashboard() {
                   <p className="text-2xl font-black text-gray-900">{studentStats.completed}</p>
                   <p className="text-[10px] sm:text-xs font-bold text-gray-400 uppercase tracking-wide">Completed</p>
                 </div>
-              </div>
+              </button>
             </div>
 
             {fetchingLearning ? (
@@ -1137,15 +1152,22 @@ export function InstructorDashboard() {
                 <div className="lg:col-span-2 flex flex-col gap-6">
 
                   {/* Upcoming lessons as student */}
-                  <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+                  <div ref={learnUpcomingRef} className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
                     <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-                      <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => setCollapsed(c => ({ ...c, learnLessons: !c.learnLessons }))}
+                        className="flex items-center gap-2 flex-1 text-left"
+                      >
                         <Calendar className="w-4 h-4 text-blue-600" />
                         <h2 className="font-black text-gray-900">My Upcoming Lessons</h2>
-                      </div>
-                      <Link to="/lessons" className="text-sm font-bold text-blue-600 hover:text-blue-700">View all →</Link>
+                        {upcomingLessons.length > 0 && (
+                          <span className="px-1.5 py-0.5 bg-blue-100 text-blue-700 text-xs font-bold rounded-full">{upcomingLessons.length}</span>
+                        )}
+                        <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform duration-200 ml-1 ${collapsed.learnLessons ? '-rotate-90' : ''}`} />
+                      </button>
+                      <Link to="/lessons" className="text-sm font-bold text-blue-600 hover:text-blue-700 ml-3" onClick={e => e.stopPropagation()}>View all →</Link>
                     </div>
-                    {upcomingLessons.length === 0 ? (
+                    {!collapsed.learnLessons && (upcomingLessons.length === 0 ? (
                       <div className="px-6 py-12 flex flex-col items-center gap-3 text-center">
                         <Calendar className="w-10 h-10 text-gray-200" />
                         <p className="text-gray-400 font-bold">No upcoming lessons</p>
@@ -1164,16 +1186,25 @@ export function InstructorDashboard() {
                           </Link>
                         ))}
                       </div>
-                    )}
+                    ))}
                   </div>
 
                   {/* Recent activity */}
-                  <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-                    <div className="flex items-center gap-2 px-6 py-4 border-b border-gray-100">
-                      <TrendingUp className="w-4 h-4 text-purple-600" />
-                      <h2 className="font-black text-gray-900">Recent Activity</h2>
-                    </div>
-                    {activity.length === 0 ? (
+                  <div ref={learnActivityRef} className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+                    <button
+                      onClick={() => setCollapsed(c => ({ ...c, learnActivity: !c.learnActivity }))}
+                      className="w-full flex items-center justify-between px-6 py-4 border-b border-gray-100 hover:bg-gray-50 transition-colors text-left"
+                    >
+                      <div className="flex items-center gap-2">
+                        <TrendingUp className="w-4 h-4 text-purple-600" />
+                        <h2 className="font-black text-gray-900">Recent Activity</h2>
+                        {activity.length > 0 && (
+                          <span className="px-1.5 py-0.5 bg-purple-100 text-purple-700 text-xs font-bold rounded-full">{activity.length}</span>
+                        )}
+                      </div>
+                      <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform duration-200 ${collapsed.learnActivity ? '-rotate-90' : ''}`} />
+                    </button>
+                    {!collapsed.learnActivity && (activity.length === 0 ? (
                       <div className="px-6 py-10 text-center">
                         <p className="text-gray-400 font-medium text-sm">No activity yet.</p>
                       </div>
@@ -1200,7 +1231,7 @@ export function InstructorDashboard() {
                           )
                         })}
                       </div>
-                    )}
+                    ))}
                   </div>
 
                   {/* My Instructors */}
@@ -1255,7 +1286,7 @@ export function InstructorDashboard() {
                 <div className="flex flex-col gap-6">
 
                   {/* Pending as student */}
-                  <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+                  <div ref={learnPendingRef} className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
                     <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
                       <div className="flex items-center gap-2">
                         <Clock className="w-4 h-4 text-amber-500" />

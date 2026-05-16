@@ -58,7 +58,7 @@ import { toast } from "sonner"
 import {
   Calendar, Clock, BookOpen, Heart, Search, ChevronRight, Star,
   User, CheckCircle, XCircle, Loader2, TrendingUp, Lightbulb, Ban, StickyNote,
-  Target, Plus, X, Flag, PenLine, GraduationCap, CreditCard, RefreshCw,
+  Target, Plus, X, Flag, PenLine, GraduationCap, CreditCard, RefreshCw, ChevronDown,
 } from "lucide-react"
 
 interface UpcomingLesson {
@@ -218,7 +218,11 @@ export function StudentDashboard() {
   const [confirmCancelId,          setConfirmCancelId]          = useState<string | null>(null)
   const [cancellingId,             setCancellingId]             = useState<string | null>(null)
   const [rescheduleRespondingId,   setRescheduleRespondingId]   = useState<string | null>(null)
-  const loadingRef = useRef(false)
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
+  const loadingRef        = useRef(false)
+  const upcomingSectionRef = useRef<HTMLDivElement>(null)
+  const pendingSectionRef  = useRef<HTMLDivElement>(null)
+  const activitySectionRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     if (user) loadData()
@@ -678,7 +682,7 @@ export function StudentDashboard() {
 
         {/* Stats */}
         <div className="grid grid-cols-3 gap-3 sm:gap-4 mb-8">
-          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-3 sm:p-5 flex flex-col sm:flex-row items-center gap-1.5 sm:gap-4 text-center sm:text-left">
+          <button onClick={() => upcomingSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-3 sm:p-5 flex flex-col sm:flex-row items-center gap-1.5 sm:gap-4 text-center sm:text-left hover:shadow-md hover:border-blue-200 transition-all w-full">
             <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-xl bg-blue-100 flex items-center justify-center shrink-0">
               <Calendar className="w-5 h-5 text-blue-600" />
             </div>
@@ -686,8 +690,8 @@ export function StudentDashboard() {
               <p className="text-2xl font-black text-gray-900">{stats.upcoming}</p>
               <p className="text-[10px] sm:text-xs font-bold text-gray-400 uppercase tracking-wide">Upcoming</p>
             </div>
-          </div>
-          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-3 sm:p-5 flex flex-col sm:flex-row items-center gap-1.5 sm:gap-4 text-center sm:text-left">
+          </button>
+          <button onClick={() => pendingSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-3 sm:p-5 flex flex-col sm:flex-row items-center gap-1.5 sm:gap-4 text-center sm:text-left hover:shadow-md hover:border-amber-200 transition-all w-full">
             <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-xl bg-amber-100 flex items-center justify-center shrink-0">
               <Clock className="w-5 h-5 text-amber-600" />
             </div>
@@ -695,8 +699,8 @@ export function StudentDashboard() {
               <p className="text-2xl font-black text-gray-900">{stats.pending}</p>
               <p className="text-[10px] sm:text-xs font-bold text-gray-400 uppercase tracking-wide">Pending</p>
             </div>
-          </div>
-          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-3 sm:p-5 flex flex-col sm:flex-row items-center gap-1.5 sm:gap-4 text-center sm:text-left">
+          </button>
+          <button onClick={() => activitySectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-3 sm:p-5 flex flex-col sm:flex-row items-center gap-1.5 sm:gap-4 text-center sm:text-left hover:shadow-md hover:border-green-200 transition-all w-full">
             <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-xl bg-green-100 flex items-center justify-center shrink-0">
               <CheckCircle className="w-5 h-5 text-green-600" />
             </div>
@@ -704,7 +708,7 @@ export function StudentDashboard() {
               <p className="text-2xl font-black text-gray-900">{stats.completed}</p>
               <p className="text-[10px] sm:text-xs font-bold text-gray-400 uppercase tracking-wide">Completed</p>
             </div>
-          </div>
+          </button>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -712,24 +716,29 @@ export function StudentDashboard() {
           {/* ── Left column (2/3) ── */}
           <div className="lg:col-span-2 flex flex-col gap-6">
 
-            {/* Pending Payments alert */}
+            {/* Pending Payments */}
             {pendingPayments.length > 0 && (() => {
               const total = pendingPayments.reduce((sum, p) => sum + p.price_cents, 0)
               return (
-                <div className="bg-amber-50 border border-amber-200 rounded-2xl p-5 flex items-start gap-4">
-                  <div className="w-10 h-10 rounded-xl bg-amber-100 flex items-center justify-center shrink-0">
-                    <CreditCard className="w-5 h-5 text-amber-600" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="font-black text-gray-900 text-sm">
-                      {pendingPayments.length} session{pendingPayments.length !== 1 ? 's' : ''} awaiting payment
-                    </p>
-                    <p className="text-xs text-gray-500 font-medium mt-0.5">
-                      Total due: <span className="font-black text-amber-700">${(total / 100).toFixed(2)}</span>
-                    </p>
-                    <div className="flex flex-col gap-2 mt-3">
+                <div className="bg-white rounded-2xl border border-amber-200 shadow-sm overflow-hidden">
+                  <button
+                    onClick={() => setCollapsed(c => ({ ...c, payments: !c.payments }))}
+                    className="w-full flex items-center justify-between px-6 py-4 border-b border-amber-100 hover:bg-amber-50 transition-colors text-left"
+                  >
+                    <div className="flex items-center gap-2">
+                      <CreditCard className="w-4 h-4 text-amber-600" />
+                      <h2 className="font-black text-gray-900">Sessions Awaiting Payment</h2>
+                      <span className="px-1.5 py-0.5 bg-amber-100 text-amber-700 text-xs font-bold rounded-full">{pendingPayments.length}</span>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <span className="text-sm font-black text-amber-700">${(total / 100).toFixed(2)} due</span>
+                      <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform duration-200 ${collapsed.payments ? '-rotate-90' : ''}`} />
+                    </div>
+                  </button>
+                  {!collapsed.payments && (
+                    <div className="flex flex-col gap-2 p-4">
                       {pendingPayments.map(p => (
-                        <div key={p.id} className="flex items-center justify-between gap-3 bg-white rounded-xl px-3 py-2.5 border border-amber-100">
+                        <div key={p.id} className="flex items-center justify-between gap-3 bg-amber-50 rounded-xl px-3 py-2.5 border border-amber-100">
                           <div className="flex-1 min-w-0">
                             <p className="text-sm font-bold text-gray-900 truncate">{p.subject}</p>
                             <p className="text-xs text-gray-500 font-medium">
@@ -742,30 +751,35 @@ export function StudentDashboard() {
                             disabled={payingId === p.id}
                             className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold transition-colors disabled:opacity-60 shrink-0"
                           >
-                            {payingId === p.id
-                              ? <Loader2 className="w-3 h-3 animate-spin" />
-                              : <CreditCard className="w-3 h-3" />}
+                            {payingId === p.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <CreditCard className="w-3 h-3" />}
                             Pay ${(p.price_cents / 100).toFixed(2)}
                           </button>
                         </div>
                       ))}
                     </div>
-                  </div>
+                  )}
                 </div>
               )
             })()}
 
             {/* Upcoming lessons */}
-            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+            <div ref={upcomingSectionRef} className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
               <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-                <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setCollapsed(c => ({ ...c, upcoming: !c.upcoming }))}
+                  className="flex items-center gap-2 flex-1 text-left"
+                >
                   <Calendar className="w-4 h-4 text-blue-600" />
                   <h2 className="font-black text-gray-900">Upcoming Lessons</h2>
-                </div>
-                <Link to="/lessons" className="text-sm font-bold text-blue-600 hover:text-blue-700">View all →</Link>
+                  {upcoming.length > 0 && (
+                    <span className="px-1.5 py-0.5 bg-blue-100 text-blue-700 text-xs font-bold rounded-full">{upcoming.length}</span>
+                  )}
+                  <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform duration-200 ml-1 ${collapsed.upcoming ? '-rotate-90' : ''}`} />
+                </button>
+                <Link to="/lessons" className="text-sm font-bold text-blue-600 hover:text-blue-700 ml-3" onClick={e => e.stopPropagation()}>View all →</Link>
               </div>
 
-              {fetching ? (
+              {!collapsed.upcoming && (fetching ? (
                 <div className="px-6 py-12 flex justify-center">
                   <Loader2 className="w-6 h-6 animate-spin text-gray-300" />
                 </div>
@@ -933,7 +947,7 @@ export function StudentDashboard() {
                   )
                   })}
                 </div>
-              )}
+              ))}
             </div>
 
             {/* My Instructors */}
@@ -988,13 +1002,22 @@ export function StudentDashboard() {
             )}
 
             {/* Recent activity */}
-            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-              <div className="flex items-center gap-2 px-6 py-4 border-b border-gray-100">
-                <TrendingUp className="w-4 h-4 text-purple-600" />
-                <h2 className="font-black text-gray-900">Recent Activity</h2>
-              </div>
+            <div ref={activitySectionRef} className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+              <button
+                onClick={() => setCollapsed(c => ({ ...c, activity: !c.activity }))}
+                className="w-full flex items-center justify-between px-6 py-4 border-b border-gray-100 hover:bg-gray-50 transition-colors text-left"
+              >
+                <div className="flex items-center gap-2">
+                  <TrendingUp className="w-4 h-4 text-purple-600" />
+                  <h2 className="font-black text-gray-900">Recent Activity</h2>
+                  {activity.length > 0 && (
+                    <span className="px-1.5 py-0.5 bg-purple-100 text-purple-700 text-xs font-bold rounded-full">{activity.length}</span>
+                  )}
+                </div>
+                <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform duration-200 ${collapsed.activity ? '-rotate-90' : ''}`} />
+              </button>
 
-              {fetching ? (
+              {!collapsed.activity && (fetching ? (
                 <div className="px-6 py-10 flex justify-center">
                   <Loader2 className="w-6 h-6 animate-spin text-gray-300" />
                 </div>
@@ -1029,7 +1052,7 @@ export function StudentDashboard() {
                     )
                   })}
                 </div>
-              )}
+              ))}
             </div>
 
             {/* Session Notes */}
@@ -1074,7 +1097,7 @@ export function StudentDashboard() {
           <div className="flex flex-col gap-6">
 
             {/* Pending requests */}
-            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+            <div ref={pendingSectionRef} className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
               <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
                 <div className="flex items-center gap-2">
                   <Clock className="w-4 h-4 text-amber-500" />
