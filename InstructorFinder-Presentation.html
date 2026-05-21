@@ -1,0 +1,750 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>InstructorFinder – Platform Demo</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#0f172a;overflow:hidden;color:#111827}
+#deck{width:100vw;height:100vh;position:relative}
+.slide{position:absolute;inset:0;display:flex;flex-direction:column;opacity:0;pointer-events:none;transition:opacity .35s ease;overflow:hidden}
+.slide.active{opacity:1;pointer-events:auto}
+#nav{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:10px;background:rgba(15,23,42,.88);backdrop-filter:blur(14px);border:1px solid rgba(255,255,255,.1);border-radius:40px;padding:7px 18px;z-index:999;color:#fff;font-size:13px;font-weight:600}
+#nav button{background:none;border:none;color:#94a3b8;cursor:pointer;font-size:18px;line-height:1;padding:2px 8px;border-radius:6px;transition:color .15s,background .15s}
+#nav button:hover{color:#fff;background:rgba(255,255,255,.1)}
+#nav button:disabled{color:#334155;cursor:default;background:none}
+#counter{color:#94a3b8;min-width:54px;text-align:center}
+#hint{position:fixed;top:14px;right:18px;font-size:11px;color:rgba(255,255,255,.28);z-index:999;font-weight:500;letter-spacing:.05em}
+
+/* ── layout helpers ─────────────────────── */
+.lt{background:linear-gradient(135deg,#0f172a 0%,#1e3a5f 55%,#1e1b4b 100%);display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center;padding:56px 60px}
+.lc{background:#fff;padding:50px 60px 76px;display:flex;flex-direction:column}
+.lg{background:#f8fafc;padding:46px 60px 76px;display:flex;flex-direction:column}
+.ld{background:#0f172a;padding:50px 60px 76px;display:flex;flex-direction:column}
+.ls{flex-direction:row}
+.ls .pl{width:42%;background:#0f172a;display:flex;flex-direction:column;justify-content:center;padding:56px 48px;color:#fff}
+.ls .pr{flex:1;background:#fff;display:flex;flex-direction:column;justify-content:center;padding:56px 52px}
+
+.eye{font-size:10.5px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:#2563eb;margin-bottom:7px}
+.eye.w{color:#60a5fa}
+.ttl{font-size:36px;font-weight:900;color:#111827;letter-spacing:-1px;line-height:1.1;margin-bottom:28px}
+.ttl.w{color:#fff}
+.bar{position:absolute;bottom:0;left:0;right:0;height:4px;background:linear-gradient(90deg,#2563eb,#7c3aed)}
+
+/* ── cards / grids ──────────────────────── */
+.gr{display:grid;gap:14px}
+.g2{grid-template-columns:repeat(2,1fr)}
+.g3{grid-template-columns:repeat(3,1fr)}
+.g4{grid-template-columns:repeat(4,1fr)}
+.card{background:#fff;border:1px solid #e5e7eb;border-radius:14px;padding:18px 20px;display:flex;flex-direction:column;gap:9px;box-shadow:0 1px 4px rgba(0,0,0,.05)}
+.card.dk{background:rgba(255,255,255,.06);border-color:rgba(255,255,255,.1)}
+.ico{width:38px;height:38px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0}
+.ib{background:#dbeafe}.ip{background:#ede9fe}.ig{background:#dcfce7}.ia{background:#fef3c7}.ir{background:#fee2e2}.iw{background:#f3f4f6}
+.card h3{font-size:13.5px;font-weight:800;color:#111827;line-height:1.2}
+.card h3.w{color:#e2e8f0}
+.card p{font-size:12px;color:#6b7280;line-height:1.5;font-weight:500}
+.card p.w{color:#94a3b8}
+
+/* ── checklist ──────────────────────────── */
+.cl{display:flex;flex-direction:column;gap:9px}
+.ci{display:flex;align-items:flex-start;gap:9px}
+.ci .ck{font-size:15px;flex-shrink:0;margin-top:1px}
+.ci h4{font-size:13.5px;font-weight:800;color:#111827}
+.ci h4.w{color:#e2e8f0}
+.ci p{font-size:11.5px;color:#6b7280;line-height:1.45;font-weight:500}
+.ci p.w{color:#94a3b8}
+
+/* ── flow steps ─────────────────────────── */
+.flow{display:flex;align-items:flex-start;gap:0}
+.fs{flex:1;display:flex;flex-direction:column;align-items:center;text-align:center;position:relative;padding:0 6px}
+.fs::after{content:'→';position:absolute;top:16px;right:-4px;color:#9ca3af;font-size:15px;font-weight:700}
+.fs:last-child::after{display:none}
+.fn{width:34px;height:34px;border-radius:50%;background:#2563eb;color:#fff;font-size:13px;font-weight:900;display:flex;align-items:center;justify-content:center;margin-bottom:9px;flex-shrink:0}
+.fs h4{font-size:12.5px;font-weight:800;color:#111827;margin-bottom:3px}
+.fs p{font-size:11px;color:#6b7280;line-height:1.4;font-weight:500}
+
+/* ── divider label ──────────────────────── */
+.dl{font-size:10px;font-weight:900;letter-spacing:.14em;text-transform:uppercase;color:#6b7280;border-bottom:1px solid #e5e7eb;padding-bottom:5px;margin-bottom:12px;margin-top:2px}
+.dl.b{color:#1d4ed8;border-color:#bfdbfe}
+.dl.p{color:#6d28d9;border-color:#ddd6fe}
+
+/* ── accent card ────────────────────────── */
+.ac{border-left:4px solid #2563eb;background:#eff6ff;border-radius:0 12px 12px 0;padding:12px 16px;margin-bottom:10px}
+.ac h4{font-size:13px;font-weight:800;color:#1d4ed8}
+.ac p{font-size:12px;color:#3b82f6;font-weight:500;line-height:1.4}
+
+/* ── highlight box ──────────────────────── */
+.hb{background:linear-gradient(135deg,#eff6ff,#f5f3ff);border:1px solid #c7d2fe;border-radius:12px;padding:16px 20px}
+.hb p{font-size:14px;font-weight:600;color:#3730a3;line-height:1.6}
+
+/* ── mockup wrapper ─────────────────────── */
+.mw{background:#f1f5f9;border-radius:14px;overflow:hidden;box-shadow:0 12px 40px rgba(0,0,0,.18);border:1px solid #cbd5e1}
+.mbar{background:#e2e8f0;padding:8px 14px;display:flex;align-items:center;gap:7px}
+.dot{width:9px;height:9px;border-radius:50%}
+.url{flex:1;background:#fff;border-radius:6px;padding:3px 10px;font-size:10.5px;font-weight:600;color:#64748b;margin:0 10px}
+
+/* ── title slide ────────────────────────── */
+.lt .logo{width:60px;height:60px;background:#2563eb;border-radius:14px;display:flex;align-items:center;justify-content:center;font-size:30px;font-weight:900;color:#fff;margin:0 auto 24px;box-shadow:0 0 36px rgba(37,99,235,.5)}
+.lt h1{font-size:52px;font-weight:900;color:#fff;letter-spacing:-2px;line-height:1.05;margin-bottom:14px}
+.lt .sub{font-size:18px;color:#94a3b8;font-weight:500;margin-bottom:40px;line-height:1.5}
+.pills{display:flex;gap:9px;flex-wrap:wrap;justify-content:center}
+.pill{padding:5px 14px;border-radius:99px;font-size:12px;font-weight:700;letter-spacing:.04em}
+.pb{background:rgba(37,99,235,.25);color:#93c5fd;border:1px solid rgba(37,99,235,.4)}
+.pp{background:rgba(124,58,237,.25);color:#c4b5fd;border:1px solid rgba(124,58,237,.4)}
+.pg{background:rgba(22,163,74,.25);color:#86efac;border:1px solid rgba(22,163,74,.4)}
+.pa{background:rgba(217,119,6,.25);color:#fcd34d;border:1px solid rgba(217,119,6,.4)}
+
+/* ── stat strip ─────────────────────────── */
+.ss{display:flex;gap:12px;margin-bottom:24px}
+.sb{flex:1;background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:14px 16px;display:flex;flex-direction:column;gap:3px;box-shadow:0 1px 3px rgba(0,0,0,.04)}
+.sn{font-size:24px;font-weight:900;color:#111827}
+.sl{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#6b7280}
+</style>
+</head>
+<body>
+<div id="hint">← → Arrow keys to navigate</div>
+<div id="deck">
+
+<!-- ══ SLIDE 1 · TITLE ══════════════════════════════════════════ -->
+<div class="slide lt active">
+  <div class="logo">T</div>
+  <h1>InstructorFinder</h1>
+  <p class="sub">A community platform connecting students with expert local instructors.<br>Discover. Book. Learn. Grow.</p>
+  <div class="pills">
+    <span class="pill pb">🗺️ Map Discovery</span>
+    <span class="pill pp">🏆 Community Requests</span>
+    <span class="pill pg">📅 Booking &amp; Scheduling</span>
+    <span class="pill pa">🎯 Learning Goals</span>
+  </div>
+  <div class="bar"></div>
+</div>
+
+<!-- ══ SLIDE 2 · HOMEPAGE MOCKUP ════════════════════════════════ -->
+<div class="slide lc" style="padding:36px 48px 72px">
+  <div class="eye">The Platform</div>
+  <div class="ttl" style="margin-bottom:18px">Everything starts with a search</div>
+  <div class="mw" style="flex:1">
+    <div class="mbar"><div class="dot" style="background:#ef4444"></div><div class="dot" style="background:#f59e0b"></div><div class="dot" style="background:#22c55e"></div><div class="url">instructorfinder.com</div></div>
+    <!-- navbar -->
+    <div style="background:#fff;border-bottom:1px solid #e5e7eb;padding:0 24px;height:52px;display:flex;align-items:center;justify-content:space-between">
+      <div style="display:flex;align-items:center;gap:8px"><div style="width:28px;height:28px;background:#2563eb;border-radius:7px;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:900;font-size:14px">T</div><span style="font-size:14px;font-weight:900;color:#1e3a8a">InstructorFinder</span></div>
+      <div style="display:flex;gap:20px"><span style="font-size:12px;font-weight:700;color:#374151">Find Instructors</span><span style="font-size:12px;font-weight:700;color:#374151">For Instructors</span><span style="font-size:12px;font-weight:700;color:#d97706">Requested Courses</span></div>
+      <div style="display:flex;gap:8px"><div style="padding:5px 14px;border:1px solid #e5e7eb;border-radius:8px;font-size:11px;font-weight:700;color:#374151">Sign In</div><div style="padding:5px 14px;background:#2563eb;border-radius:8px;font-size:11px;font-weight:700;color:#fff">Sign Up</div></div>
+    </div>
+    <!-- hero -->
+    <div style="background:linear-gradient(135deg,#f8fafc,#eff6ff);padding:32px 40px;text-align:center">
+      <h2 style="font-size:26px;font-weight:900;color:#111827;line-height:1.15;margin-bottom:8px">Find the perfect Instructor<br><span style="color:#2563eb">in your neighborhood.</span></h2>
+      <p style="font-size:12px;color:#6b7280;font-weight:500;margin-bottom:18px">Find local experts, read reviews, and book sessions instantly. From Tennis to Trig.</p>
+      <!-- search bar -->
+      <div style="background:#fff;border-radius:14px;box-shadow:0 8px 24px rgba(0,0,0,.1);border:1px solid #e5e7eb;padding:6px;display:flex;gap:6px;max-width:560px;margin:0 auto">
+        <div style="flex:1;display:flex;align-items:center;gap:8px;padding:0 12px"><span style="color:#9ca3af;font-size:14px">🔍</span><span style="font-size:12px;color:#9ca3af;font-weight:600">Subject (e.g. Physics, SAT Prep)</span></div>
+        <div style="width:1px;background:#f3f4f6;self:stretch"></div>
+        <div style="flex:1;display:flex;align-items:center;gap:8px;padding:0 12px"><span style="color:#9ca3af;font-size:14px">📍</span><span style="font-size:12px;color:#9ca3af;font-weight:600">City or Zip code</span></div>
+        <div style="padding:8px 18px;background:#2563eb;border-radius:10px;font-size:12px;font-weight:700;color:#fff">Search →</div>
+      </div>
+    </div>
+    <!-- feature cards -->
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;padding:16px 24px 20px">
+      <div style="background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:14px;"><div style="font-size:20px;margin-bottom:6px">🎓</div><p style="font-size:12px;font-weight:800;color:#111827;margin-bottom:3px">For Students</p><p style="font-size:10.5px;color:#6b7280;font-weight:500">Find expert help for any subject. Book 1-on-1 sessions instantly.</p></div>
+      <div style="background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:14px;"><div style="font-size:20px;margin-bottom:6px">📚</div><p style="font-size:12px;font-weight:800;color:#111827;margin-bottom:3px">For Instructors</p><p style="font-size:10.5px;color:#6b7280;font-weight:500">Set your rates, manage your schedule, and grow your teaching business.</p></div>
+      <div style="background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:14px;"><div style="font-size:20px;margin-bottom:6px">🔬</div><p style="font-size:12px;font-weight:800;color:#111827;margin-bottom:3px">Resource Lab</p><p style="font-size:10.5px;color:#6b7280;font-weight:500">Shared repository of teaching materials, cheat sheets, and practice exams.</p></div>
+    </div>
+  </div>
+  <div class="bar"></div>
+</div>
+
+<!-- ══ SLIDE 3 · MAP MOCKUP ═════════════════════════════════════ -->
+<div class="slide lg" style="padding:36px 48px 72px">
+  <div class="eye">Search &amp; Discovery</div>
+  <div class="ttl" style="margin-bottom:16px">The interactive map puts every instructor on the table</div>
+  <div class="mw" style="flex:1;display:flex;flex-direction:column">
+    <div class="mbar"><div class="dot" style="background:#ef4444"></div><div class="dot" style="background:#f59e0b"></div><div class="dot" style="background:#22c55e"></div><div class="url">instructorfinder.com/search</div></div>
+    <div style="display:flex;flex:1;min-height:0">
+      <!-- left list panel -->
+      <div style="width:310px;background:#fff;border-right:1px solid #e5e7eb;display:flex;flex-direction:column;overflow:hidden">
+        <!-- filter bar -->
+        <div style="padding:10px 12px;border-bottom:1px solid #e5e7eb;display:flex;flex-direction:column;gap:6px">
+          <div style="display:flex;gap:6px">
+            <div style="flex:1;background:#f8fafc;border:1px solid #e5e7eb;border-radius:8px;padding:6px 10px;font-size:10px;font-weight:600;color:#9ca3af">🔍 Search instructors…</div>
+            <div style="background:#f8fafc;border:1px solid #e5e7eb;border-radius:8px;padding:6px 10px;font-size:10px;font-weight:700;color:#374151">Filters</div>
+          </div>
+          <div style="display:flex;gap:5px">
+            <div style="padding:4px 10px;background:#dbeafe;border-radius:99px;font-size:9.5px;font-weight:700;color:#1d4ed8">All</div>
+            <div style="padding:4px 10px;background:#f3f4f6;border-radius:99px;font-size:9.5px;font-weight:700;color:#374151">Tutors</div>
+            <div style="padding:4px 10px;background:#ede9fe;border-radius:99px;font-size:9.5px;font-weight:700;color:#6d28d9">👥 Group</div>
+            <div style="padding:4px 10px;background:#f3f4f6;border-radius:99px;font-size:9.5px;font-weight:700;color:#374151">✅ Verified</div>
+          </div>
+        </div>
+        <!-- tutor cards in list -->
+        <div style="flex:1;overflow:auto;padding:8px">
+          <!-- card 1 verified -->
+          <div style="background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:10px;margin-bottom:6px;display:flex;gap:9px;align-items:flex-start">
+            <div style="width:36px;height:36px;border-radius:9px;background:linear-gradient(135deg,#fbbf24,#f59e0b);display:flex;align-items:center;justify-content:center;color:#fff;font-weight:900;font-size:15px;flex-shrink:0">S</div>
+            <div style="flex:1;min-width:0">
+              <div style="display:flex;align-items:center;gap:5px;margin-bottom:2px"><span style="font-size:11.5px;font-weight:800;color:#111827">Sarah Chen</span><span style="font-size:9px;background:#fef3c7;color:#92400e;padding:1px 5px;border-radius:99px;font-weight:700">✓ Verified</span></div>
+              <div style="font-size:10.5px;color:#6b7280;font-weight:500;margin-bottom:4px">Math · SAT Prep · Calculus</div>
+              <div style="display:flex;align-items:center;justify-content:space-between">
+                <div style="display:flex;align-items:center;gap:3px"><span style="color:#f59e0b;font-size:10px">★★★★★</span><span style="font-size:9.5px;color:#6b7280;font-weight:600">5.0</span></div>
+                <span style="font-size:11px;font-weight:900;color:#2563eb">$65/hr</span>
+              </div>
+            </div>
+          </div>
+          <!-- card 2 -->
+          <div style="background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:10px;margin-bottom:6px;display:flex;gap:9px;align-items:flex-start">
+            <div style="width:36px;height:36px;border-radius:9px;background:linear-gradient(135deg,#60a5fa,#2563eb);display:flex;align-items:center;justify-content:center;color:#fff;font-weight:900;font-size:15px;flex-shrink:0">M</div>
+            <div style="flex:1;min-width:0">
+              <div style="font-size:11.5px;font-weight:800;color:#111827;margin-bottom:2px">Marcus Rivera</div>
+              <div style="font-size:10.5px;color:#6b7280;font-weight:500;margin-bottom:4px">Guitar · Piano · Music Theory</div>
+              <div style="display:flex;align-items:center;justify-content:space-between">
+                <div style="display:flex;align-items:center;gap:3px"><span style="color:#f59e0b;font-size:10px">★★★★☆</span><span style="font-size:9.5px;color:#6b7280;font-weight:600">4.7</span></div>
+                <span style="font-size:11px;font-weight:900;color:#2563eb">$45/hr</span>
+              </div>
+            </div>
+          </div>
+          <!-- purple group lesson card -->
+          <div style="background:#faf5ff;border:1px solid #ddd6fe;border-radius:10px;padding:10px;margin-bottom:6px">
+            <div style="display:flex;align-items:center;gap:5px;margin-bottom:4px"><span style="font-size:9px;background:#ede9fe;color:#6d28d9;padding:2px 7px;border-radius:99px;font-weight:700">👥 GROUP SESSION</span></div>
+            <div style="font-size:11.5px;font-weight:800;color:#4c1d95;margin-bottom:2px">SAT Math Boot Camp</div>
+            <div style="font-size:10px;color:#7c3aed;font-weight:500;margin-bottom:4px">by Sarah Chen · Sat 10am · 4 spots left</div>
+            <div style="display:flex;align-items:center;justify-content:space-between"><span style="font-size:10px;color:#7c3aed;font-weight:600">📍 Downtown Library</span><span style="font-size:11px;font-weight:900;color:#7c3aed">$25/seat</span></div>
+          </div>
+          <!-- card 3 -->
+          <div style="background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:10px;display:flex;gap:9px;align-items:flex-start">
+            <div style="width:36px;height:36px;border-radius:9px;background:linear-gradient(135deg,#a78bfa,#7c3aed);display:flex;align-items:center;justify-content:center;color:#fff;font-weight:900;font-size:15px;flex-shrink:0">J</div>
+            <div style="flex:1;min-width:0">
+              <div style="font-size:11.5px;font-weight:800;color:#111827;margin-bottom:2px">Dr. James Osei</div>
+              <div style="font-size:10.5px;color:#6b7280;font-weight:500;margin-bottom:4px">Chemistry · Biology · Physics</div>
+              <div style="display:flex;align-items:center;justify-content:space-between">
+                <div style="display:flex;align-items:center;gap:3px"><span style="color:#f59e0b;font-size:10px">★★★★★</span><span style="font-size:9.5px;color:#6b7280;font-weight:600">4.9</span></div>
+                <span style="font-size:11px;font-weight:900;color:#2563eb">$80/hr</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <!-- map panel -->
+      <div style="flex:1;position:relative;background:#e8f0f8;overflow:hidden">
+        <!-- street grid SVG background -->
+        <svg width="100%" height="100%" style="position:absolute;inset:0;opacity:.4"><defs><pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse"><path d="M40 0L0 0 0 40" fill="none" stroke="#b0c4de" stroke-width="1"/></pattern></defs><rect width="100%" height="100%" fill="url(#grid)"/><line x1="0" y1="80" x2="100%" y2="80" stroke="#93b4d4" stroke-width="3"/><line x1="0" y1="180" x2="100%" y2="180" stroke="#93b4d4" stroke-width="3"/><line x1="0" y1="280" x2="100%" y2="280" stroke="#93b4d4" stroke-width="2"/><line x1="120" y1="0" x2="120" y2="100%" stroke="#93b4d4" stroke-width="3"/><line x1="280" y1="0" x2="280" y2="100%" stroke="#93b4d4" stroke-width="2"/><line x1="420" y1="0" x2="420" y2="100%" stroke="#93b4d4" stroke-width="3"/><rect x="140" y="100" width="120" height="60" rx="4" fill="#c8daea" stroke="#93b4d4" stroke-width="1"/><rect x="300" y="40" width="100" height="80" rx="4" fill="#c8daea" stroke="#93b4d4" stroke-width="1"/><rect x="140" y="200" width="80" height="60" rx="4" fill="#c8daea" stroke="#93b4d4" stroke-width="1"/><rect x="300" y="200" width="100" height="60" rx="4" fill="#dce8f0" stroke="#93b4d4" stroke-width="1"/></svg>
+        <!-- VERIFIED gold pin -->
+        <div style="position:absolute;left:38%;top:18%;display:flex;flex-direction:column;align-items:center;gap:2px;filter:drop-shadow(0 2px 6px rgba(0,0,0,.3))">
+          <div style="padding:3px 9px;border-radius:99px;border:2px solid #d97706;background:#f59e0b;color:#fff;font-weight:800;font-size:11px;display:flex;align-items:center;gap:3px;box-shadow:0 0 0 3px rgba(251,191,36,.4)"><span style="font-size:9px">✓</span>$65</div>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="#f59e0b" stroke="#d97706" stroke-width="1.5"><path d="M20 10c0 6-8 13-8 13s-8-7-8-13a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3" fill="white" stroke="none"/></svg>
+        </div>
+        <!-- regular blue pin -->
+        <div style="position:absolute;left:58%;top:36%;display:flex;flex-direction:column;align-items:center;gap:2px;filter:drop-shadow(0 2px 5px rgba(0,0,0,.25))">
+          <div style="padding:3px 9px;border-radius:99px;border:2px solid #e5e7eb;background:#fff;color:#111827;font-weight:800;font-size:11px">$45</div>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="#3b82f6" stroke="#2563eb" stroke-width="1.5"><path d="M20 10c0 6-8 13-8 13s-8-7-8-13a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3" fill="white" stroke="none"/></svg>
+        </div>
+        <!-- purple group pin -->
+        <div style="position:absolute;left:28%;top:50%;display:flex;flex-direction:column;align-items:center;gap:2px;filter:drop-shadow(0 2px 5px rgba(0,0,0,.25))">
+          <div style="padding:2px 8px;border-radius:99px;border:2px solid #ddd6fe;background:#fff;color:#4c1d95;font-weight:800;font-size:10px;display:flex;align-items:center;gap:3px"><svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>$25</div>
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="#8b5cf6" stroke="#7c3aed" stroke-width="1.5"><path d="M20 10c0 6-8 13-8 13s-8-7-8-13a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3" fill="white" stroke="none"/></svg>
+        </div>
+        <!-- another blue pin -->
+        <div style="position:absolute;left:70%;top:55%;display:flex;flex-direction:column;align-items:center;gap:2px;filter:drop-shadow(0 2px 5px rgba(0,0,0,.25))">
+          <div style="padding:3px 9px;border-radius:99px;border:2px solid #e5e7eb;background:#fff;color:#111827;font-weight:800;font-size:11px">$80</div>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="#3b82f6" stroke="#2563eb" stroke-width="1.5"><path d="M20 10c0 6-8 13-8 13s-8-7-8-13a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3" fill="white" stroke="none"/></svg>
+        </div>
+        <!-- legend -->
+        <div style="position:absolute;bottom:10px;right:10px;background:rgba(255,255,255,.95);border-radius:10px;padding:8px 10px;font-size:9.5px;font-weight:700;display:flex;flex-direction:column;gap:4px;border:1px solid #e5e7eb">
+          <div style="display:flex;align-items:center;gap:5px"><div style="width:10px;height:10px;border-radius:50%;background:#3b82f6"></div>Individual Instructor</div>
+          <div style="display:flex;align-items:center;gap:5px"><div style="width:10px;height:10px;border-radius:50%;background:#f59e0b"></div>Verified Instructor</div>
+          <div style="display:flex;align-items:center;gap:5px"><div style="width:10px;height:10px;border-radius:50%;background:#8b5cf6"></div>Group Session</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="bar"></div>
+</div>
+
+<!-- ══ SLIDE 4 · WHY THE MAP DRIVES COMMUNITY SIGN-UPS ══════════ -->
+<div class="slide ls">
+  <div class="pl">
+    <div class="eye w">Community Growth</div>
+    <div class="ttl w">Why the map makes people want to sign up</div>
+    <p style="color:#94a3b8;font-size:13.5px;line-height:1.7;font-weight:500">The map isn't just a feature — it's an emotional hook. The moment someone sees instructors pinned on streets they recognise, the platform stops feeling like a website and starts feeling like <em style="color:#93c5fd">their neighbourhood.</em></p>
+  </div>
+  <div class="pr">
+    <div class="cl">
+      <div class="ci"><span class="ck">📍</span><div><h4>"That's my street!"</h4><p>Seeing price-tagged pins on real local streets triggers an immediate sense of proximity and relevance — a stranger becomes a neighbour. That personal recognition is the strongest conversion trigger the platform has.</p></div></div>
+      <div class="ci"><span class="ck">🏅</span><div><h4>Verified gold pins stand out</h4><p>Admin-verified instructors display a gold pin that stands out visually on the map. Students learn that the badge signals quality — and instructors see getting verified as worth pursuing to appear more prominently.</p></div></div>
+      <div class="ci"><span class="ck">👥</span><div><h4>Group session pins create urgency</h4><p>Purple group lesson pins show a class near you with "4 spots left." That scarcity — visible on the map before you even click — pulls people directly to sign up and enrol before the seat disappears.</p></div></div>
+      <div class="ci"><span class="ck">💰</span><div><h4>Price transparency removes hesitation</h4><p>Showing $45 or $80 right on the pin lets visitors compare options without opening every profile. Removing that friction means browsers become bookers faster.</p></div></div>
+      <div class="ci"><span class="ck">🔎</span><div><h4>Location search lowers the barrier</h4><p>Anyone who types their city or zip instantly sees a map centred on their area. That zero-friction localisation makes the first visit feel personal and worth returning to.</p></div></div>
+    </div>
+  </div>
+  <div class="bar"></div>
+</div>
+
+<!-- ══ SLIDE 5 · MAP DRIVES INSTRUCTOR SIGN-UPS TOO ════════════ -->
+<div class="slide lc">
+  <div class="eye">The Map — Instructor Perspective</div>
+  <div class="ttl">Instructors sign up because the map shows the opportunity</div>
+  <div class="gr g2" style="gap:20px">
+    <div>
+      <div class="dl b">What instructors see</div>
+      <div class="cl">
+        <div class="ci"><span class="ck">🗺️</span><div><h4>Their neighbourhood has demand</h4><p>When a new instructor browses the map before signing up, they see students searching in their area with no available match. That visible gap is a direct pitch: "your community needs you."</p></div></div>
+        <div class="ci"><span class="ck">⭐</span><div><h4>Verified badge = more bookings</h4><p>Gold pins attract more clicks than blue ones — visible right there on the map. Instructors who understand this are motivated to complete verification to gain that visual advantage in search.</p></div></div>
+        <div class="ci"><span class="ck">👥</span><div><h4>Group lessons multiply earnings</h4><p>Instructors can create group sessions pinned to a real location. One class of 6 students at $25/seat earns $150 for a single session — visible to the whole map audience at once.</p></div></div>
+      </div>
+    </div>
+    <div>
+      <div class="dl p">What makes instructors stay</div>
+      <div class="cl">
+        <div class="ci"><span class="ck">📊</span><div><h4>Dashboard proves ROI immediately</h4><p>The Teaching tab shows upcoming sessions, pending requests, student count, and average rating — all above the fold. Within the first week a new instructor can see their traction growing.</p></div></div>
+        <div class="ci"><span class="ck">💬</span><div><h4>Messaging keeps students close</h4><p>Real-time chat means instructors can answer questions and close bookings without exchanging personal contact details — reducing the friction that causes drop-off between first contact and paid session.</p></div></div>
+        <div class="ci"><span class="ck">🎯</span><div><h4>Student milestones create loyalty</h4><p>When an instructor marks a student's learning milestone, it creates a tangible record of shared progress — the kind of relationship that keeps both parties on the platform long-term.</p></div></div>
+      </div>
+    </div>
+  </div>
+  <div class="bar"></div>
+</div>
+
+<!-- ══ SLIDE 6 · REQUESTED TUTORS PAGE MOCKUP ══════════════════ -->
+<div class="slide lg" style="padding:36px 48px 72px">
+  <div class="eye">Community Requests</div>
+  <div class="ttl" style="margin-bottom:16px">The "Most Wanted Instructors" leaderboard</div>
+  <div class="mw" style="flex:1;display:flex;flex-direction:column">
+    <div class="mbar"><div class="dot" style="background:#ef4444"></div><div class="dot" style="background:#f59e0b"></div><div class="dot" style="background:#22c55e"></div><div class="url">instructorfinder.com/needed-courses</div></div>
+    <div style="flex:1;background:#f8fafc;padding:20px 28px;overflow:hidden">
+      <!-- header -->
+      <div style="text-align:center;margin-bottom:16px">
+        <div style="width:44px;height:44px;background:#dbeafe;border-radius:12px;margin:0 auto 8px;display:flex;align-items:center;justify-content:center;font-size:22px">🏆</div>
+        <h2 style="font-size:17px;font-weight:900;color:#111827;margin-bottom:3px">Most Wanted Instructors</h2>
+        <p style="font-size:11px;color:#6b7280;font-weight:500">Vote for subjects you need. The top 10 guide who we recruit next. Become an Instructor if you can help.</p>
+      </div>
+      <!-- location search bar -->
+      <div style="display:flex;gap:7px;margin-bottom:12px">
+        <div style="flex:1;background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:7px 12px;display:flex;align-items:center;gap:7px"><span style="font-size:12px">📍</span><span style="font-size:11px;color:#9ca3af;font-weight:600">Search by city, zip code, or area…</span></div>
+        <div style="padding:7px 14px;background:#2563eb;border-radius:10px;font-size:11px;font-weight:700;color:#fff">Search</div>
+      </div>
+      <!-- leaderboard rows -->
+      <div style="display:flex;flex-direction:column;gap:6px">
+        <!-- #1 gold -->
+        <div style="display:flex;align-items:center;gap:10px;background:#fefce8;border:1px solid #fde68a;border-radius:12px;padding:10px 14px">
+          <div style="width:24px;text-align:center"><span style="font-size:16px">🥇</span></div>
+          <div style="flex:1;min-width:0"><p style="font-size:12.5px;font-weight:900;color:#111827">Piano &amp; Music Theory</p><p style="font-size:10px;color:#92400e;font-weight:500">Hard to find locally — many parents requesting</p></div>
+          <div style="display:flex;flex-direction:column;align-items:center;gap:1px;padding:7px 12px;background:#2563eb;border-radius:10px;color:#fff;min-width:46px"><span style="font-size:13px">👍</span><span style="font-size:10px;font-weight:800">47</span></div>
+        </div>
+        <!-- #2 silver -->
+        <div style="display:flex;align-items:center;gap:10px;background:#f9fafb;border:1px solid #e5e7eb;border-radius:12px;padding:10px 14px">
+          <div style="width:24px;text-align:center"><span style="font-size:16px">🥈</span></div>
+          <div style="flex:1;min-width:0"><p style="font-size:12.5px;font-weight:900;color:#111827">Mandarin Chinese</p><p style="font-size:10px;color:#6b7280;font-weight:500">Growing demand, very few local options</p></div>
+          <div style="display:flex;flex-direction:column;align-items:center;gap:1px;padding:7px 12px;background:#fff;border:1px solid #e5e7eb;border-radius:10px;color:#6b7280;min-width:46px"><span style="font-size:13px">👍</span><span style="font-size:10px;font-weight:800">31</span></div>
+        </div>
+        <!-- #3 bronze -->
+        <div style="display:flex;align-items:center;gap:10px;background:#fff7ed;border:1px solid #fed7aa;border-radius:12px;padding:10px 14px">
+          <div style="width:24px;text-align:center"><span style="font-size:16px">🥉</span></div>
+          <div style="flex:1;min-width:0"><p style="font-size:12.5px;font-weight:900;color:#111827">LSAT / Law School Prep</p></div>
+          <div style="display:flex;flex-direction:column;align-items:center;gap:1px;padding:7px 12px;background:#fff;border:1px solid #e5e7eb;border-radius:10px;color:#6b7280;min-width:46px"><span style="font-size:13px">👍</span><span style="font-size:10px;font-weight:800">28</span></div>
+        </div>
+        <!-- #4 normal -->
+        <div style="display:flex;align-items:center;gap:10px;background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:10px 14px">
+          <div style="width:24px;text-align:center"><span style="font-size:12px;font-weight:900;color:#9ca3af">#4</span></div>
+          <div style="flex:1;min-width:0"><p style="font-size:12.5px;font-weight:900;color:#111827">Sign Language (ASL)</p></div>
+          <div style="display:flex;flex-direction:column;align-items:center;gap:1px;padding:7px 12px;background:#fff;border:1px solid #e5e7eb;border-radius:10px;color:#6b7280;min-width:46px"><span style="font-size:13px">👍</span><span style="font-size:10px;font-weight:800">19</span></div>
+        </div>
+        <!-- suggest button -->
+        <div style="border:2px dashed #e5e7eb;border-radius:12px;padding:10px;display:flex;align-items:center;justify-content:center;gap:6px;margin-top:2px"><span style="font-size:12px;color:#6b7280;font-weight:700">＋ Suggest a new instructor type</span></div>
+      </div>
+    </div>
+  </div>
+  <div class="bar"></div>
+</div>
+
+<!-- ══ SLIDE 7 · WHY REQUESTED TUTORS DRIVES COMMUNITY ═════════ -->
+<div class="slide ls">
+  <div class="pl">
+    <div class="eye w">Community Engagement</div>
+    <div class="ttl w">Why the Requested Courses page turns visitors into members</div>
+    <p style="color:#94a3b8;font-size:13.5px;line-height:1.7;font-weight:500">A ranked leaderboard of what the community wants most isn't just data — it's a public declaration of local need. It makes every visitor feel like their voice shapes who gets recruited next.</p>
+    <div style="margin-top:20px;background:rgba(37,99,235,.15);border:1px solid rgba(37,99,235,.3);border-radius:12px;padding:14px 16px">
+      <p style="color:#93c5fd;font-size:13px;font-weight:700;font-style:italic">"Vote for the subjects you most want covered. The top 10 guide who we recruit next. Become an Instructor if you can help."</p>
+      <p style="color:#60a5fa;font-size:11px;font-weight:600;margin-top:5px">— the page's actual headline copy</p>
+    </div>
+  </div>
+  <div class="pr">
+    <div class="cl">
+      <div class="ci"><span class="ck">🏆</span><div><h4>Leaderboard psychology</h4><p>A live ranked list with vote counts (47, 31, 28…) creates visible competition. Supporters of a subject naturally want to push it higher — so they vote, share the link, and recruit friends to do the same. That word-of-mouth brings new sign-ups.</p></div></div>
+      <div class="ci"><span class="ck">🙋</span><div><h4>Direct instructor recruitment</h4><p>"Become an Instructor if you can help" sits right below the leaderboard. Someone who teaches Piano and sees 47 votes demanding it gets an unmistakable signal that the market is waiting. The page converts skilled people who weren't considering teaching online.</p></div></div>
+      <div class="ci"><span class="ck">📍</span><div><h4>Location filter makes it local</h4><p>Filtering to "Top 10 within 100 miles of Denver" turns a global wishlist into a neighbourhood conversation. Local requests feel urgent and personal — and local instructors feel directly called to respond.</p></div></div>
+      <div class="ci"><span class="ck">👍</span><div><h4>One-tap voting creates accounts</h4><p>Clicking the thumbs-up on a request prompts sign-in if the user isn't logged in. The desire to support a cause they care about — Piano for their child, Mandarin for themselves — is enough motivation to create an account on the spot.</p></div></div>
+      <div class="ci"><span class="ck">🔢</span><div><h4>10-request cap creates thoughtful curation</h4><p>The limit of 10 suggestions per user means people choose carefully and feel ownership of their picks. That investment makes them return to check if their subject moved up the ranks — driving repeat engagement.</p></div></div>
+    </div>
+  </div>
+  <div class="bar"></div>
+</div>
+
+<!-- ══ SLIDE 8 · SUGGESTION → INSTRUCTOR PIPELINE ══════════════ -->
+<div class="slide lc">
+  <div class="eye">Community → Platform Growth</div>
+  <div class="ttl">From community request to active instructor in five steps</div>
+  <div class="flow" style="margin-bottom:32px">
+    <div class="fs"><div class="fn" style="background:#6b7280">💬</div><h4>Community suggests</h4><p>Someone posts "Piano" on the leaderboard with a reason</p></div>
+    <div class="fs"><div class="fn" style="background:#d97706">👍</div><h4>Others vote</h4><p>47 upvotes push Piano to #1 — visible to every visitor</p></div>
+    <div class="fs"><div class="fn" style="background:#2563eb">👀</div><h4>Instructor notices</h4><p>A piano teacher browsing the page sees the demand signal</p></div>
+    <div class="fs"><div class="fn" style="background:#7c3aed">📝</div><h4>Signs up &amp; completes profile</h4><p>Creates a tutor account, fills bio, rate, and subjects</p></div>
+    <div class="fs"><div class="fn" style="background:#16a34a">✅</div><h4>Verified &amp; live on map</h4><p>Admin approves credentials — gold pin appears in search</p></div>
+  </div>
+  <div class="gr g3" style="gap:14px">
+    <div class="card" style="border-top:3px solid #d97706">
+      <div class="ico ia">🏆</div>
+      <h3>Organic signal, zero ad spend</h3>
+      <p>The leaderboard provides a data-driven brief for instructor recruitment — no surveys or market research needed. The community does that work for free.</p>
+    </div>
+    <div class="card" style="border-top:3px solid #2563eb">
+      <div class="ico ib">🗺️</div>
+      <h3>Map confirms the gap</h3>
+      <p>A prospective instructor can search their subject on the map, see zero or few pins in their area, and know immediately that local demand is unmet.</p>
+    </div>
+    <div class="card" style="border-top:3px solid #16a34a">
+      <div class="ico ig">🔄</div>
+      <h3>Flywheel effect</h3>
+      <p>More instructors → richer map → more students → more requests → more instructors recruited. Each new member makes the platform more valuable for everyone.</p>
+    </div>
+  </div>
+  <div class="bar"></div>
+</div>
+
+<!-- ══ SLIDE 9 · STUDENT DASHBOARD MOCKUP ══════════════════════ -->
+<div class="slide lg" style="padding:34px 48px 70px">
+  <div class="eye">Student Experience</div>
+  <div class="ttl" style="margin-bottom:14px">The Student Dashboard — everything in one view</div>
+  <div class="mw" style="flex:1;display:flex;flex-direction:column">
+    <div class="mbar"><div class="dot" style="background:#ef4444"></div><div class="dot" style="background:#f59e0b"></div><div class="dot" style="background:#22c55e"></div><div class="url">instructorfinder.com/dashboard</div></div>
+    <div style="flex:1;background:#f8fafc;padding:16px 20px;overflow:hidden">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+        <div><h3 style="font-size:16px;font-weight:900;color:#111827">Hey, Alex!</h3><p style="font-size:11px;color:#6b7280;font-weight:500">Here's your learning overview.</p></div>
+        <div style="padding:5px 12px;background:#2563eb;border-radius:8px;font-size:10.5px;font-weight:700;color:#fff">Find Instructors →</div>
+      </div>
+      <!-- stats strip — clickable -->
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:12px">
+        <div style="background:#fff;border:2px solid #bfdbfe;border-radius:12px;padding:10px 12px;display:flex;gap:8px;align-items:center;cursor:pointer">
+          <div style="width:32px;height:32px;background:#dbeafe;border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:14px">📅</div>
+          <div><p style="font-size:16px;font-weight:900;color:#111827">3</p><p style="font-size:9px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:.06em">Upcoming</p></div>
+        </div>
+        <div style="background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:10px 12px;display:flex;gap:8px;align-items:center;cursor:pointer">
+          <div style="width:32px;height:32px;background:#fef3c7;border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:14px">⏳</div>
+          <div><p style="font-size:16px;font-weight:900;color:#111827">1</p><p style="font-size:9px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:.06em">Pending</p></div>
+        </div>
+        <div style="background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:10px 12px;display:flex;gap:8px;align-items:center;cursor:pointer">
+          <div style="width:32px;height:32px;background:#dcfce7;border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:14px">✅</div>
+          <div><p style="font-size:16px;font-weight:900;color:#111827">12</p><p style="font-size:9px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:.06em">Completed</p></div>
+        </div>
+      </div>
+      <p style="font-size:9px;color:#93c5fd;font-weight:700;text-align:center;margin-bottom:10px;background:#eff6ff;border-radius:8px;padding:4px">👆 Click any stat to jump directly to that section</p>
+      <!-- upcoming lessons collapsible -->
+      <div style="background:#fff;border:1px solid #e5e7eb;border-radius:12px;overflow:hidden;margin-bottom:8px">
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:9px 14px;border-bottom:1px solid #e5e7eb">
+          <div style="display:flex;align-items:center;gap:6px"><span style="font-size:12px">📅</span><span style="font-size:12px;font-weight:800;color:#111827">Upcoming Lessons</span><span style="background:#dbeafe;color:#1d4ed8;font-size:9px;font-weight:800;padding:1px 6px;border-radius:99px">3</span></div>
+          <div style="display:flex;align-items:center;gap:8px"><span style="font-size:10px;font-weight:700;color:#2563eb">View all →</span><span style="color:#9ca3af;font-size:12px">▾</span></div>
+        </div>
+        <div style="padding:8px 14px;display:flex;align-items:center;gap:10px;border-bottom:1px solid #f9fafb">
+          <div style="width:28px;height:28px;background:linear-gradient(135deg,#fbbf24,#f59e0b);border-radius:7px;display:flex;align-items:center;justify-content:center;color:#fff;font-size:12px;font-weight:900">S</div>
+          <div style="flex:1"><p style="font-size:11px;font-weight:800;color:#111827">SAT Math</p><p style="font-size:10px;color:#6b7280">with Sarah Chen</p></div>
+          <span style="font-size:10px;font-weight:700;color:#2563eb">Tomorrow · 4pm</span>
+        </div>
+        <!-- reschedule banner -->
+        <div style="background:#fffbeb;border-left:3px solid #f59e0b;padding:7px 14px;display:flex;align-items:center;gap:8px">
+          <span style="font-size:10px">🔄</span>
+          <span style="font-size:10px;font-weight:600;color:#92400e;flex:1">Sarah Chen proposed rescheduling your Calculus session to Fri 2pm</span>
+          <div style="display:flex;gap:4px"><div style="padding:3px 8px;background:#16a34a;border-radius:6px;font-size:9.5px;font-weight:700;color:#fff">Accept</div><div style="padding:3px 8px;background:#fee2e2;border-radius:6px;font-size:9.5px;font-weight:700;color:#dc2626">Decline</div></div>
+        </div>
+      </div>
+      <!-- activity collapsed -->
+      <div style="background:#fff;border:1px solid #e5e7eb;border-radius:12px;overflow:hidden">
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:9px 14px">
+          <div style="display:flex;align-items:center;gap:6px"><span style="font-size:12px">📋</span><span style="font-size:12px;font-weight:800;color:#111827">Recent Activity</span></div>
+          <span style="color:#9ca3af;font-size:12px">▸</span>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="bar"></div>
+</div>
+
+<!-- ══ SLIDE 10 · INSTRUCTOR DASHBOARD MOCKUP ══════════════════ -->
+<div class="slide lg" style="padding:34px 48px 70px">
+  <div class="eye">Instructor Experience</div>
+  <div class="ttl" style="margin-bottom:14px">The Instructor Dashboard — teaching and learning in one place</div>
+  <div class="mw" style="flex:1;display:flex;flex-direction:column">
+    <div class="mbar"><div class="dot" style="background:#ef4444"></div><div class="dot" style="background:#f59e0b"></div><div class="dot" style="background:#22c55e"></div><div class="url">instructorfinder.com/instructor-dashboard</div></div>
+    <div style="flex:1;background:#f8fafc;padding:14px 18px;overflow:hidden">
+      <!-- tab switcher -->
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+        <div><h3 style="font-size:15px;font-weight:900;color:#111827">Hey, Sarah!</h3><p style="font-size:10.5px;color:#6b7280;font-weight:500">Here's your teaching overview.</p></div>
+        <div style="display:flex;gap:3px;background:#f3f4f6;border-radius:10px;padding:3px">
+          <div style="padding:5px 12px;background:#fff;border-radius:8px;font-size:10.5px;font-weight:800;color:#111827;box-shadow:0 1px 3px rgba(0,0,0,.08)">🎓 Teaching</div>
+          <div style="padding:5px 12px;border-radius:8px;font-size:10.5px;font-weight:700;color:#6b7280">📖 Learning</div>
+        </div>
+      </div>
+      <!-- stats — clickable -->
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:7px;margin-bottom:12px">
+        <div style="background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:9px;display:flex;gap:7px;align-items:center;cursor:pointer"><div style="width:28px;height:28px;background:#dbeafe;border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:12px">📅</div><div><p style="font-size:14px;font-weight:900;color:#111827">5</p><p style="font-size:8.5px;font-weight:700;color:#6b7280;text-transform:uppercase">Upcoming</p></div></div>
+        <div style="background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:9px;display:flex;gap:7px;align-items:center;cursor:pointer"><div style="width:28px;height:28px;background:#fef3c7;border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:12px">⏳</div><div><p style="font-size:14px;font-weight:900;color:#111827">3</p><p style="font-size:8.5px;font-weight:700;color:#6b7280;text-transform:uppercase">Requests</p></div></div>
+        <div style="background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:9px;display:flex;gap:7px;align-items:center;cursor:pointer"><div style="width:28px;height:28px;background:#ede9fe;border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:12px">👥</div><div><p style="font-size:14px;font-weight:900;color:#111827">14</p><p style="font-size:8.5px;font-weight:700;color:#6b7280;text-transform:uppercase">Students</p></div></div>
+        <div style="background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:9px;display:flex;gap:7px;align-items:center;cursor:pointer"><div style="width:28px;height:28px;background:#fef3c7;border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:12px">⭐</div><div><p style="font-size:14px;font-weight:900;color:#111827">4.9</p><p style="font-size:8.5px;font-weight:700;color:#6b7280;text-transform:uppercase">Rating</p></div></div>
+      </div>
+      <div style="display:grid;grid-template-columns:2fr 1fr;gap:10px">
+        <!-- left column -->
+        <div style="display:flex;flex-direction:column;gap:8px">
+          <!-- upcoming -->
+          <div style="background:#fff;border:1px solid #e5e7eb;border-radius:12px;overflow:hidden">
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;border-bottom:1px solid #e5e7eb"><div style="display:flex;align-items:center;gap:5px"><span style="font-size:11px">📅</span><span style="font-size:11.5px;font-weight:800">Upcoming Sessions</span><span style="background:#dbeafe;color:#1d4ed8;font-size:9px;font-weight:800;padding:1px 5px;border-radius:99px">5</span></div><span style="font-size:10px;font-weight:700;color:#2563eb">View all →</span></div>
+            <div style="padding:8px 12px;display:flex;align-items:center;gap:8px"><div style="width:26px;height:26px;background:#dbeafe;border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:12px">👤</div><div style="flex:1"><p style="font-size:10.5px;font-weight:800;color:#111827">SAT Math</p><p style="font-size:9.5px;color:#6b7280">with Alex M.</p></div><span style="font-size:10px;font-weight:700;color:#2563eb">Tomorrow · 4pm</span></div>
+          </div>
+          <!-- pending requests -->
+          <div style="background:#fff;border:1px solid #e5e7eb;border-radius:12px;overflow:hidden">
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;border-bottom:1px solid #e5e7eb"><div style="display:flex;align-items:center;gap:5px"><span style="font-size:11px">⏳</span><span style="font-size:11.5px;font-weight:800">Pending Requests</span><span style="background:#fef3c7;color:#92400e;font-size:9px;font-weight:800;padding:1px 5px;border-radius:99px">3</span></div><span style="font-size:10px;font-weight:700;color:#2563eb">Manage →</span></div>
+            <div style="padding:8px 12px;display:flex;align-items:center;gap:8px"><div style="width:26px;height:26px;background:#f3f4f6;border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:12px">👤</div><div style="flex:1"><p style="font-size:10.5px;font-weight:800;color:#111827">Jamie L.</p><p style="font-size:9.5px;color:#6b7280">wants help with <strong>Calculus</strong></p></div><div style="display:flex;gap:4px"><div style="padding:3px 7px;background:#16a34a;border-radius:6px;font-size:9.5px;font-weight:700;color:#fff">✓ Accept</div><div style="padding:3px 7px;background:#fee2e2;border:1px solid #fca5a5;border-radius:6px;font-size:9.5px;font-weight:700;color:#dc2626">✕ Decline</div></div></div>
+          </div>
+        </div>
+        <!-- right column: reviews -->
+        <div style="background:#fff;border:1px solid #e5e7eb;border-radius:12px;overflow:hidden">
+          <div style="padding:8px 12px;border-bottom:1px solid #e5e7eb;display:flex;align-items:center;gap:5px"><span style="font-size:11px">⭐</span><span style="font-size:11.5px;font-weight:800">Recent Reviews</span></div>
+          <div style="padding:8px 12px;border-bottom:1px solid #f9fafb"><p style="font-size:10.5px;font-weight:800;color:#111827">Alex M.</p><div style="color:#f59e0b;font-size:10px;margin:2px 0">★★★★★</div><p style="font-size:10px;color:#6b7280;font-weight:500;line-height:1.4">"Sarah made calculus finally click for me!"</p></div>
+          <div style="padding:8px 12px"><p style="font-size:10.5px;font-weight:800;color:#111827">Jordan T.</p><div style="color:#f59e0b;font-size:10px;margin:2px 0">★★★★★</div><p style="font-size:10px;color:#6b7280;font-weight:500;line-height:1.4">"Best SAT tutor I've had. 200pt improvement!"</p></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="bar"></div>
+</div>
+
+<!-- ══ SLIDE 11 · BOOKING LIFECYCLE ════════════════════════════ -->
+<div class="slide lc">
+  <div class="eye">Booking &amp; Scheduling</div>
+  <div class="ttl">A transparent booking lifecycle — both sides always informed</div>
+  <div class="flow" style="margin-bottom:28px">
+    <div class="fs"><div class="fn" style="background:#6b7280">?</div><h4>Pending</h4><p>Student sends request with a message</p></div>
+    <div class="fs"><div class="fn" style="background:#16a34a">✓</div><h4>Accepted</h4><p>Instructor accepts — student emailed instantly</p></div>
+    <div class="fs"><div class="fn" style="background:#d97706">↺</div><h4>Reschedule</h4><p>Either party proposes new time; other accepts/declines</p></div>
+    <div class="fs"><div class="fn" style="background:#2563eb">★</div><h4>Completed</h4><p>Session done — student can rate &amp; review</p></div>
+    <div class="fs"><div class="fn" style="background:#dc2626">✕</div><h4>Declined</h4><p>Instructor declines; student can rebook</p></div>
+  </div>
+  <div class="gr g2" style="gap:20px">
+    <div>
+      <div class="dl b">Instructor controls</div>
+      <div class="cl">
+        <div class="ci"><span class="ck">✅</span><div><h4>One-click accept / decline</h4><p>Pending requests show student name, subject, message, and timestamp — accept or decline without leaving the dashboard</p></div></div>
+        <div class="ci"><span class="ck">📝</span><div><h4>Pre-session notes</h4><p>Attach private preparation notes to any upcoming session — topics to cover, materials needed, prior context</p></div></div>
+        <div class="ci"><span class="ck">↺</span><div><h4>Propose reschedule</h4><p>Pick a new date/time; student gets an inline amber alert on their dashboard with Accept and Decline buttons</p></div></div>
+      </div>
+    </div>
+    <div>
+      <div class="dl p">Student controls</div>
+      <div class="cl">
+        <div class="ci"><span class="ck">🔔</span><div><h4>Reschedule alert on dashboard</h4><p>When a tutor proposes a new time, an amber banner surfaces immediately — no email hunting required</p></div></div>
+        <div class="ci"><span class="ck">📋</span><div><h4>Full lesson history</h4><p>Every booking — past and future — lives on the /lessons page with status, subject, tutor, and date</p></div></div>
+        <div class="ci"><span class="ck">⭐</span><div><h4>Post-session reviews</h4><p>Rate completed sessions 1–5 stars with written feedback — feeds back into the instructor's public profile and map pin</p></div></div>
+      </div>
+    </div>
+  </div>
+  <div class="bar"></div>
+</div>
+
+<!-- ══ SLIDE 12 · LEARNING GOALS & GUARDIAN ════════════════════ -->
+<div class="slide ls">
+  <div class="pl">
+    <div class="eye w">Progress &amp; Family</div>
+    <div class="ttl w">Track real progress — and keep families in the loop</div>
+    <div class="cl" style="margin-bottom:20px">
+      <div class="ci"><span class="ck">🎯</span><div><h4 class="w">Learning Goals</h4><p class="w">Students set goals like "Pass SAT Math by June" — instructors mark milestones like "Mastered quadratic equations" against them</p></div></div>
+      <div class="ci"><span class="ck">🚩</span><div><h4 class="w">Milestone log</h4><p class="w">Every milestone is timestamped and attributed — a permanent record of shared progress that builds trust between student and instructor</p></div></div>
+      <div class="ci"><span class="ck">👪</span><div><h4 class="w">Guardian Portal</h4><p class="w">Parents link to their child's account via a secure invite token and get a read-only view of all bookings, upcoming sessions, and goals</p></div></div>
+    </div>
+    <div style="background:rgba(37,99,235,.15);border:1px solid rgba(37,99,235,.3);border-radius:12px;padding:12px 14px">
+      <p style="color:#93c5fd;font-size:12.5px;font-weight:700">Instructors who are also learners can switch to their Learning tab and set their own goals — benefiting from the same milestone tracking with their own instructors.</p>
+    </div>
+  </div>
+  <div class="pr">
+    <div class="dl b">Goal card example</div>
+    <div style="background:#f5f3ff;border:1px solid #c4b5fd;border-radius:14px;padding:16px 18px;margin-bottom:14px">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px"><span style="font-size:20px">🎯</span><div><p style="font-size:13px;font-weight:800;color:#3730a3">Pass SAT Math by June 2026</p><p style="font-size:10.5px;color:#7c3aed;font-weight:600">Mathematics · 2 milestones reached</p></div></div>
+      <div style="display:flex;flex-direction:column;gap:5px">
+        <div style="display:flex;align-items:center;gap:7px"><div style="width:15px;height:15px;border-radius:50%;background:#dcfce7;display:flex;align-items:center;justify-content:center;font-size:8px">✓</div><p style="font-size:11.5px;color:#374151;font-weight:600">Algebra I review complete · by Sarah Chen</p></div>
+        <div style="display:flex;align-items:center;gap:7px"><div style="width:15px;height:15px;border-radius:50%;background:#dcfce7;display:flex;align-items:center;justify-content:center;font-size:8px">✓</div><p style="font-size:11.5px;color:#374151;font-weight:600">Quadratic equations mastered · by Sarah Chen</p></div>
+      </div>
+    </div>
+    <div class="dl" style="border-color:#bbf7d0;color:#15803d">Guardian portal</div>
+    <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:12px;padding:14px">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><span style="font-size:16px">👪</span><div><p style="font-size:12px;font-weight:800;color:#14532d">Guardian Dashboard</p><p style="font-size:10.5px;color:#16a34a;font-weight:500">Linked to: Alex Morrison</p></div></div>
+      <div class="cl" style="gap:6px">
+        <div class="ci"><span class="ck" style="font-size:12px">📅</span><div><p style="font-size:11px;color:#374151;font-weight:600">3 upcoming sessions this week</p></div></div>
+        <div class="ci"><span class="ck" style="font-size:12px">🎯</span><div><p style="font-size:11px;color:#374151;font-weight:600">1 active learning goal — 2 milestones</p></div></div>
+        <div class="ci"><span class="ck" style="font-size:12px">✅</span><div><p style="font-size:11px;color:#374151;font-weight:600">12 completed sessions total</p></div></div>
+      </div>
+    </div>
+  </div>
+  <div class="bar"></div>
+</div>
+
+<!-- ══ SLIDE 13 · ADMIN & VERIFICATION ══════════════════════════ -->
+<div class="slide lc">
+  <div class="eye">Trust &amp; Safety</div>
+  <div class="ttl">Admin verification gives the community confidence</div>
+  <div class="gr g2" style="gap:22px">
+    <div>
+      <div class="dl b">Verification workflow</div>
+      <div style="display:flex;flex-direction:column;gap:10px;margin-bottom:16px">
+        <div style="display:flex;gap:12px"><div style="width:32px;height:32px;border-radius:50%;background:#f3f4f6;display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0">📤</div><div><h4 style="font-size:13px;font-weight:800;color:#111827">Instructor submits credentials</h4><p style="font-size:11.5px;color:#6b7280;font-weight:500;line-height:1.4">Document uploaded directly from the My Profile page</p></div></div>
+        <div style="display:flex;gap:12px"><div style="width:32px;height:32px;border-radius:50%;background:#fef3c7;display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0">⏳</div><div><h4 style="font-size:13px;font-weight:800;color:#111827">Admin sees "Pending Review"</h4><p style="font-size:11.5px;color:#6b7280;font-weight:500;line-height:1.4">Yellow card in the admin panel queue</p></div></div>
+        <div style="display:flex;gap:12px"><div style="width:32px;height:32px;border-radius:50%;background:#dcfce7;display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0">✅</div><div><h4 style="font-size:13px;font-weight:800;color:#111827">Approved → gold pin on map</h4><p style="font-size:11.5px;color:#6b7280;font-weight:500;line-height:1.4">Card turns green; verified badge appears on profile and in search</p></div></div>
+      </div>
+      <div class="hb"><p>🔒 The /admin route is protected — only accounts with <code style="background:#e0e7ff;padding:1px 5px;border-radius:4px;font-size:11px">is_admin = true</code> in the database can access it. Non-admin users are redirected immediately.</p></div>
+    </div>
+    <div>
+      <div class="dl">Card states in admin panel</div>
+      <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:16px">
+        <div style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px"><span style="font-size:16px">✅</span><div style="flex:1"><p style="font-size:12.5px;font-weight:800;color:#14532d">Sarah Chen</p><p style="font-size:10.5px;color:#16a34a;font-weight:500">Math · SAT Prep</p></div><span style="padding:3px 10px;background:#16a34a;border-radius:99px;font-size:10px;font-weight:700;color:#fff">Verified</span></div>
+        <div style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:#fffbeb;border:1px solid #fde68a;border-radius:10px"><span style="font-size:16px">⏳</span><div style="flex:1"><p style="font-size:12.5px;font-weight:800;color:#92400e">Marcus Rivera</p><p style="font-size:10.5px;color:#d97706;font-weight:500">Guitar · Piano</p></div><span style="padding:3px 10px;background:#fef3c7;border:1px solid #fde68a;border-radius:99px;font-size:10px;font-weight:700;color:#92400e">Pending Review</span></div>
+        <div style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:#fff;border:1px solid #e5e7eb;border-radius:10px"><span style="font-size:16px">—</span><div style="flex:1"><p style="font-size:12.5px;font-weight:800;color:#111827">Dr. James Osei</p><p style="font-size:10.5px;color:#6b7280;font-weight:500">Chemistry · Biology</p></div><span style="padding:3px 10px;background:#f3f4f6;border-radius:99px;font-size:10px;font-weight:700;color:#6b7280">Not Verified</span></div>
+      </div>
+      <div class="ac"><h4>Community trust signal</h4><p>Students can filter search results to show only verified instructors — making verification a competitive advantage that drives instructor participation in the process.</p></div>
+    </div>
+  </div>
+  <div class="bar"></div>
+</div>
+
+<!-- ══ SLIDE 14 · TECH STACK ════════════════════════════════════ -->
+<div class="slide ld">
+  <div class="eye w">Technical Architecture</div>
+  <div class="ttl w">Modern, secure, and built to scale</div>
+  <div class="gr g3" style="margin-bottom:24px">
+    <div class="card dk"><div class="ico" style="background:rgba(37,99,235,.2)">⚛️</div><h3 class="w">React + TypeScript</h3><p class="w">Component-based SPA with strict typing. Vite build tooling, React Router 7 for navigation.</p></div>
+    <div class="card dk"><div class="ico" style="background:rgba(16,185,129,.2)">🗄️</div><h3 class="w">Supabase</h3><p class="w">PostgreSQL database, Auth, Storage, and Realtime. Row Level Security on every table — the DB rejects unauthorised queries regardless of client behaviour.</p></div>
+    <div class="card dk"><div class="ico" style="background:rgba(168,85,247,.2)">🗺️</div><h3 class="w">Leaflet Maps</h3><p class="w">Interactive instructor map with custom SVG price-tag pins. Gold pins for verified instructors, purple for group sessions. Spread algorithm prevents pin overlap.</p></div>
+    <div class="card dk"><div class="ico" style="background:rgba(245,158,11,.2)">🔒</div><h3 class="w">Row Level Security</h3><p class="w">Every booking, message, and goal enforces ownership at the database level. Admin access checked via <code style="background:rgba(255,255,255,.1);padding:1px 5px;border-radius:4px;font-size:10px">is_admin</code> boolean — never client-side only.</p></div>
+    <div class="card dk"><div class="ico" style="background:rgba(239,68,68,.2)">⚡</div><h3 class="w">Supabase Realtime</h3><p class="w">Live message delivery and notification counts via Postgres change subscriptions. No polling — messages appear instantly.</p></div>
+    <div class="card dk"><div class="ico" style="background:rgba(34,197,94,.2)">💳</div><h3 class="w">Stripe Payments</h3><p class="w">Checkout integration fully implemented. Session payment flows activate with a live Stripe account — no further development needed.</p></div>
+  </div>
+  <div style="display:flex;flex-wrap:wrap;gap:8px">
+    <span style="padding:6px 13px;border-radius:8px;font-size:12px;font-weight:700;background:rgba(37,99,235,.15);border:1px solid rgba(37,99,235,.3);color:#93c5fd">React 18</span>
+    <span style="padding:6px 13px;border-radius:8px;font-size:12px;font-weight:700;background:rgba(37,99,235,.15);border:1px solid rgba(37,99,235,.3);color:#93c5fd">TypeScript</span>
+    <span style="padding:6px 13px;border-radius:8px;font-size:12px;font-weight:700;background:rgba(16,185,129,.15);border:1px solid rgba(16,185,129,.3);color:#6ee7b7">Supabase + PostgreSQL</span>
+    <span style="padding:6px 13px;border-radius:8px;font-size:12px;font-weight:700;background:rgba(168,85,247,.15);border:1px solid rgba(168,85,247,.3);color:#c4b5fd">Tailwind CSS</span>
+    <span style="padding:6px 13px;border-radius:8px;font-size:12px;font-weight:700;background:rgba(245,158,11,.15);border:1px solid rgba(245,158,11,.3);color:#fcd34d">Leaflet.js</span>
+    <span style="padding:6px 13px;border-radius:8px;font-size:12px;font-weight:700;background:rgba(239,68,68,.15);border:1px solid rgba(239,68,68,.3);color:#fca5a5">React Router 7</span>
+    <span style="padding:6px 13px;border-radius:8px;font-size:12px;font-weight:700;background:rgba(34,197,94,.15);border:1px solid rgba(34,197,94,.3);color:#86efac">Stripe</span>
+    <span style="padding:6px 13px;border-radius:8px;font-size:12px;font-weight:700;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.15);color:#94a3b8">Vite</span>
+    <span style="padding:6px 13px;border-radius:8px;font-size:12px;font-weight:700;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.15);color:#94a3b8">Nominatim Geocoding</span>
+  </div>
+  <div class="bar"></div>
+</div>
+
+<!-- ══ SLIDE 15 · ROADMAP ════════════════════════════════════════ -->
+<div class="slide lg">
+  <div class="eye">Roadmap</div>
+  <div class="ttl">What's live and what's next</div>
+  <div class="gr g3" style="gap:16px">
+    <div>
+      <div class="dl" style="border-color:#bbf7d0;color:#15803d">✅ Live &amp; Complete</div>
+      <div class="cl" style="gap:7px">
+        <div class="ci"><span class="ck" style="font-size:13px">✅</span><div><p style="font-size:12px;font-weight:600;color:#111827">Interactive map with price pins</p></div></div>
+        <div class="ci"><span class="ck" style="font-size:13px">✅</span><div><p style="font-size:12px;font-weight:600;color:#111827">Group lessons on map</p></div></div>
+        <div class="ci"><span class="ck" style="font-size:13px">✅</span><div><p style="font-size:12px;font-weight:600;color:#111827">Requested Courses leaderboard + voting</p></div></div>
+        <div class="ci"><span class="ck" style="font-size:13px">✅</span><div><p style="font-size:12px;font-weight:600;color:#111827">Location filter on requests (100-mile radius)</p></div></div>
+        <div class="ci"><span class="ck" style="font-size:13px">✅</span><div><p style="font-size:12px;font-weight:600;color:#111827">Student &amp; instructor dashboards</p></div></div>
+        <div class="ci"><span class="ck" style="font-size:13px">✅</span><div><p style="font-size:12px;font-weight:600;color:#111827">Full booking lifecycle + reschedule</p></div></div>
+        <div class="ci"><span class="ck" style="font-size:13px">✅</span><div><p style="font-size:12px;font-weight:600;color:#111827">Learning goals &amp; milestones</p></div></div>
+        <div class="ci"><span class="ck" style="font-size:13px">✅</span><div><p style="font-size:12px;font-weight:600;color:#111827">Guardian portal &amp; family accounts</p></div></div>
+        <div class="ci"><span class="ck" style="font-size:13px">✅</span><div><p style="font-size:12px;font-weight:600;color:#111827">Admin verification panel</p></div></div>
+        <div class="ci"><span class="ck" style="font-size:13px">✅</span><div><p style="font-size:12px;font-weight:600;color:#111827">Realtime messaging + notifications</p></div></div>
+        <div class="ci"><span class="ck" style="font-size:13px">✅</span><div><p style="font-size:12px;font-weight:600;color:#111827">Collapsible dashboard sections</p></div></div>
+        <div class="ci"><span class="ck" style="font-size:13px">✅</span><div><p style="font-size:12px;font-weight:600;color:#111827">Stat cards scroll to sections</p></div></div>
+      </div>
+    </div>
+    <div>
+      <div class="dl" style="border-color:#fde68a;color:#92400e">🔜 Near-term</div>
+      <div class="cl" style="gap:7px">
+        <div class="ci"><span class="ck" style="font-size:13px">🔜</span><div><p style="font-size:12px;font-weight:600;color:#111827">Stripe live payments activation</p></div></div>
+        <div class="ci"><span class="ck" style="font-size:13px">🔜</span><div><p style="font-size:12px;font-weight:600;color:#111827">Credential upload end-to-end</p></div></div>
+        <div class="ci"><span class="ck" style="font-size:13px">🔜</span><div><p style="font-size:12px;font-weight:600;color:#111827">Email verification gate on sign-up</p></div></div>
+        <div class="ci"><span class="ck" style="font-size:13px">🔜</span><div><p style="font-size:12px;font-weight:600;color:#111827">Realtime unread message badge</p></div></div>
+        <div class="ci"><span class="ck" style="font-size:13px">🔜</span><div><p style="font-size:12px;font-weight:600;color:#111827">Instructor reschedule visibility on dashboard</p></div></div>
+        <div class="ci"><span class="ck" style="font-size:13px">🔜</span><div><p style="font-size:12px;font-weight:600;color:#111827">Empty-state onboarding for new students</p></div></div>
+      </div>
+    </div>
+    <div>
+      <div class="dl" style="border-color:#c7d2fe;color:#4338ca">💡 Future Vision</div>
+      <div class="cl" style="gap:7px">
+        <div class="ci"><span class="ck" style="font-size:13px">💡</span><div><p style="font-size:12px;font-weight:600;color:#111827">24h session reminder emails</p></div></div>
+        <div class="ci"><span class="ck" style="font-size:13px">💡</span><div><p style="font-size:12px;font-weight:600;color:#111827">Availability calendar for instructors</p></div></div>
+        <div class="ci"><span class="ck" style="font-size:13px">💡</span><div><p style="font-size:12px;font-weight:600;color:#111827">Video session integration</p></div></div>
+        <div class="ci"><span class="ck" style="font-size:13px">💡</span><div><p style="font-size:12px;font-weight:600;color:#111827">Recurring / subscription bookings</p></div></div>
+        <div class="ci"><span class="ck" style="font-size:13px">💡</span><div><p style="font-size:12px;font-weight:600;color:#111827">AI-powered instructor matching</p></div></div>
+        <div class="ci"><span class="ck" style="font-size:13px">💡</span><div><p style="font-size:12px;font-weight:600;color:#111827">Mobile app (React Native)</p></div></div>
+      </div>
+    </div>
+  </div>
+  <div class="bar"></div>
+</div>
+
+<!-- ══ SLIDE 16 · CLOSING ════════════════════════════════════════ -->
+<div class="slide lt">
+  <div class="logo">T</div>
+  <h1>InstructorFinder</h1>
+  <p class="sub" style="max-width:560px">A map that makes your neighbourhood visible. A leaderboard that gives your community a voice. A platform that connects students with the instructors they actually need.</p>
+  <div class="pills" style="margin-bottom:36px">
+    <span class="pill pb">🗺️ Map Discovery</span>
+    <span class="pill pa">🏆 Community Requests</span>
+    <span class="pill pg">🎯 Goal Tracking</span>
+    <span class="pill pp">🛡️ Verified Instructors</span>
+  </div>
+  <div style="display:flex;flex-direction:column;align-items:center;gap:7px">
+    <p style="color:#475569;font-size:12px;font-weight:600">Built with</p>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:center">
+      <span style="padding:5px 12px;background:rgba(37,99,235,.2);color:#93c5fd;border-radius:8px;font-size:11.5px;font-weight:700">React + TypeScript</span>
+      <span style="padding:5px 12px;background:rgba(16,185,129,.2);color:#6ee7b7;border-radius:8px;font-size:11.5px;font-weight:700">Supabase</span>
+      <span style="padding:5px 12px;background:rgba(245,158,11,.2);color:#fcd34d;border-radius:8px;font-size:11.5px;font-weight:700">Leaflet Maps</span>
+      <span style="padding:5px 12px;background:rgba(34,197,94,.2);color:#86efac;border-radius:8px;font-size:11.5px;font-weight:700">Stripe</span>
+    </div>
+  </div>
+  <div class="bar"></div>
+</div>
+
+</div><!-- #deck -->
+
+<div id="nav">
+  <button id="prev" disabled>&#8592;</button>
+  <span id="counter">1 / 16</span>
+  <button id="next">&#8594;</button>
+</div>
+
+<script>
+const slides=Array.from(document.querySelectorAll('.slide'));
+const total=slides.length;
+let cur=0;
+const prev=document.getElementById('prev');
+const next=document.getElementById('next');
+const ctr=document.getElementById('counter');
+function go(n){
+  slides[cur].classList.remove('active');
+  cur=Math.max(0,Math.min(total-1,n));
+  slides[cur].classList.add('active');
+  ctr.textContent=(cur+1)+' / '+total;
+  prev.disabled=cur===0;
+  next.disabled=cur===total-1;
+}
+prev.addEventListener('click',()=>go(cur-1));
+next.addEventListener('click',()=>go(cur+1));
+document.addEventListener('keydown',e=>{
+  if(e.key==='ArrowRight'||e.key==='ArrowDown'||e.key==='PageDown')go(cur+1);
+  if(e.key==='ArrowLeft'||e.key==='ArrowUp'||e.key==='PageUp')go(cur-1);
+  if(e.key==='Home')go(0);
+  if(e.key==='End')go(total-1);
+});
+let tx=null;
+document.addEventListener('touchstart',e=>{tx=e.changedTouches[0].clientX},{passive:true});
+document.addEventListener('touchend',e=>{
+  if(tx===null)return;
+  const dx=e.changedTouches[0].clientX-tx;
+  if(Math.abs(dx)>40)go(dx<0?cur+1:cur-1);
+  tx=null;
+},{passive:true});
+</script>
+</body>
+</html>
