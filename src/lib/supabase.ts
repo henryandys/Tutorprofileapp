@@ -20,6 +20,7 @@ export interface Profile {
   phone?: string;
   date_of_birth?: string;
   is_admin?: boolean;
+  email_notifications?: boolean;
   created_at: string;
   updated_at: string;
 }

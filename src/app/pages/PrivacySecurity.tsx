@@ -1,14 +1,36 @@
 import { useState } from "react";
 import { Navbar } from "../components/Navbar";
-import { Shield, Lock, EyeOff, Save, ChevronLeft, Eye, EyeClosed } from "lucide-react";
+import { Shield, Lock, EyeOff, Save, ChevronLeft, Eye, EyeClosed, Bell } from "lucide-react";
 import { Link, useNavigate } from "react-router";
 import { toast } from "sonner";
 import { useAuth } from "../../context/AuthContext";
 import { supabase } from "../../lib/supabase";
 
 export function PrivacySecurity() {
-  const { user, signOut } = useAuth()
+  const { user, profile, signOut, refreshProfile } = useAuth()
   const navigate  = useNavigate()
+
+  // Email notification preference
+  const [emailNotif, setEmailNotif]   = useState(profile?.email_notifications ?? true)
+  const [savingNotif, setSavingNotif] = useState(false)
+
+  async function handleToggleNotifications(enabled: boolean) {
+    if (!user) return
+    setEmailNotif(enabled)
+    setSavingNotif(true)
+    const { error } = await supabase
+      .from('profiles')
+      .update({ email_notifications: enabled })
+      .eq('id', user.id)
+    setSavingNotif(false)
+    if (error) {
+      toast.error('Failed to update notification preference.')
+      setEmailNotif(!enabled)
+      return
+    }
+    await refreshProfile()
+    toast.success(enabled ? 'Email notifications enabled.' : 'Email notifications disabled.')
+  }
 
   // Password change state
   const [newPassword, setNewPassword]     = useState('')
@@ -83,6 +105,43 @@ export function PrivacySecurity() {
           <div>
             <h1 className="text-2xl font-black text-gray-900">Privacy & Security</h1>
             <p className="text-sm text-gray-500 font-medium">Manage your password and account visibility.</p>
+          </div>
+        </div>
+
+        {/* Email Notifications */}
+        <div className="bg-white rounded-3xl border border-gray-200 shadow-sm overflow-hidden mb-6">
+          <div className="px-8 py-6 border-b border-gray-100 flex items-center gap-3">
+            <Bell className="w-5 h-5 text-blue-600" />
+            <h2 className="text-lg font-black text-gray-900">Email Notifications</h2>
+          </div>
+          <div className="px-8 py-6 space-y-4">
+            <p className="text-sm text-gray-500 font-medium leading-relaxed">
+              Control whether InstructorFinder sends you emails for booking updates, messages, and session reminders.
+            </p>
+            <div className="flex items-center justify-between bg-gray-50 rounded-2xl px-5 py-4">
+              <div>
+                <p className="font-bold text-gray-900 text-sm">All email notifications</p>
+                <p className="text-xs text-gray-400 font-medium mt-0.5">
+                  Booking requests, acceptances, session reminders, messages
+                </p>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={emailNotif}
+                disabled={savingNotif}
+                onClick={() => handleToggleNotifications(!emailNotif)}
+                className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none disabled:opacity-60 ${
+                  emailNotif ? 'bg-blue-600' : 'bg-gray-200'
+                }`}
+              >
+                <span
+                  className={`pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow-sm transform transition-transform duration-200 ${
+                    emailNotif ? 'translate-x-5' : 'translate-x-0'
+                  }`}
+                />
+              </button>
+            </div>
           </div>
         </div>
 

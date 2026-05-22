@@ -86,6 +86,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const template = EMAIL_TEMPLATES[type]
   if (!template) return res.status(400).json({ error: `Unknown type: ${type}` })
 
+  // Check if recipient has email notifications enabled
+  const { data: profileData } = await supabaseAdmin
+    .from('profiles')
+    .select('email_notifications')
+    .eq('id', recipientId)
+    .single()
+  if (profileData?.email_notifications === false) {
+    return res.status(200).json({ ok: true, skipped: 'notifications_disabled' })
+  }
+
   // Look up recipient email via admin client
   const { data: authData, error: authError } = await supabaseAdmin.auth.admin.getUserById(recipientId)
   if (authError || !authData?.user?.email) {

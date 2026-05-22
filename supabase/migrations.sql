@@ -38,7 +38,33 @@ CREATE POLICY "admins_update_tutor_profiles" ON tutor_profiles
     WHERE profiles.id = auth.uid() AND profiles.is_admin = true
   ));
 
--- ── 6. RLS: student milestone insert ────────────────────────
+-- ── 6. Email notifications preference ──────────────────────
+ALTER TABLE profiles
+  ADD COLUMN IF NOT EXISTS email_notifications boolean NOT NULL DEFAULT true;
+
+-- ── 7. Booking reminder tracking ────────────────────────────
+ALTER TABLE bookings
+  ADD COLUMN IF NOT EXISTS reminder_sent_at timestamptz;
+
+-- ── 8. pg_cron: session reminder emails every hour ──────────
+--    Requires pg_cron and pg_net extensions to be enabled in
+--    Supabase Dashboard → Database → Extensions.
+--
+--    Replace YOUR_PROJECT_REF and YOUR_ANON_KEY below, then run.
+--
+-- SELECT cron.schedule(
+--   'send-session-reminders',
+--   '0 * * * *',
+--   $$
+--   SELECT net.http_post(
+--     url     := 'https://YOUR_PROJECT_REF.supabase.co/functions/v1/send-session-reminders',
+--     headers := '{"Content-Type":"application/json","Authorization":"Bearer YOUR_ANON_KEY"}'::jsonb,
+--     body    := '{}'::jsonb
+--   );
+--   $$
+-- );
+
+-- ── 9. RLS: student milestone insert ────────────────────────
 --    Prevents students from inserting milestones on goals they don't own.
 DROP POLICY IF EXISTS "milestones_student_insert" ON goal_milestones;
 CREATE POLICY "milestones_student_insert" ON goal_milestones
