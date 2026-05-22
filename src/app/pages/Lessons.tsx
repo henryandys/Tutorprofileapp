@@ -177,6 +177,15 @@ export function Lessons() {
   const [reviewsLoaded, setReviewsLoaded] = useState(false)
   const reviewToastFiredRef = useRef(false)
 
+  // Pagination for past sessions
+  const PAST_UI_PAGE = 20   // rows revealed per "Show more" click
+  const PAST_DB_PAGE = 50   // rows fetched per "Load older" DB request
+  const [pastVisibleCount,    setPastVisibleCount]    = useState(PAST_UI_PAGE)
+  const [tutorBookingsLoaded, setTutorBookingsLoaded] = useState(0)
+  const [studBookingsLoaded,  setStudBookingsLoaded]  = useState(0)
+  const [loadingMorePast,     setLoadingMorePast]     = useState(false)
+  const [noMorePast,          setNoMorePast]          = useState(false)
+
   async function handleGroupMessage(g: GroupEntry) {
     if (!user || !g.tutor_id) return
     setOpeningGroupChat(g.id)
@@ -394,8 +403,8 @@ export function Lessons() {
   useEffect(() => {
     if (!user) return
 
-    const asTutorQ   = supabase.from('bookings').select('*').eq('tutor_id', user.id).order('created_at', { ascending: false }).limit(500)
-    const asStudentQ = supabase.from('bookings').select('*, tutor:tutor_id(full_name)').eq('student_id', user.id).order('created_at', { ascending: false }).limit(500)
+    const asTutorQ   = supabase.from('bookings').select('*').eq('tutor_id', user.id).order('created_at', { ascending: false }).limit(100)
+    const asStudentQ = supabase.from('bookings').select('*, tutor:tutor_id(full_name)').eq('student_id', user.id).order('created_at', { ascending: false }).limit(100)
 
     // Tutors see both sets; students see only their own bookings
     const queries = isTutor
@@ -449,6 +458,9 @@ export function Lessons() {
           payment_status:         b.payment_status ?? null,
         }))
         setLessons([...asTutor, ...asStudent])
+        setTutorBookingsLoaded(asTutor.length)
+        setStudBookingsLoaded(asStudent.length)
+        if (asTutor.length < 100 && asStudent.length < 100) setNoMorePast(true)
 
         const groupAsTutor: GroupEntry[] = ((groupTutorRes.data ?? []) as any[]).map(g => ({
           id:               g.id,
@@ -716,6 +728,51 @@ export function Lessons() {
     setBatchProcessing(false)
     setDeclineBatch(false)
     toast.success(`${ids.length} booking${ids.length !== 1 ? 's' : ''} declined.`)
+  }
+
+  async function loadMorePast() {
+    if (!user || loadingMorePast || noMorePast) return
+    setLoadingMorePast(true)
+    const [tutorRes, studentRes] = await Promise.all([
+      isTutor
+        ? supabase.from('bookings').select('*')
+            .eq('tutor_id', user.id)
+            .order('created_at', { ascending: false })
+            .range(tutorBookingsLoaded, tutorBookingsLoaded + PAST_DB_PAGE - 1)
+        : Promise.resolve({ data: [] as any[] }),
+      supabase.from('bookings').select('*, tutor:tutor_id(full_name)')
+        .eq('student_id', user.id)
+        .order('created_at', { ascending: false })
+        .range(studBookingsLoaded, studBookingsLoaded + PAST_DB_PAGE - 1),
+    ])
+    const newTutor: Lesson[] = ((tutorRes.data ?? []) as any[]).map(b => ({
+      id: b.id, subject: b.subject, status: b.status,
+      scheduled_at: b.scheduled_at ?? null, created_at: b.created_at,
+      message: b.message ?? '', other_name: b.student_name,
+      other_user_id: b.student_id, perspective: 'tutor' as const,
+      reschedule_proposed_at: b.reschedule_proposed_at ?? null,
+      reschedule_status: b.reschedule_status ?? null,
+      reschedule_proposed_by: b.reschedule_proposed_by ?? null,
+      price_cents: b.price_cents ?? null, payment_status: b.payment_status ?? null,
+    }))
+    const newStud: Lesson[] = ((studentRes.data ?? []) as any[]).map(b => ({
+      id: b.id, subject: b.subject, status: b.status,
+      scheduled_at: b.scheduled_at ?? null, created_at: b.created_at,
+      message: b.message ?? '', other_name: b.tutor?.full_name ?? 'Tutor',
+      other_user_id: b.tutor_id, perspective: 'student' as const,
+      reschedule_proposed_at: b.reschedule_proposed_at ?? null,
+      reschedule_status: b.reschedule_status ?? null,
+      reschedule_proposed_by: b.reschedule_proposed_by ?? null,
+      price_cents: b.price_cents ?? null, payment_status: b.payment_status ?? null,
+    }))
+    const added = [...newTutor, ...newStud]
+    if (added.length > 0) setLessons(prev => [...prev, ...added])
+    const addedTutor = tutorRes.data?.length ?? 0
+    const addedStud  = studentRes.data?.length ?? 0
+    setTutorBookingsLoaded(t => t + addedTutor)
+    setStudBookingsLoaded(s => s + addedStud)
+    if (addedTutor < PAST_DB_PAGE && addedStud < PAST_DB_PAGE) setNoMorePast(true)
+    setLoadingMorePast(false)
   }
 
   // Show toast when Stripe redirects back
@@ -1301,7 +1358,7 @@ export function Lessons() {
         )}
 
         {/* ── Past Sessions ── */}
-        {!loading && pastLessons.length > 0 && (
+        {!loading && (pastLessons.length > 0 || !noMorePast) && (
           <div className="mt-8">
             <button
               onClick={() => setShowPastSessions(v => !v)}
@@ -1310,16 +1367,18 @@ export function Lessons() {
               <span className="flex items-center gap-2 text-lg font-black text-gray-900">
                 <Clock className="w-5 h-5 text-gray-400" />
                 Past Sessions
-                <span className="ml-1 px-2 py-0.5 rounded-full text-xs font-bold bg-gray-100 text-gray-500">
-                  {pastLessons.length}
-                </span>
+                {pastLessons.length > 0 && (
+                  <span className="ml-1 px-2 py-0.5 rounded-full text-xs font-bold bg-gray-100 text-gray-500">
+                    {pastLessons.length}{!noMorePast ? '+' : ''}
+                  </span>
+                )}
               </span>
               <ChevronRight className={`w-5 h-5 text-gray-400 transition-transform ${showPastSessions ? 'rotate-90' : ''}`} />
             </button>
 
             {showPastSessions && (
               <div className="flex flex-col gap-3 mt-3">
-                {pastLessons.map(l => (
+                {pastLessons.slice(0, pastVisibleCount).map(l => (
                   <LessonCard
                     key={`past-${l.id}`}
                     lesson={l}
@@ -1333,6 +1392,32 @@ export function Lessons() {
                     notePreview={notes[l.id]}
                   />
                 ))}
+
+                {/* Show more / Load older */}
+                {(pastVisibleCount < pastLessons.length || !noMorePast) && (
+                  <button
+                    onClick={async () => {
+                      if (pastVisibleCount < pastLessons.length) {
+                        setPastVisibleCount(v => v + PAST_UI_PAGE)
+                      } else {
+                        await loadMorePast()
+                        setPastVisibleCount(v => v + PAST_UI_PAGE)
+                      }
+                    }}
+                    disabled={loadingMorePast}
+                    className="flex items-center justify-center gap-2 py-3 rounded-2xl border border-gray-200 bg-white text-sm font-bold text-gray-500 hover:text-gray-800 hover:border-gray-300 transition-colors disabled:opacity-50"
+                  >
+                    {loadingMorePast
+                      ? <><Loader2 className="w-4 h-4 animate-spin" />Loading…</>
+                      : `Load more past sessions`}
+                  </button>
+                )}
+
+                {noMorePast && pastVisibleCount >= pastLessons.length && pastLessons.length > 0 && (
+                  <p className="text-center text-xs text-gray-400 font-medium py-2">
+                    All {pastLessons.length} past session{pastLessons.length !== 1 ? 's' : ''} shown
+                  </p>
+                )}
               </div>
             )}
           </div>

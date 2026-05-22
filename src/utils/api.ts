@@ -1,13 +1,19 @@
-import { projectId, publicAnonKey } from '/utils/supabase/info';
+import { projectId } from '/utils/supabase/info';
+import { supabase } from '../lib/supabase';
 
 const API_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-3c6c6b51`;
 
 const fetchAPI = async (endpoint: string, options: RequestInit = {}) => {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session?.access_token) {
+    throw new Error('Not authenticated');
+  }
+
   const response = await fetch(`${API_BASE}${endpoint}`, {
     ...options,
     headers: {
       'Content-Type': 'application/json',
-      'Authorization': `Bearer ${publicAnonKey}`,
+      'Authorization': `Bearer ${session.access_token}`,
       ...options.headers,
     },
   });

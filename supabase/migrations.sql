@@ -93,3 +93,49 @@ CREATE POLICY "milestones_student_insert" ON goal_milestones
       WHERE id = goal_id AND student_id = auth.uid()
     )
   );
+
+-- ── 11. RLS on profiles: prevent privilege escalation ────────
+--    Closes Vuln 2 (is_admin self-promotion) and Vuln 4
+--    (role self-promotion) from the security review.
+--    Safe to re-run (DROP POLICY IF EXISTS guards).
+
+ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
+
+-- SELECT: allow everyone (including anonymous browsers) to read profiles.
+-- Required for: public tutor search, referral name lookups, messaging.
+DROP POLICY IF EXISTS "profiles_select" ON profiles;
+CREATE POLICY "profiles_select" ON profiles
+  FOR SELECT
+  USING (true);
+
+-- INSERT: authenticated users may only create their own profile row.
+-- Blocks self-assigning is_admin=true or an arbitrary role at signup.
+DROP POLICY IF EXISTS "profiles_insert" ON profiles;
+CREATE POLICY "profiles_insert" ON profiles
+  FOR INSERT TO authenticated
+  WITH CHECK (
+    id       = auth.uid()
+    AND (is_admin IS NULL OR is_admin = false)
+    AND role IN ('student', 'tutor', 'parent')
+  );
+
+-- UPDATE: users may update their own row (name, bio, avatar, etc.)
+-- but cannot change their role or is_admin flag.
+-- Note: is_admin can still be set via the Supabase SQL editor
+-- (postgres role bypasses RLS), which is the correct admin-grant path.
+DROP POLICY IF EXISTS "profiles_update" ON profiles;
+CREATE POLICY "profiles_update" ON profiles
+  FOR UPDATE TO authenticated
+  USING (id = auth.uid())
+  WITH CHECK (
+    id       = auth.uid()
+    AND is_admin = (SELECT p.is_admin FROM profiles p WHERE p.id = auth.uid())
+    AND role     = (SELECT p.role     FROM profiles p WHERE p.id = auth.uid())
+  );
+
+-- DELETE: block client-side row deletion.
+-- Account deletion must go through a service-role server function.
+DROP POLICY IF EXISTS "profiles_delete" ON profiles;
+CREATE POLICY "profiles_delete" ON profiles
+  FOR DELETE TO authenticated
+  USING (false);
