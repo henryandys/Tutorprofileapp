@@ -8,17 +8,21 @@ import {
   Calendar, Clock, BookOpen, Heart, Search, ChevronRight, Star,
   User, CheckCircle, XCircle, Loader2, TrendingUp, Lightbulb, Ban,
   Users, GraduationCap, MessageCircle, LayoutDashboard, Check, StickyNote,
-  Target, Flag, Plus, X, ChevronDown,
+  Target, Flag, Plus, X, ChevronDown, RefreshCw,
 } from "lucide-react"
 import { toast } from "sonner"
 
 // ── Teaching types ────────────────────────────────────────────────────────────
 
 interface UpcomingSession {
-  id:           string
-  subject:      string
-  scheduled_at: string
-  student_name: string
+  id:                     string
+  subject:                string
+  scheduled_at:           string
+  student_name:           string
+  student_id:             string
+  reschedule_proposed_at: string | null
+  reschedule_status:      'pending' | 'accepted' | 'declined' | null
+  reschedule_proposed_by: string | null
 }
 
 interface PendingBooking {
@@ -194,9 +198,10 @@ export function InstructorDashboard() {
   const learnUpcomingRef = useRef<HTMLDivElement>(null)
   const learnPendingRef  = useRef<HTMLDivElement>(null)
   const learnActivityRef = useRef<HTMLDivElement>(null)
-  const [fetchingTeaching, setFetchingTeaching] = useState(true)
-  const [acceptingId,      setAcceptingId]      = useState<string | null>(null)
-  const [decliningId,      setDecliningId]      = useState<string | null>(null)
+  const [fetchingTeaching,       setFetchingTeaching]       = useState(true)
+  const [acceptingId,            setAcceptingId]            = useState<string | null>(null)
+  const [decliningId,            setDecliningId]            = useState<string | null>(null)
+  const [rescheduleRespondingId, setRescheduleRespondingId] = useState<string | null>(null)
 
   // Learning state
   const [upcomingLessons,  setUpcomingLessons]  = useState<UpcomingLesson[]>([])
@@ -245,7 +250,7 @@ export function InstructorDashboard() {
     const [sessRes, pendRes, allRes, revRes] = await Promise.all([
       supabase
         .from('bookings')
-        .select('id, subject, scheduled_at, student_name')
+        .select('id, subject, scheduled_at, student_name, student_id, reschedule_proposed_at, reschedule_status, reschedule_proposed_by')
         .eq('tutor_id', user.id)
         .eq('status', 'accepted')
         .gte('scheduled_at', now)
@@ -275,7 +280,18 @@ export function InstructorDashboard() {
         .limit(4),
     ])
 
-    setUpcomingSessions(sessRes.data ?? [])
+    setUpcomingSessions(
+      (sessRes.data ?? []).map((s: any) => ({
+        id:                     s.id,
+        subject:                s.subject,
+        scheduled_at:           s.scheduled_at,
+        student_name:           s.student_name,
+        student_id:             s.student_id,
+        reschedule_proposed_at: s.reschedule_proposed_at ?? null,
+        reschedule_status:      s.reschedule_status ?? null,
+        reschedule_proposed_by: s.reschedule_proposed_by ?? null,
+      }))
+    )
     setPendingBookings(pendRes.data ?? [])
     setReviews(revRes.data ?? [])
 
@@ -630,6 +646,35 @@ export function InstructorDashboard() {
     setDecliningId(null)
   }
 
+  async function handleRespondReschedule(session: UpcomingSession, accept: boolean) {
+    if (!user) return
+    setRescheduleRespondingId(session.id)
+    const updates = accept
+      ? { scheduled_at: session.reschedule_proposed_at, reschedule_status: 'accepted' as const, reschedule_proposed_at: null as string | null }
+      : { reschedule_status: 'declined' as const, reschedule_proposed_at: null as string | null }
+    const { error } = await supabase
+      .from('bookings')
+      .update(updates)
+      .eq('id', session.id)
+      .eq('tutor_id', user.id)
+    if (error) { toast.error('Failed to update reschedule.'); setRescheduleRespondingId(null); return }
+    setUpcomingSessions(prev => prev.map(s =>
+      s.id === session.id ? { ...s, ...updates } : s
+    ))
+    if (session.reschedule_proposed_by) {
+      sendNotificationEmail({
+        type:        accept ? 'reschedule_accepted' : 'reschedule_declined',
+        recipientId: session.reschedule_proposed_by,
+        data: {
+          responderName: profile?.full_name ?? user.email?.split('@')[0] ?? 'Your instructor',
+          subject:       session.subject,
+        },
+      })
+    }
+    toast.success(accept ? 'Reschedule accepted!' : 'Reschedule declined.')
+    setRescheduleRespondingId(null)
+  }
+
   async function openMilestone(studentId: string) {
     if (milestoneStudentId === studentId) { setMilestoneStudentId(null); return }
     setMilestoneStudentId(studentId)
@@ -810,6 +855,47 @@ export function InstructorDashboard() {
                               )}
                             </div>
                           </div>
+                          {/* Reschedule banner */}
+                          {s.reschedule_status === 'pending' && s.reschedule_proposed_at && (
+                            s.reschedule_proposed_by !== user?.id ? (
+                              <div className="mt-2 ml-14 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2.5 flex items-center gap-3">
+                                <RefreshCw className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                                <div className="flex-1 min-w-0">
+                                  <p className="text-[10px] font-black text-amber-600 uppercase tracking-widest">Student proposed reschedule</p>
+                                  <p className="text-xs font-bold text-gray-800">
+                                    {new Date(s.reschedule_proposed_at).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}
+                                    {' · '}
+                                    {new Date(s.reschedule_proposed_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
+                                  </p>
+                                </div>
+                                <div className="flex items-center gap-1.5 shrink-0">
+                                  <button
+                                    onClick={() => handleRespondReschedule(s, true)}
+                                    disabled={rescheduleRespondingId === s.id}
+                                    className="flex items-center gap-1 px-2.5 py-1 bg-green-600 hover:bg-green-700 text-white rounded-lg text-xs font-bold transition-colors disabled:opacity-60"
+                                  >
+                                    {rescheduleRespondingId === s.id
+                                      ? <Loader2 className="w-3 h-3 animate-spin" />
+                                      : <CheckCircle className="w-3 h-3" />}
+                                    Accept
+                                  </button>
+                                  <button
+                                    onClick={() => handleRespondReschedule(s, false)}
+                                    disabled={rescheduleRespondingId === s.id}
+                                    className="flex items-center gap-1 px-2.5 py-1 bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-lg text-xs font-bold transition-colors disabled:opacity-60"
+                                  >
+                                    <XCircle className="w-3 h-3" />
+                                    Decline
+                                  </button>
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="mt-2 ml-14 flex items-center gap-2 text-xs text-gray-400 font-medium">
+                                <RefreshCw className="w-3.5 h-3.5 shrink-0" />
+                                Reschedule request sent — awaiting student response
+                              </div>
+                            )
+                          )}
                           {upcomingNoteMap[s.id] && writingNoteFor !== s.id && (
                             <div className="mt-2 ml-14 bg-blue-50 rounded-lg px-3 py-2">
                               <p className="text-[10px] font-black text-blue-400 uppercase tracking-widest mb-0.5">Your note</p>

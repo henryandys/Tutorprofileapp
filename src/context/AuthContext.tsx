@@ -11,7 +11,7 @@ interface AuthContextValue {
   profile:        Profile | null
   role:           UserRole | null
   loading:        boolean
-  signUp:         (email: string, password: string, name: string, role: UserRole, dob: string) => Promise<{ error: Error | null }>
+  signUp:         (email: string, password: string, name: string, role: UserRole, dob: string) => Promise<{ error: Error | null; needsEmailVerification: boolean }>
   signIn:         (email: string, password: string) => Promise<{ error: Error | null }>
   signOut:        () => Promise<void>
   refreshProfile: () => Promise<void>
@@ -79,7 +79,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     name: string,
     role: UserRole,
     dob: string
-  ): Promise<{ error: Error | null }> {
+  ): Promise<{ error: Error | null; needsEmailVerification: boolean }> {
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
@@ -97,7 +97,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         date_of_birth:  dob,
       }, { onConflict: 'id' })
     }
-    return { error: error as Error | null }
+    // If Supabase email confirmation is enabled, data.session is null after signup
+    const needsEmailVerification = !error && !data.session
+    return { error: error as Error | null, needsEmailVerification }
   }
 
   async function signIn(

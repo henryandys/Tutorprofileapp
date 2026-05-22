@@ -20,6 +20,7 @@ import { GuardianDashboard } from "./pages/GuardianDashboard"
 import { JoinFamily } from "./pages/JoinFamily"
 import { StudentDetail } from "./pages/StudentDetail"
 import { InstructorDetail } from "./pages/InstructorDetail"
+import { ResetPassword } from "./pages/ResetPassword"
 
 export const router = createBrowserRouter([
   {
@@ -45,6 +46,10 @@ export const router = createBrowserRouter([
   {
     path: "/login",
     Component: Login,
+  },
+  {
+    path: "/reset-password",
+    Component: ResetPassword,
   },
 
   // ── Requires any logged-in user ──────────────────────────

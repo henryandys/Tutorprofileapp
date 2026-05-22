@@ -3,8 +3,10 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate, useLocation, Link } from 'react-router'
 import { useAuth } from '../../context/AuthContext'
+import { supabase } from '../../lib/supabase'
 import type { UserRole } from '../../lib/supabase'
 import { toast } from 'sonner'
+import { Mail, RefreshCw, KeyRound } from 'lucide-react'
 
 import { Button } from '../components/ui/button'
 import { Input } from '../components/ui/input'
@@ -12,7 +14,7 @@ import { Label } from '../components/ui/label'
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
   from '../components/ui/card'
 
-type Mode = 'signin' | 'signup'
+type Mode = 'signin' | 'signup' | 'verify' | 'forgot' | 'forgot_sent'
 
 function ageFromDob(dob: string): number {
   const today = new Date()
@@ -40,14 +42,15 @@ export default function Login() {
 
   const from = (location.state as any)?.from?.pathname ?? '/'
 
-  const [mode, setMode]       = useState<Mode>('signin')
-  const [email, setEmail]     = useState('')
-  const [password, setPass]   = useState('')
-  const [name, setName]       = useState('')
-  const [dob, setDob]         = useState('')
-  const [role, setRole]       = useState<UserRole>('student')
-  const [error, setError]     = useState<string | null>(null)
-  const [loading, setLoading] = useState(false)
+  const [mode, setMode]         = useState<Mode>('signin')
+  const [email, setEmail]       = useState('')
+  const [password, setPass]     = useState('')
+  const [name, setName]         = useState('')
+  const [dob, setDob]           = useState('')
+  const [role, setRole]         = useState<UserRole>('student')
+  const [error, setError]       = useState<string | null>(null)
+  const [loading, setLoading]   = useState(false)
+  const [resending, setResending] = useState(false)
   const didRedirect   = useRef(false)
   const signupRoleRef = useRef<UserRole | null>(null)
 
@@ -92,16 +95,170 @@ export default function Login() {
         return
       }
       signupRoleRef.current = role
-      const { error } = await signUp(email, password, name, role, dob)
+      const { error, needsEmailVerification } = await signUp(email, password, name, role, dob)
       if (error) {
         setError(error.message)
         setLoading(false)
         return
       }
-      // useEffect will redirect once user session is set
+      if (needsEmailVerification) {
+        setMode('verify')
+        setLoading(false)
+        return
+      }
+      // useEffect will redirect once user session is set (email confirmation disabled)
     }
 
     setLoading(false)
+  }
+
+  async function handleForgotPassword() {
+    if (!email) { toast.error('Enter your email address first.'); return }
+    setLoading(true)
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: `${window.location.origin}/reset-password`,
+    })
+    setLoading(false)
+    if (error) { toast.error(error.message); return }
+    setMode('forgot_sent')
+  }
+
+  async function handleResend() {
+    if (!email) return
+    setResending(true)
+    const { error } = await supabase.auth.resend({ type: 'signup', email })
+    setResending(false)
+    if (error) {
+      toast.error(error.message)
+    } else {
+      toast.success('Verification email resent — check your inbox.')
+    }
+  }
+
+  if (mode === 'forgot') {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-background px-4">
+        <Card className="w-full max-w-md">
+          <CardHeader className="space-y-1">
+            <div className="mx-auto w-16 h-16 rounded-2xl bg-blue-100 flex items-center justify-center mb-2">
+              <KeyRound className="w-8 h-8 text-blue-600" />
+            </div>
+            <CardTitle className="text-2xl font-bold text-center">Reset your password</CardTitle>
+            <CardDescription className="text-center">
+              Enter your email and we'll send you a reset link.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="space-y-1">
+              <Label htmlFor="email">Email</Label>
+              <Input
+                id="email"
+                type="email"
+                placeholder="you@example.com"
+                value={email}
+                onChange={e => setEmail(e.target.value)}
+                autoFocus
+              />
+            </div>
+            {error && <p className="text-sm text-destructive">{error}</p>}
+          </CardContent>
+          <CardFooter className="flex flex-col gap-3">
+            <Button className="w-full" onClick={handleForgotPassword} disabled={loading || !email}>
+              {loading ? 'Sending…' : 'Send reset link'}
+            </Button>
+            <button
+              type="button"
+              className="text-sm text-muted-foreground underline hover:text-foreground"
+              onClick={() => { setMode('signin'); setError(null) }}
+            >
+              Back to sign in
+            </button>
+          </CardFooter>
+        </Card>
+      </div>
+    )
+  }
+
+  if (mode === 'forgot_sent') {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-background px-4">
+        <Card className="w-full max-w-md text-center">
+          <CardHeader className="space-y-4 pb-2">
+            <div className="mx-auto w-16 h-16 rounded-2xl bg-green-100 flex items-center justify-center">
+              <Mail className="w-8 h-8 text-green-600" />
+            </div>
+            <CardTitle className="text-2xl font-bold">Check your inbox</CardTitle>
+            <CardDescription className="text-base">
+              We sent a password reset link to{' '}
+              <span className="font-semibold text-foreground">{email}</span>.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4 pt-4">
+            <p className="text-sm text-muted-foreground">
+              Didn't receive it? Check your spam folder, or try again.
+            </p>
+            <Button variant="outline" className="w-full" onClick={handleForgotPassword} disabled={loading}>
+              {loading
+                ? <><RefreshCw className="w-4 h-4 mr-2 animate-spin" />Sending…</>
+                : <><RefreshCw className="w-4 h-4 mr-2" />Resend reset email</>}
+            </Button>
+          </CardContent>
+          <CardFooter className="justify-center">
+            <button
+              type="button"
+              className="text-sm text-muted-foreground underline hover:text-foreground"
+              onClick={() => { setMode('signin'); setError(null) }}
+            >
+              Back to sign in
+            </button>
+          </CardFooter>
+        </Card>
+      </div>
+    )
+  }
+
+  if (mode === 'verify') {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-background px-4">
+        <Card className="w-full max-w-md text-center">
+          <CardHeader className="space-y-4 pb-2">
+            <div className="mx-auto w-16 h-16 rounded-2xl bg-blue-100 flex items-center justify-center">
+              <Mail className="w-8 h-8 text-blue-600" />
+            </div>
+            <CardTitle className="text-2xl font-bold">Check your inbox</CardTitle>
+            <CardDescription className="text-base">
+              We sent a verification link to <span className="font-semibold text-foreground">{email}</span>.
+              Click the link in that email to activate your account.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4 pt-4">
+            <p className="text-sm text-muted-foreground">
+              Didn't receive it? Check your spam folder, or resend below.
+            </p>
+            <Button
+              variant="outline"
+              className="w-full"
+              onClick={handleResend}
+              disabled={resending}
+            >
+              {resending
+                ? <><RefreshCw className="w-4 h-4 mr-2 animate-spin" />Sending…</>
+                : <><RefreshCw className="w-4 h-4 mr-2" />Resend verification email</>
+              }
+            </Button>
+          </CardContent>
+          <CardFooter className="justify-center">
+            <button
+              type="button"
+              className="text-sm text-muted-foreground underline hover:text-foreground"
+              onClick={() => { setMode('signin'); setError(null) }}
+            >
+              Back to sign in
+            </button>
+          </CardFooter>
+        </Card>
+      </div>
+    )
   }
 
   return (
@@ -164,7 +321,18 @@ export default function Login() {
             </div>
 
             <div className="space-y-1">
-              <Label htmlFor="password">Password</Label>
+              <div className="flex items-center justify-between">
+                <Label htmlFor="password">Password</Label>
+                {mode === 'signin' && (
+                  <button
+                    type="button"
+                    className="text-xs text-muted-foreground hover:text-foreground underline"
+                    onClick={() => { setMode('forgot'); setError(null) }}
+                  >
+                    Forgot password?
+                  </button>
+                )}
+              </div>
               <Input
                 id="password"
                 type="password"
