@@ -54,6 +54,7 @@ import { Navbar } from "../components/Navbar"
 import { useAuth } from "../../context/AuthContext"
 import { supabase } from "../../lib/supabase"
 import { sendNotificationEmail } from "../../lib/notify"
+import { InviteCard } from "../components/InviteCard"
 import { toast } from "sonner"
 import {
   Calendar, Clock, BookOpen, Heart, Search, ChevronRight, Star,
@@ -1215,6 +1216,9 @@ export function StudentDashboard() {
                 </div>
               )}
             </div>
+
+            {/* Invite a Friend */}
+            <InviteCard variant="student" />
 
             {/* My Goals */}
             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">

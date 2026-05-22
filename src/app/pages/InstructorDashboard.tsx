@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react"
 import { Link, Navigate, useNavigate } from "react-router"
 import { Navbar } from "../components/Navbar"
+import { InviteCard } from "../components/InviteCard"
 import { useAuth } from "../../context/AuthContext"
 import { supabase } from "../../lib/supabase"
 import { sendNotificationEmail } from "../../lib/notify"
@@ -1162,6 +1163,9 @@ export function InstructorDashboard() {
                     </div>
                   )}
                 </div>
+
+                {/* Invite Students */}
+                <InviteCard variant="tutor" />
 
                 {/* Quick actions */}
                 <div className="bg-gradient-to-br from-blue-600 to-purple-600 rounded-2xl p-5 text-white">

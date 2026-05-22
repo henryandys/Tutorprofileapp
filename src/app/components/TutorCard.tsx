@@ -4,6 +4,24 @@ import { Tutor } from "../data/tutors";
 import { ImageWithFallback } from "./figma/ImageWithFallback";
 import { Link } from "react-router";
 
+function StarRow({ rating, count }: { rating: number; count: number }) {
+  const filled = Math.round(rating)
+  return (
+    <div className="flex items-center gap-1">
+      <div className="flex items-center gap-0.5">
+        {[1, 2, 3, 4, 5].map(i => (
+          <Star
+            key={i}
+            className={`w-3 h-3 ${i <= filled ? 'fill-amber-400 text-amber-400' : 'fill-gray-200 text-gray-200'}`}
+          />
+        ))}
+      </div>
+      <span className="text-xs font-bold text-gray-700">{rating > 0 ? rating.toFixed(1) : '–'}</span>
+      <span className="text-xs text-gray-400 font-medium">({count})</span>
+    </div>
+  )
+}
+
 interface TutorCardProps {
   tutor: Tutor;
   isSelected?: boolean;
@@ -67,25 +85,21 @@ export function TutorCard({ tutor, isSelected, isSaved, onToggleSave, onClick }:
       <div className="p-4">
         <div className="flex justify-between items-start mb-1">
           <h3 className="text-xl font-bold text-gray-900">${tutor.hourlyRate}/hr</h3>
-          <div className="flex items-center gap-1 bg-blue-50 px-2 py-0.5 rounded text-blue-700 font-semibold text-sm">
-            <Star className="w-3 h-3 fill-blue-700" />
-            {tutor.rating}
-          </div>
         </div>
 
         <div className="flex flex-col gap-0.5">
           <p className="text-base font-bold text-gray-800 line-clamp-1">{tutor.name}</p>
           <p className="text-sm font-medium text-gray-600 line-clamp-1">{tutor.subject}</p>
+          <div className="mt-1.5">
+            <StarRow rating={tutor.rating} count={tutor.reviewCount} />
+          </div>
           <div className="flex items-center gap-1 mt-1 text-xs text-gray-500">
             <MapPin className="w-3 h-3" />
             <span>{tutor.location}</span>
           </div>
         </div>
 
-        <div className="mt-4 pt-4 border-t border-gray-100 flex items-center justify-between">
-          <span className="text-xs font-medium text-gray-400 uppercase tracking-tighter">
-            {tutor.reviewCount} REVIEWS
-          </span>
+        <div className="mt-4 pt-4 border-t border-gray-100 flex items-center justify-end">
           <div className="flex items-center gap-3">
             <button className="text-gray-400 hover:text-blue-600 transition-colors"><MessageCircle className="w-4 h-4" /></button>
             <button className="text-gray-400 hover:text-blue-600 transition-colors"><Share2 className="w-4 h-4" /></button>

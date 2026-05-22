@@ -635,11 +635,15 @@ export function Search() {
                     <div className="min-w-0 flex-1">
                       <p className="font-black text-gray-900 truncate">{selectedTutor.name}</p>
                       <p className="text-sm text-gray-500 font-medium truncate">{selectedTutor.subject}</p>
-                      <div className="flex items-center gap-2 mt-1">
-                        <span className="flex items-center gap-0.5 text-xs font-bold text-blue-600">
-                          <Star className="w-3 h-3 fill-blue-600" />{selectedTutor.rating}
+                      <div className="flex items-center gap-2 mt-1 flex-wrap">
+                        <span className="flex items-center gap-0.5 text-xs font-bold text-amber-500">
+                          <Star className="w-3 h-3 fill-amber-400 text-amber-400" />
+                          {selectedTutor.rating > 0 ? selectedTutor.rating.toFixed(1) : '–'}
                         </span>
-                        <span className="text-xs text-gray-400">·</span>
+                        {selectedTutor.reviewCount > 0 && (
+                          <span className="text-xs text-gray-400 font-medium">({selectedTutor.reviewCount} reviews)</span>
+                        )}
+                        <span className="text-xs text-gray-300">·</span>
                         <span className="text-xs font-bold text-gray-700">${selectedTutor.hourlyRate}/hr</span>
                       </div>
                     </div>

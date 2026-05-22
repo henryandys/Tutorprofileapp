@@ -1,12 +1,12 @@
 // // src/app/pages/Login.tsx
 
 import { useState, useEffect, useRef } from 'react'
-import { useNavigate, useLocation, Link } from 'react-router'
+import { useNavigate, useLocation, useSearchParams, Link } from 'react-router'
 import { useAuth } from '../../context/AuthContext'
 import { supabase } from '../../lib/supabase'
 import type { UserRole } from '../../lib/supabase'
 import { toast } from 'sonner'
-import { Mail, RefreshCw, KeyRound } from 'lucide-react'
+import { Mail, RefreshCw, KeyRound, UserPlus } from 'lucide-react'
 
 import { Button } from '../components/ui/button'
 import { Input } from '../components/ui/input'
@@ -39,24 +39,52 @@ export default function Login() {
   const { signIn, signUp, user } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
+  const [searchParams] = useSearchParams()
 
   const from = (location.state as any)?.from?.pathname ?? '/'
 
-  const [mode, setMode]         = useState<Mode>('signin')
-  const [email, setEmail]       = useState('')
-  const [password, setPass]     = useState('')
-  const [name, setName]         = useState('')
-  const [dob, setDob]           = useState('')
-  const [role, setRole]         = useState<UserRole>('student')
-  const [error, setError]       = useState<string | null>(null)
-  const [loading, setLoading]   = useState(false)
+  const [mode, setMode]           = useState<Mode>('signin')
+  const [email, setEmail]         = useState('')
+  const [password, setPass]       = useState('')
+  const [name, setName]           = useState('')
+  const [dob, setDob]             = useState('')
+  const [role, setRole]           = useState<UserRole>('student')
+  const [error, setError]         = useState<string | null>(null)
+  const [loading, setLoading]     = useState(false)
   const [resending, setResending] = useState(false)
+  const [referrerName, setReferrerName] = useState<string | null>(null)
   const didRedirect   = useRef(false)
   const signupRoleRef = useRef<UserRole | null>(null)
 
-  // For signup: redirect once user session is confirmed.
+  // Read referral param and fetch referrer's name
+  useEffect(() => {
+    const ref = searchParams.get('ref')
+    if (!ref) return
+    localStorage.setItem('referrer_id', ref)
+    setMode('signup')
+    supabase
+      .from('profiles')
+      .select('full_name')
+      .eq('id', ref)
+      .single()
+      .then(({ data }) => { if (data?.full_name) setReferrerName(data.full_name) })
+  }, [searchParams])
+
+  // For signup: redirect once user session is confirmed, recording referral if present.
   useEffect(() => {
     if (user && signupRoleRef.current && !didRedirect.current) {
+      // Record referral if the user signed up via an invite link
+      const referrerId = localStorage.getItem('referrer_id')
+      if (referrerId && referrerId !== user.id) {
+        const createdAt = new Date((user as any).created_at ?? 0)
+        const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000)
+        if (createdAt >= tenMinutesAgo) {
+          supabase
+            .from('referrals')
+            .insert({ referrer_id: referrerId, referred_id: user.id, status: 'joined' })
+            .then(() => localStorage.removeItem('referrer_id'))
+        }
+      }
       didRedirect.current = true
       const dest = signupRoleRef.current === 'tutor' ? '/my-profile' : signupRoleRef.current === 'parent' ? '/guardian-dashboard' : '/profile'
       navigate(dest, { replace: true })
@@ -343,6 +371,15 @@ export default function Login() {
                 minLength={8}
               />
             </div>
+
+            {mode === 'signup' && referrerName && (
+              <div className="flex items-center gap-3 bg-blue-50 border border-blue-100 rounded-xl px-4 py-3">
+                <UserPlus className="w-5 h-5 text-blue-600 shrink-0" />
+                <p className="text-sm font-semibold text-blue-800">
+                  <span className="font-black">{referrerName}</span> invited you to join InstructorFinder!
+                </p>
+              </div>
+            )}
 
             {mode === 'signup' && (
               <div className="space-y-1">

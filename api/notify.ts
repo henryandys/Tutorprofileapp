@@ -72,6 +72,18 @@ const EMAIL_TEMPLATES: Record<string, (d: any) => { subject: string; html: strin
     html: `<p>${h(d.responderName)} declined your request to reschedule the <strong>${h(d.subject)}</strong> lesson.</p>
            <p><a href="${h(d.appUrl)}/lessons">View your lessons →</a></p>`,
   }),
+  referral_invite: (d) => ({
+    subject: `${h(d.referrerName)} invited you to join InstructorFinder`,
+    html: `<p>Hi there!</p>
+           <p><strong>${h(d.referrerName)}</strong> thinks you'd love <strong>InstructorFinder</strong> — a platform to find and book tutors and instructors in your area.</p>
+           <p>Create your free account using the link below:</p>
+           <p style="margin:24px 0">
+             <a href="${h(d.inviteUrl)}" style="background:#2563eb;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:700;display:inline-block">
+               Accept invite &amp; sign up →
+             </a>
+           </p>
+           <p style="color:#9ca3af;font-size:12px">This invitation was sent by a member of InstructorFinder. If you didn't expect this, you can safely ignore it.</p>`,
+  }),
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -81,27 +93,36 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (!callerId) return res.status(401).json({ error: 'Unauthorized' })
 
   const { type, recipientId, data } = req.body ?? {}
-  if (!type || !recipientId) return res.status(400).json({ error: 'Missing type or recipientId' })
+  if (!type) return res.status(400).json({ error: 'Missing type' })
 
   const template = EMAIL_TEMPLATES[type]
   if (!template) return res.status(400).json({ error: `Unknown type: ${type}` })
 
-  // Check if recipient has email notifications enabled
-  const { data: profileData } = await supabaseAdmin
-    .from('profiles')
-    .select('email_notifications')
-    .eq('id', recipientId)
-    .single()
-  if (profileData?.email_notifications === false) {
-    return res.status(200).json({ ok: true, skipped: 'notifications_disabled' })
-  }
+  // Referral invites go to an external email — no recipientId needed
+  let toEmail: string
+  if (type === 'referral_invite') {
+    if (!data?.recipientEmail) return res.status(400).json({ error: 'Missing recipientEmail for referral_invite' })
+    toEmail = data.recipientEmail
+  } else {
+    if (!recipientId) return res.status(400).json({ error: 'Missing recipientId' })
 
-  // Look up recipient email via admin client
-  const { data: authData, error: authError } = await supabaseAdmin.auth.admin.getUserById(recipientId)
-  if (authError || !authData?.user?.email) {
-    return res.status(200).json({ ok: true })
+    // Check if recipient has email notifications enabled
+    const { data: profileData } = await supabaseAdmin
+      .from('profiles')
+      .select('email_notifications')
+      .eq('id', recipientId)
+      .single()
+    if (profileData?.email_notifications === false) {
+      return res.status(200).json({ ok: true, skipped: 'notifications_disabled' })
+    }
+
+    // Look up recipient email via admin client
+    const { data: authData, error: authError } = await supabaseAdmin.auth.admin.getUserById(recipientId)
+    if (authError || !authData?.user?.email) {
+      return res.status(200).json({ ok: true })
+    }
+    toEmail = authData.user.email
   }
-  const toEmail = authData.user.email
 
   const appUrl = data?.appUrl ?? 'https://tutorfind.app'
   const { subject, html } = template({ ...data, appUrl })

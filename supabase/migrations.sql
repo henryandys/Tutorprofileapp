@@ -64,7 +64,24 @@ ALTER TABLE bookings
 --   $$
 -- );
 
--- ── 9. RLS: student milestone insert ────────────────────────
+-- ── 9. Referral tracking ────────────────────────────────────
+CREATE TABLE IF NOT EXISTS referrals (
+  id             uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  referrer_id    uuid NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  referred_id    uuid REFERENCES profiles(id) ON DELETE SET NULL,
+  referred_email text,
+  status         text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'joined')),
+  created_at     timestamptz NOT NULL DEFAULT now()
+);
+ALTER TABLE referrals ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "referrals_referrer_read"  ON referrals;
+DROP POLICY IF EXISTS "referrals_referrer_insert" ON referrals;
+DROP POLICY IF EXISTS "referrals_referred_insert" ON referrals;
+CREATE POLICY "referrals_referrer_read"   ON referrals FOR SELECT TO authenticated USING (referrer_id = auth.uid());
+CREATE POLICY "referrals_referrer_insert" ON referrals FOR INSERT TO authenticated WITH CHECK (referrer_id = auth.uid());
+CREATE POLICY "referrals_referred_insert" ON referrals FOR INSERT TO authenticated WITH CHECK (referred_id = auth.uid());
+
+-- ── 10. RLS: student milestone insert ───────────────────────
 --    Prevents students from inserting milestones on goals they don't own.
 DROP POLICY IF EXISTS "milestones_student_insert" ON goal_milestones;
 CREATE POLICY "milestones_student_insert" ON goal_milestones
