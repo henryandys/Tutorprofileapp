@@ -22,12 +22,22 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   if (!sig) return res.status(400).json({ error: 'Missing stripe-signature header' })
 
-  let event: Stripe.Event
-  try {
-    event = stripe.webhooks.constructEvent(buf, sig, process.env.STRIPE_WEBHOOK_SECRET!)
-  } catch (err: any) {
-    console.error('Webhook signature error:', err.message)
-    return res.status(400).json({ error: `Webhook Error: ${err.message}` })
+  // Connect (connected-account) events arrive via a second webhook endpoint
+  // with its own signing secret, so try both secrets.
+  let event: Stripe.Event | null = null
+  const secrets = [process.env.STRIPE_WEBHOOK_SECRET, process.env.STRIPE_CONNECT_WEBHOOK_SECRET].filter(Boolean) as string[]
+  let sigError = 'No webhook secret configured'
+  for (const secret of secrets) {
+    try {
+      event = stripe.webhooks.constructEvent(buf, sig, secret)
+      break
+    } catch (err: any) {
+      sigError = err.message
+    }
+  }
+  if (!event) {
+    console.error('Webhook signature error:', sigError)
+    return res.status(400).json({ error: `Webhook Error: ${sigError}` })
   }
 
   if (event.type === 'checkout.session.completed') {
@@ -45,6 +55,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         .eq('id', bookingId)
       if (error) console.error('Supabase update error:', error)
     }
+  }
+
+  if (event.type === 'account.updated') {
+    const account = event.data.object as Stripe.Account
+    const supabase = createClient(
+      process.env.SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    )
+    const { error } = await supabase
+      .from('tutor_profiles')
+      .update({ stripe_payouts_enabled: !!account.payouts_enabled })
+      .eq('stripe_account_id', account.id)
+    if (error) console.error('Supabase update error:', error)
   }
 
   return res.status(200).json({ received: true })

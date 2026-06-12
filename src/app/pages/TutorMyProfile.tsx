@@ -158,6 +158,55 @@ export function TutorMyProfile() {
   const [blackoutDates, setBlackoutDates] = useState<string[]>([])
   const [newBlackout, setNewBlackout]     = useState('')
 
+  // Stripe Connect payouts
+  const [payoutStatus, setPayoutStatus] = useState<{ connected: boolean; payoutsEnabled: boolean; detailsSubmitted: boolean } | null>(null)
+  const [connectLoading, setConnectLoading] = useState(false)
+
+  // Fetch payout status; also runs after returning from Stripe onboarding
+  // (?connect=return) so the card reflects the new state right away.
+  useEffect(() => {
+    if (!user) return
+    let cancelled = false
+    async function loadPayoutStatus() {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) return
+      try {
+        const res = await fetch('/api/connect-status', {
+          headers: { 'Authorization': `Bearer ${session.access_token}` },
+        })
+        if (!res.ok || cancelled) return
+        const status = await res.json()
+        setPayoutStatus(status)
+        const params = new URLSearchParams(window.location.search)
+        if (params.get('connect') === 'return') {
+          if (status.payoutsEnabled) toast.success("Payouts are set up! You'll receive your share of each lesson automatically.")
+          else toast.info('Stripe setup isn\'t finished yet — use "Finish payout setup" to continue.')
+          window.history.replaceState({}, '', window.location.pathname)
+        }
+      } catch { /* leave status unknown on network error */ }
+    }
+    loadPayoutStatus()
+    return () => { cancelled = true }
+  }, [user])
+
+  async function handleConnectPayouts() {
+    setConnectLoading(true)
+    const { data: { session } } = await supabase.auth.getSession()
+    if (!session?.access_token) { toast.error('Please sign in again.'); setConnectLoading(false); return }
+    try {
+      const res = await fetch('/api/connect-onboard', {
+        method:  'POST',
+        headers: { 'Authorization': `Bearer ${session.access_token}` },
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? 'Something went wrong')
+      window.location.href = data.url
+    } catch (err: any) {
+      toast.error('Could not open Stripe: ' + err.message)
+      setConnectLoading(false)
+    }
+  }
+
   const { register, handleSubmit, control, reset, formState: { errors } } = useForm<TutorProfileForm>()
   const { fields, append, remove } = useFieldArray({ control, name: "specialties" })
 
@@ -919,6 +968,75 @@ export function TutorMyProfile() {
                 >
                   <Upload className="w-4 h-4" />
                   Upload Verification Document
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Payouts */}
+          <div className="bg-white rounded-3xl shadow-lg border border-gray-100 p-8">
+            <h2 className="text-xl font-bold text-gray-900 mb-2 flex items-center gap-2">
+              <CreditCard className="w-6 h-6 text-green-600" />
+              Payouts
+            </h2>
+            <p className="text-sm text-gray-500 font-medium mb-6">
+              Connect a payout account with Stripe to receive your share of each paid lesson
+              automatically — no waiting on manual transfers.
+            </p>
+
+            {payoutStatus?.payoutsEnabled ? (
+              <div className="flex flex-col gap-4">
+                <div className="flex items-center gap-3 px-5 py-4 bg-green-50 border border-green-200 rounded-2xl">
+                  <CheckCircle2 className="w-6 h-6 text-green-600 shrink-0" />
+                  <div>
+                    <p className="font-bold text-green-800">Payouts active</p>
+                    <p className="text-sm text-green-600 font-medium">Lesson payments are deposited to your bank account automatically.</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleConnectPayouts}
+                  disabled={connectLoading}
+                  className="flex items-center gap-2 px-5 py-2.5 rounded-xl border border-gray-200 text-sm font-bold text-gray-700 hover:bg-gray-50 transition-colors w-fit disabled:opacity-50"
+                >
+                  {connectLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <CreditCard className="w-4 h-4" />}
+                  Manage payouts on Stripe
+                </button>
+              </div>
+            ) : payoutStatus?.connected ? (
+              <div className="flex flex-col gap-4">
+                <div className="flex items-center gap-3 px-5 py-4 bg-amber-50 border border-amber-200 rounded-2xl">
+                  <AlertCircle className="w-5 h-5 text-amber-600 shrink-0" />
+                  <div>
+                    <p className="font-bold text-amber-800">Setup not finished</p>
+                    <p className="text-sm text-amber-700 font-medium">Stripe needs a bit more information before payouts can start.</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleConnectPayouts}
+                  disabled={connectLoading}
+                  className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-green-600 text-white text-sm font-bold hover:bg-green-700 transition-colors w-fit disabled:opacity-50"
+                >
+                  {connectLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <ChevronRight className="w-4 h-4" />}
+                  Finish payout setup
+                </button>
+              </div>
+            ) : (
+              <div className="flex flex-col gap-4">
+                <ul className="text-sm text-gray-500 font-medium list-disc list-inside space-y-1">
+                  <li>Powered by Stripe — the same system used by Lyft and Instacart</li>
+                  <li>Your earnings (minus the platform fee) go straight to your bank</li>
+                  <li>Takes about 5 minutes; you'll need your bank details</li>
+                </ul>
+                <button
+                  type="button"
+                  onClick={handleConnectPayouts}
+                  disabled={connectLoading}
+                  className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-green-600 text-white text-sm font-bold hover:bg-green-700 transition-colors w-fit disabled:opacity-50"
+                >
+                  {connectLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <CreditCard className="w-4 h-4" />}
+                  Set up payouts with Stripe
                 </button>
               </div>
             )}
