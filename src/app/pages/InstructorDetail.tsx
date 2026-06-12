@@ -3,6 +3,7 @@ import { Link, useParams, Navigate } from "react-router"
 import { Navbar } from "../components/Navbar"
 import { useAuth } from "../../context/AuthContext"
 import { supabase } from "../../lib/supabase"
+import { sendNotificationEmail } from "../../lib/notify"
 import { toast } from "sonner"
 import {
   ArrowLeft, Calendar, CheckCircle, Target,
@@ -180,7 +181,16 @@ export function InstructorDetail() {
       body:       msgBody.trim(),
     })
     if (error) { toast.error('Failed to send: ' + error.message) }
-    else { setMsgBody('') }
+    else {
+      setMsgBody('')
+      if (tutorId) {
+        sendNotificationEmail({
+          type:        'new_message',
+          recipientId: tutorId,
+          data: { senderName: profile?.full_name ?? 'A student', subject: target.subject ?? 'your lessons' },
+        })
+      }
+    }
     setSendingMsg(false)
   }
 

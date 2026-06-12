@@ -72,6 +72,25 @@ const EMAIL_TEMPLATES: Record<string, (d: any) => { subject: string; html: strin
     html: `<p>${h(d.responderName)} declined your request to reschedule the <strong>${h(d.subject)}</strong> lesson.</p>
            <p><a href="${h(d.appUrl)}/lessons">View your lessons →</a></p>`,
   }),
+  booking_cancelled: (d) => ({
+    subject: `Your ${h(d.subject)} lesson was cancelled`,
+    html: `<p>Hi ${h(d.otherName)},</p>
+           <p><strong>${h(d.cancellerName)}</strong> has cancelled your <strong>${h(d.subject)}</strong> lesson.</p>
+           <p><a href="${h(d.appUrl)}/lessons">View your lessons →</a></p>`,
+  }),
+  session_completed: (d) => ({
+    subject: `How was your ${h(d.subject)} session?`,
+    html: `<p>Hi ${h(d.studentName)},</p>
+           <p>Your <strong>${h(d.subject)}</strong> session with <strong>${h(d.tutorName)}</strong> is marked complete.</p>
+           <p>Help other students by leaving a quick review — it only takes a minute.</p>
+           <p><a href="${h(d.appUrl)}/lessons">Leave a review →</a></p>`,
+  }),
+  new_review: (d) => ({
+    subject: `${h(d.studentName)} left you a ${h(d.rating)}-star review`,
+    html: `<p>Hi ${h(d.tutorName)},</p>
+           <p><strong>${h(d.studentName)}</strong> just left you a <strong>${h(d.rating)}-star</strong> review.</p>
+           <p><a href="${h(d.appUrl)}/my-reviews">Read your reviews →</a></p>`,
+  }),
   referral_invite: (d) => ({
     subject: `${h(d.referrerName)} invited you to join InstructorFinder`,
     html: `<p>Hi there!</p>

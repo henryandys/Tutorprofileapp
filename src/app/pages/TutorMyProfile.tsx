@@ -350,18 +350,22 @@ export function TutorMyProfile() {
 
   const completenessItems = useMemo(() => {
     if (!tutorDataLoaded) return []
-    const items: { key: string; label: string; done: boolean }[] = [
-      { key: 'avatar',   label: 'Upload a profile photo',     done: !!profile?.avatar_url },
-      { key: 'bio',      label: 'Write a bio',                done: !!(profile?.bio?.trim()) },
-      { key: 'rate',     label: 'Set your hourly rate',       done: !!(tutorData?.hourly_rate > 0) },
-      { key: 'subjects', label: 'Add at least one subject',   done: !!(tutorData?.subjects?.length > 0) },
-      { key: 'location', label: 'Add your location',          done: !!(profile?.location?.trim()) },
+    const items: { key: string; label: string; done: boolean; benefit: string }[] = [
+      { key: 'avatar',   label: 'Upload a profile photo',     done: !!profile?.avatar_url,             benefit: 'instructors with photos get far more profile clicks' },
+      { key: 'bio',      label: 'Write a bio',                done: !!(profile?.bio?.trim()),          benefit: 'a bio helps students decide to book you' },
+      { key: 'rate',     label: 'Set your hourly rate',       done: !!(tutorData?.hourly_rate > 0),    benefit: 'students filter search results by price' },
+      { key: 'subjects', label: 'Add at least one subject',   done: !!(tutorData?.subjects?.length > 0), benefit: 'subjects are what students search for' },
+      { key: 'location', label: 'Add your location',          done: !!(profile?.location?.trim()),     benefit: 'location puts you on the search map' },
     ]
     return items
   }, [tutorDataLoaded, tutorData, profile])
 
   const missingItems  = completenessItems.filter(i => !i.done)
   const completedCount = completenessItems.filter(i => i.done).length
+  const completenessPct = completenessItems.length > 0
+    ? Math.round((completedCount / completenessItems.length) * 100)
+    : 0
+  const nextItem = missingItems[0]
   const showNudge = tutorDataLoaded && !nudgeDismissed && missingItems.length > 0
 
   return (
@@ -405,14 +409,25 @@ export function TutorMyProfile() {
             <div className="flex items-start justify-between gap-4">
               <div className="flex items-start gap-3 min-w-0">
                 <AlertCircle className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
-                <div className="min-w-0">
+                <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-3 flex-wrap">
                     <p className="font-black text-gray-900 text-sm">
-                      Complete your profile to appear in search results
+                      Your profile is {completenessPct}% complete
                     </p>
                     <span className="text-xs font-bold text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full">
-                      {completedCount} / {completenessItems.length} complete
+                      {completedCount} / {completenessItems.length} done
                     </span>
+                  </div>
+                  {nextItem && (
+                    <p className="mt-1 text-sm text-gray-600 font-medium">
+                      Next: <span className="font-bold text-gray-800">{nextItem.label.toLowerCase()}</span> — {nextItem.benefit}.
+                    </p>
+                  )}
+                  <div className="mt-3 h-2 w-full max-w-sm bg-amber-100 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-gradient-to-r from-amber-400 to-green-500 rounded-full transition-all duration-500"
+                      style={{ width: `${completenessPct}%` }}
+                    />
                   </div>
                   <div className="mt-3 flex flex-wrap gap-2">
                     {completenessItems.map(item => (

@@ -68,11 +68,12 @@ import { Link, useNavigate, useSearchParams } from "react-router"
 import { Navbar } from "../components/Navbar"
 import { useAuth } from "../../context/AuthContext"
 import { supabase } from "../../lib/supabase"
+import { sendNotificationEmail } from "../../lib/notify"
 import { toast } from "sonner"
 import {
   Calendar, BookOpen, StickyNote, GraduationCap, User,
   ChevronRight, Loader2, Users, Shield, Star, Target, CheckCircle,
-  MessageCircle, X, Send, CreditCard,
+  MessageCircle, X, Send, CreditCard, Flame, TrendingUp,
 } from "lucide-react"
 import { markConversationRead } from "../components/NotificationsPanel"
 
@@ -164,6 +165,13 @@ interface PendingPayment {
   price_cents:  number
 }
 
+interface ChildProgress {
+  streakWeeks:    number
+  weeklyActivity: { label: string; count: number }[]   // oldest → newest, last 8 weeks
+  subjects:       { subject: string; count: number }[]
+  thisMonth:      number
+}
+
 interface ChildData {
   lessons:          ChildLesson[]
   completedLessons: CompletedLesson[]
@@ -173,6 +181,7 @@ interface ChildData {
   goals:            ChildGoal[]
   conversations:    ChildConversation[]
   pendingPayments:  PendingPayment[]
+  progress:         ChildProgress
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -205,6 +214,54 @@ function timeAgo(iso: string) {
   return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 }
 
+// Start of the week (Sunday) containing the given date, as a local-date key.
+// Uses the Date constructor for day arithmetic so DST shifts can't skew buckets.
+function weekStartDate(d: Date): Date {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate() - d.getDay())
+}
+function weekKey(d: Date): string {
+  const w = weekStartDate(d)
+  return `${w.getFullYear()}-${w.getMonth()}-${w.getDate()}`
+}
+
+// Streak + activity stats from completed lessons.
+// The streak counts consecutive weeks with ≥1 completed lesson; the current
+// week doesn't break the streak while it's still in progress.
+function computeProgress(completed: { subject: string | null; scheduled_at: string | null }[]): ChildProgress {
+  const now = new Date()
+  const past = completed.filter(b => b.scheduled_at && new Date(b.scheduled_at) <= now)
+  const weeks = new Set(past.map(b => weekKey(new Date(b.scheduled_at!))))
+
+  let streakWeeks = 0
+  let offset = weeks.has(weekKey(now)) ? 0 : 1
+  while (weeks.has(weekKey(new Date(now.getFullYear(), now.getMonth(), now.getDate() - 7 * offset)))) {
+    streakWeeks++
+    offset++
+  }
+
+  const weeklyActivity = Array.from({ length: 8 }, (_, idx) => {
+    const ref = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 7 * (7 - idx))
+    const key = weekKey(ref)
+    return {
+      label: weekStartDate(ref).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+      count: past.filter(b => weekKey(new Date(b.scheduled_at!)) === key).length,
+    }
+  })
+
+  const subjCount: Record<string, number> = {}
+  for (const b of past) if (b.subject) subjCount[b.subject] = (subjCount[b.subject] ?? 0) + 1
+  const subjects = Object.entries(subjCount)
+    .map(([subject, count]) => ({ subject, count }))
+    .sort((a, b) => b.count - a.count)
+
+  const thisMonth = past.filter(b => {
+    const d = new Date(b.scheduled_at!)
+    return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear()
+  }).length
+
+  return { streakWeeks, weeklyActivity, subjects, thisMonth }
+}
+
 // ── Main component ─────────────────────────────────────────────────────────────
 
 export function GuardianDashboard() {
@@ -231,7 +288,7 @@ export function GuardianDashboard() {
   const [payingId, setPayingId] = useState<string | null>(null)
 
   // Conversation modal
-  const [viewConv,     setViewConv]     = useState<{ bookingId: string; subject: string; tutorName: string; studentId: string; studentName: string } | null>(null)
+  const [viewConv,     setViewConv]     = useState<{ bookingId: string; subject: string; tutorId: string; tutorName: string; studentId: string; studentName: string } | null>(null)
   const [convMessages, setConvMessages] = useState<{ id: string; sender_id: string; body: string; created_at: string }[]>([])
   const [loadingConv,  setLoadingConv]  = useState(false)
   const [convBody,     setConvBody]     = useState('')
@@ -523,6 +580,7 @@ export function GuardianDashboard() {
             tutor_name:   b.tutor?.full_name ?? 'Instructor',
             price_cents:  b.price_cents as number,
           })),
+        progress: computeProgress(kidCompleted),
       }
 
     }
@@ -625,6 +683,13 @@ export function GuardianDashboard() {
     if (error) {
       toast.error('Failed to send: ' + error.message)
     } else {
+      if (viewConv.tutorId) {
+        sendNotificationEmail({
+          type:        'new_message',
+          recipientId: viewConv.tutorId,
+          data: { senderName: profile?.full_name ?? 'A guardian', subject: viewConv.subject },
+        })
+      }
       setConvBody('')
     }
     setSendingConv(false)
@@ -1106,7 +1171,7 @@ export function GuardianDashboard() {
                       {data.conversations.map(c => (
                         <button
                           key={c.booking_id}
-                          onClick={() => openConversation({ bookingId: c.booking_id, subject: c.subject, tutorName: c.tutor_name, studentId: c.student_id, studentName: child!.name })}
+                          onClick={() => openConversation({ bookingId: c.booking_id, subject: c.subject, tutorId: c.tutor_id, tutorName: c.tutor_name, studentId: c.student_id, studentName: child!.name })}
                           className="w-full flex items-start gap-4 px-6 py-4 hover:bg-gray-50 transition-colors text-left"
                         >
                           <Avatar name={c.tutor_name} url={c.tutor_avatar} />
@@ -1131,6 +1196,94 @@ export function GuardianDashboard() {
 
               {/* Right 1/3 */}
               <div className="flex flex-col gap-6">
+
+                {/* Progress & streak */}
+                {(() => {
+                  const prog = data.progress
+                  const maxWeek = Math.max(...prog.weeklyActivity.map(w => w.count), 1)
+                  return (
+                    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+                      <div className="flex items-center gap-2 px-5 py-4 border-b border-gray-100">
+                        <TrendingUp className="w-4 h-4 text-orange-500" />
+                        <h2 className="font-black text-gray-900 text-sm">Progress</h2>
+                      </div>
+                      <div className="p-5 flex flex-col gap-5">
+
+                        {/* Streak */}
+                        <div className="flex items-center gap-3">
+                          <div className={`w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 ${
+                            prog.streakWeeks > 0 ? 'bg-orange-100' : 'bg-gray-100'
+                          }`}>
+                            <Flame className={`w-6 h-6 ${prog.streakWeeks > 0 ? 'text-orange-500' : 'text-gray-300'}`} />
+                          </div>
+                          <div className="min-w-0">
+                            <p className="text-2xl font-black text-gray-900 leading-none">
+                              {prog.streakWeeks} week{prog.streakWeeks !== 1 ? 's' : ''}
+                            </p>
+                            <p className="text-xs font-bold text-gray-400 mt-1">learning streak</p>
+                          </div>
+                        </div>
+                        {prog.streakWeeks === 0 && (
+                          <p className="text-xs text-gray-400 font-medium -mt-2">
+                            Complete a lesson this week to start a streak.
+                          </p>
+                        )}
+
+                        {/* 8-week activity chart */}
+                        <div>
+                          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">
+                            Lessons · last 8 weeks
+                          </p>
+                          <div className="flex items-end gap-1 h-16">
+                            {prog.weeklyActivity.map(w => (
+                              <div
+                                key={w.label}
+                                className="flex-1 flex flex-col justify-end h-full"
+                                title={`Week of ${w.label}: ${w.count} lesson${w.count !== 1 ? 's' : ''}`}
+                              >
+                                <div
+                                  className={`w-full rounded-t-md transition-all ${w.count > 0 ? 'bg-green-400' : 'bg-gray-100'}`}
+                                  style={{ height: w.count > 0 ? `${(w.count / maxWeek) * 100}%` : '4px' }}
+                                />
+                              </div>
+                            ))}
+                          </div>
+                          <div className="flex justify-between mt-1">
+                            <span className="text-[9px] font-bold text-gray-300">{prog.weeklyActivity[0]?.label}</span>
+                            <span className="text-[9px] font-bold text-gray-300">This week</span>
+                          </div>
+                        </div>
+
+                        {/* This month */}
+                        <div className="flex items-center justify-between bg-green-50 rounded-xl px-4 py-3">
+                          <p className="text-xs font-bold text-green-700">Lessons this month</p>
+                          <p className="text-xl font-black text-green-600">{prog.thisMonth}</p>
+                        </div>
+
+                        {/* Subjects covered */}
+                        {prog.subjects.length > 0 && (
+                          <div>
+                            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">
+                              Subjects covered
+                            </p>
+                            <div className="flex flex-wrap gap-1.5">
+                              {prog.subjects.map(s => (
+                                <span
+                                  key={s.subject}
+                                  className="flex items-center gap-1.5 px-2.5 py-1 bg-blue-50 text-blue-700 rounded-full text-xs font-bold"
+                                >
+                                  {s.subject}
+                                  <span className="text-[10px] font-black text-blue-400">×{s.count}</span>
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                      </div>
+                    </div>
+                  )
+                })()}
 
                 {/* Quick actions */}
                 <div className="bg-gradient-to-br from-green-600 to-teal-600 rounded-2xl p-5 text-white">

@@ -352,6 +352,15 @@ export function Lessons() {
       body: body.trim(),
     })
     if (error) { toast.error('Failed to submit review: ' + error.message); return }
+    sendNotificationEmail({
+      type:        'new_review',
+      recipientId: lesson.other_user_id,
+      data: {
+        tutorName:   lesson.other_name,
+        studentName: profile?.full_name ?? user.email?.split('@')[0] ?? 'A student',
+        rating,
+      },
+    })
     setReviewedTutors(prev => new Set([...prev, lesson.other_user_id]))
     setReviewLesson(null)
     toast.success('Review submitted!')

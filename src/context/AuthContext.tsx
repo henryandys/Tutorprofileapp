@@ -58,8 +58,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setSession(session)
         if (session?.user) {
           if (session.user.id !== lastUserId.current) {
-            lastUserId.current = session.user.id
             const p = await fetchProfile(session.user.id)
+            if (p !== null) {
+              lastUserId.current = session.user.id
+            }
             setProfile(p)
           }
         } else {

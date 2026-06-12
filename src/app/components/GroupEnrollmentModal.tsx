@@ -3,6 +3,7 @@ import { X, Users, Loader2, MessageCircle, UserMinus, Send } from "lucide-react"
 import { toast } from "sonner"
 import { supabase } from "../../lib/supabase"
 import { useAuth } from "../../context/AuthContext"
+import { sendNotificationEmail } from "../../lib/notify"
 import { ConversationModal } from "./ConversationModal"
 
 interface Enrollment {
@@ -63,6 +64,21 @@ export function GroupEnrollmentModal({ group: g, onClose, onRemove }: Props) {
       setEnrollments(prev => prev.filter(e => e.id !== enrollment.id))
       onRemove?.(enrollment.id)
       toast.success(`${enrollment.student_name} removed from session.`)
+      // A spot just opened — notify the first student on the waitlist
+      supabase
+        .from('group_lesson_waitlist')
+        .select('student_id')
+        .eq('group_lesson_id', g.id)
+        .order('created_at', { ascending: true })
+        .limit(1)
+        .then(({ data }) => {
+          if (!data || data.length === 0) return
+          sendNotificationEmail({
+            type:        'waitlist_spot_open',
+            recipientId: data[0].student_id,
+            data: { sessionTitle: g.title, subject: g.subject, tutorName: profile?.full_name ?? 'your instructor' },
+          })
+        })
     }
     setRemovingId(null)
   }
