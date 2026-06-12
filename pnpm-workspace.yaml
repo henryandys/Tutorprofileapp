@@ -3,3 +3,10 @@ packages:
 allowBuilds:
   '@tailwindcss/oxide': true
   esbuild: true
+overrides:
+  vite: 6.3.5
+peerDependencyRules:
+  allowedVersions:
+    react-day-picker>react: '19'
+    react-popper>react: '19'
+    react-popper>react-dom: '19'
